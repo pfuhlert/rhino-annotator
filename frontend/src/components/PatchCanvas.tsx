@@ -36,6 +36,7 @@ export default function PatchCanvas({ src, jobId, jobs, tool, marks, onReady, on
   );
   const rootRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const imgRef = useRef<HTMLImageElement>(null);
   const persistRef = useRef(onChange);
   const history = useRef(createHistory(marksRef.current)).current;
   const commitRef = useRef(() => {
@@ -74,7 +75,7 @@ export default function PatchCanvas({ src, jobId, jobs, tool, marks, onReady, on
     });
   }, [onReady]);
 
-  useFreehand(rootRef, canvasRef, toolRef, jobRef, marksRef, jobsRef, commitRef);
+  useFreehand(rootRef, canvasRef, imgRef, toolRef, jobRef, marksRef, jobsRef, commitRef);
 
   return (
     <div
@@ -84,9 +85,10 @@ export default function PatchCanvas({ src, jobId, jobs, tool, marks, onReady, on
     >
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
+        ref={imgRef}
         alt="patch"
         src={src}
-        className="h-full w-full object-contain select-none"
+        className="h-full w-full origin-top-left object-contain select-none"
         draggable={false}
         onLoad={paint}
       />

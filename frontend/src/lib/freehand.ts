@@ -1,12 +1,13 @@
 import { useEffect, type RefObject } from "react";
 import type { Job } from "@/lib/api";
 import { isTypingTarget } from "@/lib/keys";
-import { imagePoint, measureSpace, paintScene, screenPoint, setupCanvas, type Mark } from "./draw";
+import { imagePoint, imageToScreen, measureSpace, paintScene, screenPoint, setupCanvas, type Mark } from "./draw";
 import { hitMark, hitVertex, insertTarget, simplifyPolygon } from "./geometry";
 
 export function useFreehand(
   rootRef: RefObject<HTMLDivElement | null>,
   canvasRef: RefObject<HTMLCanvasElement | null>,
+  imgRef: RefObject<HTMLImageElement | null>,
   toolRef: RefObject<"point" | "polygon">,
   jobRef: RefObject<number>,
   marksRef: RefObject<Mark[]>,
@@ -17,6 +18,7 @@ export function useFreehand(
     if (!rootRef.current || !canvasRef.current) return;
     const root = rootRef.current;
     const canvas = canvasRef.current;
+    const view = { z: 1, x: 0, y: 0 };
 
     let drawing = false;
     let space = measureSpace(root);
@@ -71,6 +73,39 @@ export function useFreehand(
     function redraw() {
       if (!ctx) return;
       paintScene(ctx, root, marksRef.current, draft, jobsRef.current, focus(), selected, insertAt);
+    }
+
+    function applyView() {
+      const img = imgRef.current;
+      if (!img) return;
+      img.style.transform = `translate(${view.x}px, ${view.y}px) scale(${view.z})`;
+      space = measureSpace(root);
+      ctx = setupCanvas(canvas, root);
+      if (drawing && space) {
+        draft.length = 0;
+        for (const p of stroke) draft.push(imageToScreen(p, space));
+      }
+      redraw();
+    }
+
+    function onWheel(e: WheelEvent) {
+      const zooming = e.ctrlKey || e.metaKey;
+      if (!zooming && view.z <= 1) return;
+      e.preventDefault();
+      if (zooming) {
+        const r = root.getBoundingClientRect();
+        const z2 = Math.min(8, Math.max(1, view.z * Math.exp(-e.deltaY * 0.002)));
+        const k = z2 / view.z;
+        const cx = e.clientX - r.left;
+        const cy = e.clientY - r.top;
+        view.x = z2 === 1 ? 0 : cx - (cx - view.x) * k;
+        view.y = z2 === 1 ? 0 : cy - (cy - view.y) * k;
+        view.z = z2;
+      } else {
+        view.x -= e.deltaX;
+        view.y -= e.deltaY;
+      }
+      applyView();
     }
 
     function hit(e: PointerEvent) {
@@ -234,6 +269,7 @@ export function useFreehand(
     root.addEventListener("pointermove", onMove);
     root.addEventListener("pointerup", onUp);
     root.addEventListener("pointercancel", onUp);
+    root.addEventListener("wheel", onWheel, { passive: false });
     window.addEventListener("keydown", onKey);
     return () => {
       ro.disconnect();
@@ -242,7 +278,8 @@ export function useFreehand(
       root.removeEventListener("pointermove", onMove);
       root.removeEventListener("pointerup", onUp);
       root.removeEventListener("pointercancel", onUp);
+      root.removeEventListener("wheel", onWheel);
       window.removeEventListener("keydown", onKey);
     };
-  }, [rootRef, canvasRef, toolRef, jobRef, marksRef, jobsRef, onChangeRef]);
+  }, [rootRef, canvasRef, imgRef, toolRef, jobRef, marksRef, jobsRef, onChangeRef]);
 }
