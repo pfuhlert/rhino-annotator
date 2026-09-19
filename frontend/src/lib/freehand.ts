@@ -1,13 +1,7 @@
 import { useEffect, type RefObject } from "react";
 import type { Job } from "@/lib/api";
-import {
-  imagePoint,
-  measureSpace,
-  paintScene,
-  screenPoint,
-  setupCanvas,
-  type Mark,
-} from "./draw";
+import { isTypingTarget } from "@/lib/keys";
+import { imagePoint, measureSpace, paintScene, screenPoint, setupCanvas, type Mark } from "./draw";
 import { hitMark, hitVertex, insertTarget, simplifyPolygon } from "./geometry";
 
 export function useFreehand(
@@ -20,17 +14,19 @@ export function useFreehand(
   onChangeRef: RefObject<(() => void) | undefined>,
 ) {
   useEffect(() => {
+    if (!rootRef.current || !canvasRef.current) return;
     const root = rootRef.current;
     const canvas = canvasRef.current;
-    if (!root || !canvas) return;
 
     let drawing = false;
     let space = measureSpace(root);
     let ctx = setupCanvas(canvas, root);
     let selected: string | null = null;
     let hover: string | null = null;
-    let drag: { kind: "move"; id: string; last: [number, number] } | { kind: "vertex"; id: string; index: number } | null =
-      null;
+    let drag:
+      | { kind: "move"; id: string; last: [number, number] }
+      | { kind: "vertex"; id: string; index: number }
+      | null = null;
     let insertAt: [number, number] | null = null;
     let dirty = false;
     const stroke: [number, number][] = [];
@@ -61,7 +57,8 @@ export function useFreehand(
       if (insertAt) return "copy";
       if (e && selected && space) {
         const m = marksRef.current.find((x) => x.id === selected);
-        if (m?.type === "polygon" && hitVertex(m.points, imagePoint(e, space), pad()) != null) return "move";
+        if (m?.type === "polygon" && hitVertex(m.points, imagePoint(e, space), pad()) != null)
+          return "move";
       }
       if (hover) return "grab";
       return "crosshair";
@@ -126,7 +123,12 @@ export function useFreehand(
       if (toolRef.current === "point") {
         marksRef.current = [
           ...marksRef.current,
-          { id: crypto.randomUUID(), type: "point", points: [imagePoint(e, space)], jobId: jobRef.current },
+          {
+            id: crypto.randomUUID(),
+            type: "point",
+            points: [imagePoint(e, space)],
+            jobId: jobRef.current,
+          },
         ];
         selected = marksRef.current.at(-1)?.id ?? null;
         draft.length = 0;
@@ -146,16 +148,17 @@ export function useFreehand(
     }
 
     function onMove(e: PointerEvent) {
-      if (drag && space) {
+      const active = drag;
+      if (active && space) {
         const now = imagePoint(e, space);
-        const m = marksRef.current.find((x) => x.id === drag.id);
-        if (m && drag.kind === "vertex") {
-          m.points[drag.index] = now;
+        const m = marksRef.current.find((x) => x.id === active.id);
+        if (m && active.kind === "vertex") {
+          m.points[active.index] = now;
           dirty = true;
-        } else if (m && drag.kind === "move") {
-          const dx = now[0] - drag.last[0];
-          const dy = now[1] - drag.last[1];
-          drag.last = now;
+        } else if (m && active.kind === "move") {
+          const dx = now[0] - active.last[0];
+          const dy = now[1] - active.last[1];
+          active.last = now;
           m.points = m.points.map(([x, y]) => [x + dx, y + dy]);
           dirty = true;
         }
@@ -176,7 +179,7 @@ export function useFreehand(
     }
 
     function onKey(e: KeyboardEvent) {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
+      if (isTypingTarget(e.target)) return;
       if (e.key !== "Delete" && e.key !== "Backspace") return;
       if (!selected || drawing || drag) return;
       e.preventDefault();
@@ -208,7 +211,10 @@ export function useFreehand(
       draft.length = 0;
       if (points.length >= 3) {
         const id = crypto.randomUUID();
-        marksRef.current = [...marksRef.current, { id, type: "polygon", points, jobId: jobRef.current }];
+        marksRef.current = [
+          ...marksRef.current,
+          { id, type: "polygon", points, jobId: jobRef.current },
+        ];
         selected = id;
         changed();
       }

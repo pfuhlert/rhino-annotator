@@ -20,8 +20,8 @@ Preconditions:
 
 - Isolated stack is healthy and a user is on `/annotate`.
 
-- **Point.** Click `tool-point`, then click inside `patch-canvas`.
-- **Polygon.** Click `tool-polygon`, hold the left mouse button and draw, then release to close.
+- **Point.** Open `tool-switcher`, click `tool-point`, then click inside `patch-canvas`.
+- **Polygon.** Open `tool-switcher`, click `tool-polygon`, hold the left mouse button and draw, then release to close.
 - **Next.** Click `next`. A new crop loads (`patch-canvas` still present).
 - **Proof.** Screenshot after marks and after next. `sqlite3 $(./scripts/verify-simple-annotator sqlite) 'select count(*) from annotations;'` is at least 1. Copy the query output into `artifacts/` before `down`.
 

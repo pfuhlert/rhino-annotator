@@ -3,12 +3,23 @@
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import PatchCanvas, { type AnnotatorApi } from "@/components/PatchCanvas";
+import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { api, type Job, type Me, type Patch } from "@/lib/api";
+import { isTypingTarget } from "@/lib/keys";
 
 const TOOLS = [
   ["point", "Point (P)"],
   ["polygon", "Polygon (L)"],
 ] as const;
+
+type Menu = "job" | "tool";
 
 export default function AnnotatePage() {
   const router = useRouter();
@@ -17,11 +28,13 @@ export default function AnnotatePage() {
   const [jobId, setJobId] = useState<number | null>(null);
   const [patch, setPatch] = useState<Patch | null>(null);
   const [tool, setTool] = useState<"point" | "polygon">("polygon");
+  const [openMenu, setOpenMenu] = useState<Menu | null>(null);
   const [busy, setBusy] = useState(false);
+  const toggleMenu = (id: Menu) => (open: boolean) =>
+    setOpenMenu(open ? id : (cur) => (cur === id ? null : cur));
   const annoRef = useRef<AnnotatorApi | null>(null);
   const patchRef = useRef<Patch | null>(null);
   const jobIdRef = useRef<number | null>(null);
-  const finishRef = useRef<(kind: "next" | "prev") => void>(() => {});
   const saveTimer = useRef<number>(0);
   const jobsOnPatch = useRef<Set<number>>(new Set());
 
@@ -64,23 +77,6 @@ export default function AnnotatePage() {
     })();
   }, [loadPatch, router]);
 
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
-      const k = e.key.toLowerCase();
-      if (k === "p") setTool("point");
-      if (k === "l") setTool("polygon");
-      if (k === "z" && (e.metaKey || e.ctrlKey)) {
-        e.preventDefault();
-        annoRef.current?.undo();
-      }
-      if (k === "n" || k === "f") finishRef.current("next");
-      if (k === "b" || k === "arrowleft") finishRef.current("prev");
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
-
   async function switchJob(id: number) {
     setJobId(id);
     setMe(await api.setJob(id));
@@ -114,31 +110,46 @@ export default function AnnotatePage() {
     saveTimer.current = window.setTimeout(() => void persist(), 200);
   }
 
-  async function finish(kind: "next" | "prev") {
-    if (!patch || jobId == null || busy) return;
-    if (kind === "prev" && !patch.has_prev) return;
-    setBusy(true);
-    window.clearTimeout(saveTimer.current);
-    try {
-      await persist();
-      await loadPatch(kind);
-    } finally {
-      setBusy(false);
+  const finish = useCallback(
+    async (kind: "next" | "prev") => {
+      if (!patch || jobId == null || busy) return;
+      if (kind === "prev" && !patch.has_prev) return;
+      setBusy(true);
+      window.clearTimeout(saveTimer.current);
+      try {
+        await persist();
+        await loadPatch(kind);
+      } finally {
+        setBusy(false);
+      }
+    },
+    [patch, jobId, busy, loadPatch],
+  );
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (isTypingTarget(e.target)) return;
+      const k = e.key.toLowerCase();
+      if (k === "p") setTool("point");
+      if (k === "l") setTool("polygon");
+      if (k === "z" && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        annoRef.current?.undo();
+      }
+      if (k === "n" || k === "f") void finish("next");
+      if (k === "b" || k === "arrowleft") void finish("prev");
     }
-  }
-  finishRef.current = (kind) => {
-    void finish(kind);
-  };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [finish]);
 
   if (!me || !patch || jobId == null) {
     return (
-      <main className="flex min-h-full items-center justify-center text-sm text-zinc-500">
+      <main className="flex min-h-full items-center justify-center text-sm text-muted-foreground">
         Loading
       </main>
     );
   }
-
-  const job = jobs.find((j) => j.id === jobId);
 
   return (
     <main data-testid="annotate-app" className="relative h-dvh overflow-hidden bg-black">
@@ -158,71 +169,76 @@ export default function AnnotatePage() {
       <header className="pointer-events-none absolute inset-x-0 top-0 z-10 flex items-center justify-between gap-4 bg-gradient-to-b from-black/70 to-transparent px-4 py-3">
         <div className="pointer-events-auto flex items-center gap-3">
           <span className="text-sm font-medium">{me.username}</span>
-          <span className="text-xs text-zinc-400">{me.done_count} done</span>
+          <span className="text-xs text-muted-foreground">{me.done_count} done</span>
         </div>
-        <label className="pointer-events-auto flex items-center gap-2 text-sm">
-          <span className="text-zinc-400">Job</span>
-          <select
-            data-testid="job-switcher"
-            aria-label="Job"
-            className="rounded-lg border border-zinc-700 bg-zinc-900/90 px-3 py-1.5"
-            value={jobId}
-            onChange={(e) => void switchJob(Number(e.target.value))}
-          >
-            {jobs.map((j) => (
-              <option key={j.id} value={j.id}>
-                {j.name}
-              </option>
-            ))}
-          </select>
-          <span className="h-2.5 w-2.5 rounded-full" style={{ background: job?.color }} />
-        </label>
-        <button
-          className="pointer-events-auto text-xs text-zinc-400 hover:text-zinc-100"
+        <Button
+          variant="ghost"
+          size="sm"
+          className="pointer-events-auto text-muted-foreground"
           onClick={async () => {
             await api.logout();
             router.replace("/");
           }}
         >
           Log out
-        </button>
+        </Button>
       </header>
 
-      <footer className="pointer-events-none absolute inset-x-0 bottom-0 z-10 flex flex-wrap items-center justify-center gap-2 bg-gradient-to-t from-black/70 to-transparent px-4 py-4">
-        {TOOLS.map(([id, label]) => (
-          <button
-            key={id}
-            data-testid={`tool-${id}`}
-            aria-pressed={tool === id}
-            onClick={() => setTool(id)}
-            className={`pointer-events-auto rounded-lg px-3 py-1.5 text-sm ${tool === id ? "bg-zinc-100 text-zinc-950" : "border border-zinc-600 bg-zinc-900/80"}`}
+      <footer className="pointer-events-none absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-black/70 to-transparent px-4 py-4">
+        <div className="pointer-events-auto flex flex-wrap items-center justify-center gap-2">
+          <Button
+            data-testid="prev"
+            variant="outline"
+            disabled={busy || !patch.has_prev}
+            onClick={() => void finish("prev")}
           >
-            {label}
-          </button>
-        ))}
-        <button
-          data-testid="undo"
-          onClick={() => annoRef.current?.undo()}
-          className="pointer-events-auto rounded-lg border border-zinc-600 bg-zinc-900/80 px-3 py-1.5 text-sm"
-        >
-          Undo
-        </button>
-        <button
-          data-testid="prev"
-          disabled={busy || !patch.has_prev}
-          onClick={() => void finish("prev")}
-          className="pointer-events-auto rounded-lg border border-zinc-600 bg-zinc-900/80 px-3 py-1.5 text-sm"
-        >
-          Previous (B)
-        </button>
-        <button
-          data-testid="next"
-          disabled={busy}
-          onClick={() => void finish("next")}
-          className="pointer-events-auto rounded-lg bg-zinc-100 px-3 py-1.5 text-sm font-medium text-zinc-950"
-        >
-          Next (N)
-        </button>
+            Previous (B)
+          </Button>
+          <Select
+            value={String(jobId)}
+            open={openMenu === "job"}
+            onOpenChange={toggleMenu("job")}
+            onValueChange={(id) => void switchJob(Number(id))}
+          >
+            <SelectTrigger data-testid="job-switcher" aria-label="Job">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent position="popper" align="center" side="top">
+              {jobs.map((j) => (
+                <SelectItem key={j.id} value={String(j.id)}>
+                  <span
+                    className="h-2.5 w-2.5 shrink-0 rounded-full"
+                    style={{ background: j.color }}
+                  />
+                  {j.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select
+            value={tool}
+            open={openMenu === "tool"}
+            onOpenChange={toggleMenu("tool")}
+            onValueChange={(id) => setTool(id as (typeof TOOLS)[number][0])}
+          >
+            <SelectTrigger data-testid="tool-switcher" aria-label="Tool">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent position="popper" align="center" side="top">
+              {TOOLS.map(([id, label]) => (
+                <SelectItem key={id} value={id} data-testid={`tool-${id}`}>
+                  {label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button data-testid="undo" variant="outline" onClick={() => annoRef.current?.undo()}>
+            Undo
+          </Button>
+          <Button data-testid="next" disabled={busy} onClick={() => void finish("next")}>
+            Next (N)
+          </Button>
+        </div>
       </footer>
     </main>
   );

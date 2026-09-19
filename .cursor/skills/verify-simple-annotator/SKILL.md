@@ -54,8 +54,9 @@ Stable handles (use these, not CSS or coordinates):
 | `login-submit` | Log in |
 | `register-submit` | Register |
 | `annotate-app` | annotate shell after auth |
-| `job-switcher` | job `<select>` |
-| `tool-point` / `tool-polygon` | tools |
+| `job-switcher` | job select trigger |
+| `tool-switcher` | tool select trigger |
+| `tool-point` / `tool-polygon` | tool options |
 | `next` / `prev` | advance or go back |
 
 Routes: `/` login, `/annotate` the loop.
