@@ -1,0 +1,260 @@
+#!/usr/bin/env node
+import { createConnection } from "node:net";
+import { spawn } from "node:child_process";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const artifacts = path.join(root, ".cursor/skills/verify-simple-annotator/artifacts");
+const defaultState = path.join("/tmp", "simple-annotator-verify-state.json");
+
+function statePath() {
+  return process.env.VERIFY_STATE || defaultState;
+}
+
+function loadState() {
+  if (!existsSync(statePath())) throw new Error(`no verify instance; run up first (${statePath()})`);
+  return JSON.parse(readFileSync(statePath(), "utf8"));
+}
+
+function saveState(state) {
+  writeFileSync(statePath(), JSON.stringify(state, null, 2));
+}
+
+function freePort(start) {
+  return new Promise((resolve, reject) => {
+    const tryPort = (port) => {
+      if (port > start + 80) return reject(new Error("no free port"));
+      const sock = createConnection({ host: "127.0.0.1", port });
+      sock.once("connect", () => {
+        sock.destroy();
+        tryPort(port + 1);
+      });
+      sock.once("error", () => resolve(port));
+    };
+    tryPort(start);
+  });
+}
+
+async function waitHttp(url, ms = 120000) {
+  const start = Date.now();
+  while (Date.now() - start < ms) {
+    try {
+      const res = await fetch(url, { redirect: "manual" });
+      if (res.ok || res.status === 307 || res.status === 200) return;
+    } catch {
+      /* not up */
+    }
+    await new Promise((r) => setTimeout(r, 300));
+  }
+  throw new Error(`timeout waiting for ${url}`);
+}
+
+function alive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function cmdUp() {
+  if (existsSync(statePath())) {
+    const prev = JSON.parse(readFileSync(statePath(), "utf8"));
+    if (prev.pid && alive(prev.pid)) {
+      throw new Error(`verify instance already running pid=${prev.pid}; down it first`);
+    }
+  }
+  const runId = process.env.VERIFY_RUN_ID || `${Date.now()}`;
+  const webPort = await freePort(Number(process.env.VERIFY_WEB_PORT || 3100));
+  const apiPort = await freePort(Number(process.env.VERIFY_API_PORT || 8100));
+  if ([3000, 8000].includes(webPort) || [3000, 8000].includes(apiPort)) {
+    throw new Error("refusing default dev ports 3000/8000");
+  }
+  const sqlite = process.env.SIMPLE_ANNOTATOR_SQLITE || `/tmp/simple-annotator-verify-${runId}.sqlite`;
+  const apiUrl = `http://127.0.0.1:${apiPort}`;
+  const webUrl = `http://127.0.0.1:${webPort}`;
+  const env = {
+    ...process.env,
+    API_PORT: String(apiPort),
+    WEB_PORT: String(webPort),
+    NEXT_PUBLIC_API_URL: apiUrl,
+    SIMPLE_ANNOTATOR_SQLITE: sqlite,
+    UV_CACHE_DIR: process.env.UV_CACHE_DIR || "/tmp/uv-cache",
+  };
+  env.GIRDER_TOKEN = "";
+  env.GIRDER_FOLDER_ID = "";
+  mkdirSync(path.dirname(sqlite), { recursive: true });
+  mkdirSync(artifacts, { recursive: true });
+  const child = spawn(process.execPath, [path.join(root, "scripts/dev.mjs")], {
+    cwd: root,
+    env,
+    detached: true,
+    stdio: "ignore",
+  });
+  child.unref();
+  const state = { runId, pid: child.pid, apiPort, webPort, sqlite, apiUrl, webUrl };
+  saveState(state);
+  try {
+    await waitHttp(`${apiUrl}/health`);
+    await waitHttp(webUrl);
+  } catch (err) {
+    try {
+      process.kill(child.pid, "SIGTERM");
+    } catch {
+      /* already gone */
+    }
+    throw err;
+  }
+  console.log(JSON.stringify(state, null, 2));
+}
+
+function cmdDoctor() {
+  const state = loadState();
+  if (!state.pid || !alive(state.pid)) throw new Error("supervisor pid is not running");
+  return Promise.all([fetch(`${state.apiUrl}/health`), fetch(state.webUrl)]).then(async ([api, web]) => {
+    if (!api.ok) throw new Error(`api unhealthy ${api.status}`);
+    if (!web.ok && web.status >= 500) throw new Error(`web unhealthy ${web.status}`);
+    const report = {
+      ok: true,
+      pid: state.pid,
+      apiUrl: state.apiUrl,
+      webUrl: state.webUrl,
+      sqlite: state.sqlite,
+      ownsDefaultDevPorts: false,
+    };
+    console.log(JSON.stringify(report, null, 2));
+  });
+}
+
+function cmdDown() {
+  if (!existsSync(statePath())) {
+    console.log("nothing to stop");
+    return;
+  }
+  const state = JSON.parse(readFileSync(statePath(), "utf8"));
+  if (state.pid && alive(state.pid)) {
+    try {
+      process.kill(-state.pid, "SIGTERM");
+    } catch {
+      process.kill(state.pid, "SIGTERM");
+    }
+  }
+  if (state.sqlite && existsSync(state.sqlite)) rmSync(state.sqlite, { force: true });
+  rmSync(statePath(), { force: true });
+  const storage = path.join("/tmp", `simple-annotator-verify-storage.json`);
+  if (existsSync(storage)) rmSync(storage, { force: true });
+  console.log("stopped");
+}
+
+async function withPage(fn) {
+  const { chromium } = await import("playwright");
+  const state = loadState();
+  const storage = process.env.VERIFY_STORAGE || "/tmp/simple-annotator-verify-storage.json";
+  const browser = await chromium.launch({ headless: true });
+  const context = await browser.newContext({
+    baseURL: state.webUrl,
+    storageState: existsSync(storage) ? storage : undefined,
+  });
+  const page = await context.newPage();
+  try {
+    const result = await fn(page, state);
+    await context.storageState({ path: storage });
+    return result;
+  } finally {
+    await browser.close();
+  }
+}
+
+async function cmdBrowser(args) {
+  const action = args[0];
+  const flags = Object.fromEntries(
+    args.slice(1).flatMap((a, i, arr) => (a.startsWith("--") ? [[a.slice(2), arr[i + 1]]] : [])),
+  );
+  await withPage(async (page) => {
+    if (action === "goto") {
+      await page.goto(flags.path || args[1] || "/");
+      return;
+    }
+    if (action === "fill") {
+      await page.goto(flags.path || "/");
+      await page.getByTestId(flags.testid).fill(flags.value);
+      return;
+    }
+    if (action === "click") {
+      await page.goto(flags.path || "/");
+      await page.getByTestId(flags.testid).click();
+      await page.waitForTimeout(400);
+      return;
+    }
+    if (action === "screenshot") {
+      await page.goto(flags.path || "/");
+      const out = flags.path || path.join(artifacts, "screenshot.png");
+      mkdirSync(path.dirname(out), { recursive: true });
+      await page.screenshot({ path: out, fullPage: true });
+      console.log(out);
+      return;
+    }
+    if (action === "snapshot") {
+      await page.goto(flags.path || "/");
+      const out = flags.path || path.join(artifacts, "aria.txt");
+      mkdirSync(path.dirname(out), { recursive: true });
+      writeFileSync(out, await page.locator("body").ariaSnapshot());
+      console.log(out);
+      return;
+    }
+    throw new Error(`unknown browser action ${action}`);
+  });
+}
+
+async function cmdLoginProof() {
+  const user = `v${Date.now()}`;
+  const password = "verify-pass";
+  await withPage(async (page, state) => {
+    await page.goto("/");
+    await page.getByTestId("username").fill(user);
+    await page.getByTestId("password").fill(password);
+    await page.screenshot({
+      path: path.join(artifacts, "login-before.png"),
+      fullPage: true,
+    });
+    await page.getByTestId("register-submit").click();
+    await page.getByTestId("annotate-app").waitFor({ timeout: 60000 });
+    await page.getByTestId("patch-canvas").locator("img").waitFor({ timeout: 15000 });
+    const afterShot = path.join(artifacts, "login-after.png");
+    const afterAria = path.join(artifacts, "login-after.aria.txt");
+    await page.screenshot({ path: afterShot, fullPage: true });
+    writeFileSync(afterAria, await page.locator("body").ariaSnapshot());
+    const me = await page.request.get(`${state.webUrl}/me`);
+    if (!me.ok()) throw new Error("session cookie did not authenticate /me");
+    const body = await me.json();
+    if (body.username !== user) throw new Error("unexpected /me user");
+    writeFileSync(path.join(artifacts, "login-me.json"), JSON.stringify(body, null, 2));
+    console.log(JSON.stringify({ ok: true, user, afterShot, afterAria }, null, 2));
+  });
+}
+
+const [cmd, ...rest] = process.argv.slice(2);
+const commands = {
+  up: cmdUp,
+  doctor: cmdDoctor,
+  down: cmdDown,
+  "login-proof": cmdLoginProof,
+  browser: () => cmdBrowser(rest),
+  url: () => console.log(loadState().webUrl),
+  sqlite: () => console.log(loadState().sqlite),
+};
+
+if (!cmd || !commands[cmd]) {
+  console.error("usage: verify-simple-annotator up|doctor|down|login-proof|browser|url|sqlite");
+  process.exit(1);
+}
+
+Promise.resolve(commands[cmd]())
+  .catch((err) => {
+    console.error(err.message || err);
+    process.exit(1);
+  });

@@ -1,0 +1,35 @@
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.ruff_cache/
+.pytest_cache/
+.mypy_cache/
+
+# Node / Next
+node_modules/
+.next/
+out/
+frontend/.next/
+frontend/node_modules/
+
+# Env / data
+.env
+.env.*
+*.sqlite
+*.sqlite-journal
+backend/data/
+
+# OS / IDE
+.DS_Store
+.idea/
+.vscode/
+
+# Verification evidence is kept; helper runtime state is not
+.cursor/skills/verify-simple-annotator/artifacts/*
+!.cursor/skills/verify-simple-annotator/artifacts/.gitkeep
+/tmp/
