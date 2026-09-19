@@ -132,9 +132,10 @@ export default function AnnotatePage() {
       const k = e.key.toLowerCase();
       if (k === "p") setTool("point");
       if (k === "l") setTool("polygon");
-      if (k === "z" && (e.metaKey || e.ctrlKey)) {
+      if ((k === "z" || k === "y") && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
-        annoRef.current?.undo();
+        if (k === "y" || e.shiftKey) annoRef.current?.redo();
+        else annoRef.current?.undo();
       }
       if (k === "n" || k === "f") void finish("next");
       if (k === "b" || k === "arrowleft") void finish("prev");
@@ -233,7 +234,10 @@ export default function AnnotatePage() {
             </SelectContent>
           </Select>
           <Button data-testid="undo" variant="outline" onClick={() => annoRef.current?.undo()}>
-            Undo
+            Undo (Ctrl+Z)
+          </Button>
+          <Button data-testid="redo" variant="outline" onClick={() => annoRef.current?.redo()}>
+            Redo (Ctrl+Y)
           </Button>
           <Button data-testid="next" disabled={busy} onClick={() => void finish("next")}>
             Next (N)

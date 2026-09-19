@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import type { Element, Job } from "@/lib/api";
 import { paintScene, setupCanvas, type Mark } from "@/lib/draw";
 import { useFreehand } from "@/lib/freehand";
+import { createHistory } from "@/lib/history";
 
 type Props = {
   src: string;
@@ -18,6 +19,7 @@ type Props = {
 export type AnnotatorApi = {
   toElements: () => Element[];
   undo: () => void;
+  redo: () => void;
 };
 
 export default function PatchCanvas({ src, jobId, jobs, tool, marks, onReady, onChange }: Props) {
@@ -34,13 +36,18 @@ export default function PatchCanvas({ src, jobId, jobs, tool, marks, onReady, on
   );
   const rootRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const onChangeRef = useRef(onChange);
+  const persistRef = useRef(onChange);
+  const history = useRef(createHistory(marksRef.current)).current;
+  const commitRef = useRef(() => {
+    history.commit(marksRef.current);
+    persistRef.current?.();
+  });
 
   useEffect(() => {
     jobRef.current = jobId;
     toolRef.current = tool;
     jobsRef.current = jobs;
-    onChangeRef.current = onChange;
+    persistRef.current = onChange;
   }, [jobId, tool, jobs, onChange]);
 
   function paint() {
@@ -51,23 +58,38 @@ export default function PatchCanvas({ src, jobId, jobs, tool, marks, onReady, on
     if (ctx) paintScene(ctx, root, marksRef.current, [], jobsRef.current);
   }
 
+  function restore(next: Mark[] | null) {
+    if (!next) return;
+    marksRef.current = next;
+    paint();
+    persistRef.current?.();
+  }
+
   useEffect(() => {
     onReady?.({
-      toElements: () => marksRef.current.map(({ type, points, jobId }) => ({ type, points, jobId })),
-      undo: () => {
-        marksRef.current = marksRef.current.slice(0, -1);
-        paint();
-        onChangeRef.current?.();
-      },
+      toElements: () =>
+        marksRef.current.map(({ type, points, jobId }) => ({ type, points, jobId })),
+      undo: () => restore(history.undo()),
+      redo: () => restore(history.redo()),
     });
   }, [onReady]);
 
-  useFreehand(rootRef, canvasRef, toolRef, jobRef, marksRef, jobsRef, onChangeRef);
+  useFreehand(rootRef, canvasRef, toolRef, jobRef, marksRef, jobsRef, commitRef);
 
   return (
-    <div ref={rootRef} data-testid="patch-canvas" className="absolute inset-0 touch-none select-none">
+    <div
+      ref={rootRef}
+      data-testid="patch-canvas"
+      className="absolute inset-0 touch-none select-none"
+    >
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img alt="patch" src={src} className="h-full w-full object-contain select-none" draggable={false} onLoad={paint} />
+      <img
+        alt="patch"
+        src={src}
+        className="h-full w-full object-contain select-none"
+        draggable={false}
+        onLoad={paint}
+      />
       <canvas ref={canvasRef} className="pointer-events-none absolute inset-0" />
     </div>
   );
