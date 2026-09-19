@@ -11,7 +11,7 @@ Switch job changes the active label target on the current crop. The new job stay
 ## How to get to it (user POV)
 
 - After login, use the Job select in the annotate header.
-- Submit or skip; the next crop still shows the chosen job.
+- Next or Previous; the next crop still shows the chosen job.
 
 ## Driving it with Playwright
 
@@ -21,7 +21,7 @@ Preconditions:
 
 - **See jobs.** `job-switcher` lists seeded names including `glomerulus` and `tubule`.
 - **Change job.** Select `tubule` in `job-switcher`.
-- **Advance.** Click `submit` (empty crop is valid).
+- **Advance.** Click `next` (empty crop is valid).
 - **Proof.** The next patch still has Job `tubule`. `GET $WEB_URL/me` (browser cookie) has `last_job_id` for tubule. `sqlite3 $(./scripts/verify-simple-annotator sqlite) 'select last_job_id from users;'` matches.
 
 ## Gotchas

@@ -41,12 +41,8 @@ def current_user(
     token: str | None = Depends(cookie_scheme),
     db: Session = Depends(get_db),
 ) -> User:
-    if not token:
-        raise HTTPException(401, "not logged in")
-    row = db.get(AuthSession, token)
-    if not row:
-        raise HTTPException(401, "not logged in")
-    user = db.get(User, row.user_id)
+    row = db.get(AuthSession, token) if token else None
+    user = db.get(User, row.user_id) if row else None
     if not user:
         raise HTTPException(401, "not logged in")
     return user
@@ -59,6 +55,18 @@ def _set_session(db: Session, user: User, response: Response) -> None:
     response.set_cookie(
         COOKIE_NAME, token, httponly=True, samesite="lax", path="/", max_age=7 * 24 * 3600
     )
+
+
+def _user_json(user: User, done_count: int | None = None) -> dict:
+    out = {"id": user.id, "username": user.username, "last_job_id": user.last_job_id}
+    if done_count is not None:
+        out["done_count"] = done_count
+    return out
+
+
+def require_job(db: Session, job_id: int) -> None:
+    if not db.get(Job, job_id):
+        raise HTTPException(404, "job not found")
 
 
 @router.post("/register")
@@ -75,7 +83,7 @@ def register(body: Creds, response: Response, db: Session = Depends(get_db)) -> 
     db.commit()
     db.refresh(user)
     _set_session(db, user, response)
-    return {"id": user.id, "username": user.username, "last_job_id": user.last_job_id}
+    return _user_json(user)
 
 
 @router.post("/login")
@@ -84,7 +92,7 @@ def login(body: Creds, response: Response, db: Session = Depends(get_db)) -> dic
     if not user or not _verify(body.password, user.password_hash):
         raise HTTPException(401, "invalid credentials")
     _set_session(db, user, response)
-    return {"id": user.id, "username": user.username, "last_job_id": user.last_job_id}
+    return _user_json(user)
 
 
 @router.post("/logout")
@@ -105,20 +113,20 @@ def me(user: User = Depends(current_user), db: Session = Depends(get_db)) -> dic
     done = db.scalar(
         select(func.count()).select_from(Annotation).where(Annotation.user_id == user.id)
     )
-    return {
-        "id": user.id,
-        "username": user.username,
-        "last_job_id": user.last_job_id,
-        "done_count": done or 0,
-    }
+    return _user_json(user, done or 0)
 
 
 @me_router.patch("/me")
 def patch_me(
     body: MePatch, user: User = Depends(current_user), db: Session = Depends(get_db)
 ) -> dict:
-    if not db.get(Job, body.last_job_id):
-        raise HTTPException(404, "job not found")
+    require_job(db, body.last_job_id)
     user.last_job_id = body.last_job_id
     db.commit()
-    return {"id": user.id, "username": user.username, "last_job_id": user.last_job_id}
+    return _user_json(user)
+
+
+@me_router.get("/jobs")
+def list_jobs(_user: User = Depends(current_user), db: Session = Depends(get_db)) -> list[dict]:
+    jobs = db.scalars(select(Job).order_by(Job.id)).all()
+    return [{"id": j.id, "name": j.name, "color": j.color} for j in jobs]

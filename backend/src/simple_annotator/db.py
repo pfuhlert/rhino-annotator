@@ -1,6 +1,6 @@
 from collections.abc import Generator
 
-from sqlalchemy import create_engine, event, select
+from sqlalchemy import create_engine, event, select, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -48,9 +48,33 @@ def reset_engine() -> None:
     _SessionLocal = None
 
 
+def _migrate_visit_cursor(engine: Engine) -> None:
+    with engine.begin() as conn:
+        cols = {row[1] for row in conn.execute(text("PRAGMA table_info(users)"))}
+        if "current_visit_id" not in cols:
+            conn.execute(text("ALTER TABLE users ADD COLUMN current_visit_id INTEGER"))
+        tables = {
+            row[0]
+            for row in conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'"))
+        }
+        if "visit_cursors" in tables:
+            conn.execute(
+                text(
+                    """
+                    UPDATE users SET current_visit_id = (
+                        SELECT visit_id FROM visit_cursors WHERE visit_cursors.user_id = users.id
+                    )
+                    WHERE current_visit_id IS NULL
+                    """
+                )
+            )
+            conn.execute(text("DROP TABLE visit_cursors"))
+
+
 def init_db() -> None:
     engine = get_engine()
     Base.metadata.create_all(engine)
+    _migrate_visit_cursor(engine)
     with session_factory()() as db:
         if db.scalar(select(Job).limit(1)):
             return

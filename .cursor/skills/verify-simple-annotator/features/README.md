@@ -35,5 +35,5 @@ Each feature file starts with an H1 and one paragraph, then exactly four H2 sect
 
 - [Login](./login.md) covers register, login, session, and landing on annotate.
 - [Switch job](./switch-job.md) covers changing the job on a patch and sticky `last_job_id`.
-- [Annotate and submit](./annotate-submit.md) covers point, polygon, and an `annotations` row.
-- [Skip patch](./skip-patch.md) covers skip advancing without an annotation row.
+- [Annotate and next](./annotate-submit.md) covers point, polygon, and an `annotations` row.
+- [Next without marks](./skip-patch.md) covers Next advancing without an annotation row.

@@ -5,18 +5,23 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import PatchCanvas, { type AnnotatorApi } from "@/components/PatchCanvas";
 import { api, type Job, type Me, type Patch } from "@/lib/api";
 
+const TOOLS = [
+  ["point", "Point (P)"],
+  ["polygon", "Polygon (L)"],
+] as const;
+
 export default function AnnotatePage() {
   const router = useRouter();
   const [me, setMe] = useState<Me | null>(null);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [jobId, setJobId] = useState<number | null>(null);
   const [patch, setPatch] = useState<Patch | null>(null);
-  const [src, setSrc] = useState("");
   const [tool, setTool] = useState<"point" | "polygon">("polygon");
   const [busy, setBusy] = useState(false);
   const annoRef = useRef<AnnotatorApi | null>(null);
   const patchRef = useRef<Patch | null>(null);
   const jobIdRef = useRef<number | null>(null);
+  const finishRef = useRef<(kind: "next" | "prev") => void>(() => {});
   const saveTimer = useRef<number>(0);
   const jobsOnPatch = useRef<Set<number>>(new Set());
 
@@ -25,13 +30,8 @@ export default function AnnotatePage() {
     jobIdRef.current = jobId;
   }, [patch, jobId]);
 
-  const showPatch = useCallback(async (next: Patch) => {
-    const url = await api.imageBlob(next.id);
+  const showPatch = useCallback((next: Patch) => {
     setPatch(next);
-    setSrc((prev) => {
-      if (prev) URL.revokeObjectURL(prev);
-      return url;
-    });
     if (next.job_id) setJobId(next.job_id);
     jobsOnPatch.current = new Set(next.elements.map((e) => e.jobId));
     if (next.job_id) jobsOnPatch.current.add(next.job_id);
@@ -45,7 +45,7 @@ export default function AnnotatePage() {
           : which === "next"
             ? await api.nextPatch()
             : await api.currentPatch();
-      await showPatch(next);
+      showPatch(next);
     },
     [showPatch],
   );
@@ -74,12 +74,12 @@ export default function AnnotatePage() {
         e.preventDefault();
         annoRef.current?.undo();
       }
-      if (k === "n" || k === "f") void finish("next");
-      if (k === "b" || k === "arrowleft") void finish("prev");
+      if (k === "n" || k === "f") finishRef.current("next");
+      if (k === "b" || k === "arrowleft") finishRef.current("prev");
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  });
+  }, []);
 
   async function switchJob(id: number) {
     setJobId(id);
@@ -96,15 +96,14 @@ export default function AnnotatePage() {
       const list = groups.get(mark.jobId) || [];
       list.push(mark);
       groups.set(mark.jobId, list);
+      jobsOnPatch.current.add(mark.jobId);
     }
-    for (const mark of marks) jobsOnPatch.current.add(mark.jobId);
     jobsOnPatch.current.add(jid);
     for (const id of jobsOnPatch.current) {
-      const group = groups.get(id) ?? [];
       await api.save(
         cur.id,
         id,
-        group.map(({ type, points }) => ({ type, points })),
+        (groups.get(id) ?? []).map(({ type, points }) => ({ type, points })),
       );
     }
     setMe(await api.me());
@@ -122,14 +121,16 @@ export default function AnnotatePage() {
     window.clearTimeout(saveTimer.current);
     try {
       await persist();
-      setMe(await api.me());
       await loadPatch(kind);
     } finally {
       setBusy(false);
     }
   }
+  finishRef.current = (kind) => {
+    void finish(kind);
+  };
 
-  if (!me || !patch || !src || jobId == null) {
+  if (!me || !patch || jobId == null) {
     return (
       <main className="flex min-h-full items-center justify-center text-sm text-zinc-500">
         Loading
@@ -142,8 +143,8 @@ export default function AnnotatePage() {
   return (
     <main data-testid="annotate-app" className="relative h-dvh overflow-hidden bg-black">
       <PatchCanvas
-        key={src}
-        src={src}
+        key={patch.id}
+        src={patch.image_url}
         jobId={jobId}
         jobs={jobs}
         marks={patch.elements}
@@ -188,22 +189,17 @@ export default function AnnotatePage() {
       </header>
 
       <footer className="pointer-events-none absolute inset-x-0 bottom-0 z-10 flex flex-wrap items-center justify-center gap-2 bg-gradient-to-t from-black/70 to-transparent px-4 py-4">
-        <button
-          data-testid="tool-point"
-          aria-pressed={tool === "point"}
-          onClick={() => setTool("point")}
-          className={`pointer-events-auto rounded-lg px-3 py-1.5 text-sm ${tool === "point" ? "bg-zinc-100 text-zinc-950" : "border border-zinc-600 bg-zinc-900/80"}`}
-        >
-          Point (P)
-        </button>
-        <button
-          data-testid="tool-polygon"
-          aria-pressed={tool === "polygon"}
-          onClick={() => setTool("polygon")}
-          className={`pointer-events-auto rounded-lg px-3 py-1.5 text-sm ${tool === "polygon" ? "bg-zinc-100 text-zinc-950" : "border border-zinc-600 bg-zinc-900/80"}`}
-        >
-          Polygon (L)
-        </button>
+        {TOOLS.map(([id, label]) => (
+          <button
+            key={id}
+            data-testid={`tool-${id}`}
+            aria-pressed={tool === id}
+            onClick={() => setTool(id)}
+            className={`pointer-events-auto rounded-lg px-3 py-1.5 text-sm ${tool === id ? "bg-zinc-100 text-zinc-950" : "border border-zinc-600 bg-zinc-900/80"}`}
+          >
+            {label}
+          </button>
+        ))}
         <button
           data-testid="undo"
           onClick={() => annoRef.current?.undo()}

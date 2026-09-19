@@ -1,16 +1,16 @@
-# Skip patch
+# Next without marks
 
-Skip advances to the next crop without writing an annotation row.
+Next advances to the next crop. With no marks, no annotation row is written.
 
 ## Sub-features
 
-- `skip-advance` replaces the current crop.
-- `skip-no-annotation` leaves `annotations` unchanged.
-- `skip-row` inserts a `skips` row.
+- `next-advance` replaces the current crop.
+- `next-no-annotation` leaves `annotations` unchanged.
+- `prev-back` returns to the previous crop via `prev`.
 
 ## How to get to it (user POV)
 
-- On `/annotate`, choose Skip (S).
+- On `/annotate`, choose Next (N) or Previous (B).
 
 ## Driving it with Playwright
 
@@ -18,10 +18,11 @@ Preconditions:
 
 - Isolated stack is healthy and a user is on `/annotate`.
 
-- **Skip.** Click `skip`.
-- **Proof.** `annotate-app` remains. `sqlite3 $(./scripts/verify-simple-annotator sqlite) 'select count(*) from skips;'` is 1 and `select count(*) from annotations;'` is unchanged versus just before skip. Save those counts under `artifacts/` before `down`.
+- **Next.** Click `next` with no marks.
+- **Proof.** `annotate-app` remains. `sqlite3 $(./scripts/verify-simple-annotator sqlite) 'select count(*) from annotations;'` is unchanged versus just before next. A `patch_visits` row exists for the new crop. Save those counts under `artifacts/` before `down`.
 
 ## Gotchas
 
-- Skip still keeps the sticky job unless the user also changed the switcher.
+- Next still keeps the sticky job unless the user also changed the switcher.
 - Do not treat a new placeholder image alone as proof; read SQLite.
+- There is no `skips` table; skip is just next without marks.

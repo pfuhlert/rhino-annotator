@@ -1,5 +1,5 @@
 from sqlalchemy import ForeignKey, String, Text
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
 class Base(DeclarativeBase):
@@ -13,6 +13,9 @@ class User(Base):
     username: Mapped[str] = mapped_column(String(64), unique=True)
     password_hash: Mapped[str] = mapped_column(String(256))
     last_job_id: Mapped[int | None] = mapped_column(ForeignKey("jobs.id"), nullable=True)
+    current_visit_id: Mapped[int | None] = mapped_column(
+        ForeignKey("patch_visits.id", use_alter=True), nullable=True
+    )
 
 
 class Session(Base):
@@ -49,8 +52,6 @@ class Annotation(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
     job_id: Mapped[int] = mapped_column(ForeignKey("jobs.id"))
     elements: Mapped[str] = mapped_column(Text)
-    patch: Mapped[Patch] = relationship()
-    job: Mapped[Job] = relationship()
 
 
 class PatchVisit(Base):
@@ -59,10 +60,3 @@ class PatchVisit(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
     patch_id: Mapped[int] = mapped_column(ForeignKey("patches.id"))
-
-
-class VisitCursor(Base):
-    __tablename__ = "visit_cursors"
-
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), primary_key=True)
-    visit_id: Mapped[int] = mapped_column(ForeignKey("patch_visits.id"))

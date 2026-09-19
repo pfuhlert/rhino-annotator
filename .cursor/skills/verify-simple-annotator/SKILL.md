@@ -1,6 +1,6 @@
 ---
 name: verify-simple-annotator
-description: Drive the Simple annotator web UI (Next.js + FastAPI) with an isolated stack and Playwright. Use when proving login, job switching, submit, or skip without touching a developer's npm run dev session.
+description: Drive the Simple annotator web UI (Next.js + FastAPI) with an isolated stack and Playwright. Use when proving login, job switching, next, or previous without touching a developer's npm run dev session.
 ---
 
 # Verify Simple annotator
@@ -56,7 +56,7 @@ Stable handles (use these, not CSS or coordinates):
 | `annotate-app` | annotate shell after auth |
 | `job-switcher` | job `<select>` |
 | `tool-point` / `tool-polygon` | tools |
-| `submit` / `skip` | advance |
+| `next` / `prev` | advance or go back |
 
 Routes: `/` login, `/annotate` the loop.
 
@@ -79,9 +79,9 @@ Proof lives in `.cursor/skills/verify-simple-annotator/artifacts/` and must surv
 
 Standards:
 
-- Drive the real UI (register/login buttons, job select, submit/skip). Do not POST `/auth/register` as a substitute for login proof.
+- Drive the real UI (register/login buttons, job select, next/prev). Do not POST `/auth/register` as a substitute for login proof.
 - Capture the action and the resulting state (before + after screenshot or ARIA, plus a side effect).
-- Side effects: `GET $WEB_URL/me` with the browser cookie (API is proxied through Next), and/or rows in the verify SQLite (`users`, `annotations`, `skips`). Query with `sqlite3 $(./scripts/verify-simple-annotator sqlite)`.
+- Side effects: `GET $WEB_URL/me` with the browser cookie (API is proxied through Next), and/or rows in the verify SQLite (`users`, `annotations`, `patch_visits`). Query with `sqlite3 $(./scripts/verify-simple-annotator sqlite)`.
 - Placeholder crops are the isolated production boundary (Girder unset). Do not mock FastAPI.
 
 ## Cleanup

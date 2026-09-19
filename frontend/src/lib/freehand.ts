@@ -8,8 +8,7 @@ import {
   setupCanvas,
   type Mark,
 } from "./draw";
-import { hitMark, hitVertex, insertTarget } from "./hit";
-import { simplifyPolygon } from "./simplify";
+import { hitMark, hitVertex, insertTarget, simplifyPolygon } from "./geometry";
 
 export function useFreehand(
   rootRef: RefObject<HTMLDivElement | null>,
@@ -56,11 +55,11 @@ export function useFreehand(
       return insertTarget(m.points, imagePoint(e, space), space.scale);
     }
 
-    function cursorAt(e: PointerEvent) {
+    function cursorAt(e?: PointerEvent) {
       if (drag?.kind === "vertex") return "move";
       if (drag) return "grabbing";
       if (insertAt) return "copy";
-      if (selected && space) {
+      if (e && selected && space) {
         const m = marksRef.current.find((x) => x.id === selected);
         if (m?.type === "polygon" && hitVertex(m.points, imagePoint(e, space), pad()) != null) return "move";
       }
@@ -69,7 +68,7 @@ export function useFreehand(
     }
 
     function cursor(e?: PointerEvent) {
-      root.style.cursor = e ? cursorAt(e) : drag?.kind === "vertex" ? "move" : drag ? "grabbing" : insertAt ? "copy" : hover ? "grab" : "crosshair";
+      root.style.cursor = cursorAt(e);
     }
 
     function redraw() {

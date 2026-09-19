@@ -6,10 +6,10 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from simple_annotator.auth import current_user
+from simple_annotator.auth import current_user, require_job
 from simple_annotator.db import get_db
 from simple_annotator.girder import fetch_image, pick_region
-from simple_annotator.models import Annotation, Job, Patch, PatchVisit, User, VisitCursor
+from simple_annotator.models import Annotation, Patch, PatchVisit, User
 
 router = APIRouter(prefix="/patches")
 
@@ -25,8 +25,7 @@ class AnnotationIn(BaseModel):
 
 
 def _set_job(db: Session, user: User, job_id: int) -> None:
-    if not db.get(Job, job_id):
-        raise HTTPException(404, "job not found")
+    require_job(db, job_id)
     user.last_job_id = job_id
 
 
@@ -49,11 +48,6 @@ def _dump(db: Session, user: User, patch: Patch, visit_id: int) -> dict:
     return {
         "id": patch.id,
         "job_id": user.last_job_id,
-        "girder_item_id": patch.girder_item_id,
-        "left": patch.left,
-        "top": patch.top,
-        "width": patch.width,
-        "height": patch.height,
         "image_url": f"/patches/{patch.id}/image",
         "has_prev": prev is not None,
         "elements": _elements(db, user, patch.id),
@@ -61,16 +55,9 @@ def _dump(db: Session, user: User, patch: Patch, visit_id: int) -> dict:
 
 
 def _open(db: Session, user: User, visit: PatchVisit) -> dict:
-    cur = db.get(VisitCursor, user.id)
-    if cur:
-        cur.visit_id = visit.id
-    else:
-        db.add(VisitCursor(user_id=user.id, visit_id=visit.id))
+    user.current_visit_id = visit.id
     db.commit()
-    patch = db.get(Patch, visit.patch_id)
-    if not patch:
-        raise HTTPException(404, "patch not found")
-    return _dump(db, user, patch, visit.id)
+    return _dump(db, user, db.get(Patch, visit.patch_id), visit.id)
 
 
 def _new_visit(db: Session, user: User) -> dict:
@@ -83,24 +70,23 @@ def _new_visit(db: Session, user: User) -> dict:
     return _open(db, user, visit)
 
 
+def _cursor_visit(db: Session, user: User) -> PatchVisit | None:
+    return db.get(PatchVisit, user.current_visit_id) if user.current_visit_id else None
+
+
 @router.get("/current")
 def current_patch(user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
-    cur = db.get(VisitCursor, user.id)
-    if not cur:
-        return _new_visit(db, user)
-    visit = db.get(PatchVisit, cur.visit_id)
-    if not visit:
-        return _new_visit(db, user)
-    return _open(db, user, visit)
+    visit = _cursor_visit(db, user)
+    return _open(db, user, visit) if visit else _new_visit(db, user)
 
 
 @router.get("/next")
 def next_patch(user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
-    cur = db.get(VisitCursor, user.id)
+    cur = _cursor_visit(db, user)
     if cur:
         later = db.scalar(
             select(PatchVisit)
-            .where(PatchVisit.user_id == user.id, PatchVisit.id > cur.visit_id)
+            .where(PatchVisit.user_id == user.id, PatchVisit.id > cur.id)
             .order_by(PatchVisit.id)
             .limit(1)
         )
@@ -111,18 +97,17 @@ def next_patch(user: User = Depends(current_user), db: Session = Depends(get_db)
 
 @router.get("/prev")
 def prev_patch(user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
-    cur = db.get(VisitCursor, user.id)
-    if not cur:
-        raise HTTPException(404, "no previous patch")
-    earlier = db.scalar(
-        select(PatchVisit)
-        .where(PatchVisit.user_id == user.id, PatchVisit.id < cur.visit_id)
-        .order_by(PatchVisit.id.desc())
-        .limit(1)
-    )
-    if not earlier:
-        raise HTTPException(404, "no previous patch")
-    return _open(db, user, earlier)
+    cur = _cursor_visit(db, user)
+    if cur:
+        earlier = db.scalar(
+            select(PatchVisit)
+            .where(PatchVisit.user_id == user.id, PatchVisit.id < cur.id)
+            .order_by(PatchVisit.id.desc())
+            .limit(1)
+        )
+        if earlier:
+            return _open(db, user, earlier)
+    raise HTTPException(404, "no previous patch")
 
 
 @router.get("/{patch_id}/image")
@@ -148,9 +133,8 @@ def save_annotations(
     patch = db.get(Patch, patch_id)
     if not patch:
         raise HTTPException(404, "patch not found")
-    for el in body.elements:
-        if el.type not in {"point", "polygon"}:
-            raise HTTPException(400, "invalid element type")
+    if any(el.type not in {"point", "polygon"} for el in body.elements):
+        raise HTTPException(400, "invalid element type")
     _set_job(db, user, body.job_id)
     row = db.scalar(
         select(Annotation).where(
@@ -159,19 +143,17 @@ def save_annotations(
             Annotation.job_id == body.job_id,
         )
     )
-    payload = json.dumps([el.model_dump() for el in body.elements])
-    if row and not body.elements:
-        db.delete(row)
+    if not body.elements:
+        if row:
+            db.delete(row)
         db.commit()
         return {"id": None, "last_job_id": user.last_job_id}
+    payload = json.dumps([el.model_dump() for el in body.elements])
     if row:
         row.elements = payload
-    elif body.elements:
+    else:
         row = Annotation(patch_id=patch.id, user_id=user.id, job_id=body.job_id, elements=payload)
         db.add(row)
-    else:
-        db.commit()
-        return {"id": None, "last_job_id": user.last_job_id}
     db.commit()
     db.refresh(row)
     return {"id": row.id, "last_job_id": user.last_job_id}

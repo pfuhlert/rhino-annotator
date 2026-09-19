@@ -1,5 +1,60 @@
 import type { Mark } from "./draw";
-import { distPointToSegment } from "./simplify";
+
+function closestOnSegment(p: [number, number], a: [number, number], b: [number, number]) {
+  const dx = b[0] - a[0];
+  const dy = b[1] - a[1];
+  const len2 = dx * dx + dy * dy;
+  const t = len2 === 0 ? 0 : Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / len2));
+  const point: [number, number] = [a[0] + t * dx, a[1] + t * dy];
+  return { t, point, dist: Math.hypot(p[0] - point[0], p[1] - point[1]) };
+}
+
+function autoEpsilon(points: [number, number][]) {
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const [x, y] of points) {
+    if (x < minX) minX = x;
+    if (y < minY) minY = y;
+    if (x > maxX) maxX = x;
+    if (y > maxY) maxY = y;
+  }
+  return Math.max(2, Math.hypot(maxX - minX, maxY - minY) * 0.008);
+}
+
+function simplifyRdp(points: [number, number][], epsilon: number): [number, number][] {
+  if (points.length < 3) return points;
+  const keep = new Uint8Array(points.length);
+  keep[0] = 1;
+  keep[points.length - 1] = 1;
+  const stack: [number, number][] = [[0, points.length - 1]];
+  while (stack.length) {
+    const [start, end] = stack.pop()!;
+    const a = points[start];
+    const b = points[end];
+    let maxD = 0;
+    let idx = -1;
+    for (let i = start + 1; i < end; i++) {
+      const d = closestOnSegment(points[i], a, b).dist;
+      if (d > maxD) {
+        maxD = d;
+        idx = i;
+      }
+    }
+    if (idx >= 0 && maxD > epsilon) {
+      keep[idx] = 1;
+      stack.push([start, idx], [idx, end]);
+    }
+  }
+  return points.filter((_, i) => keep[i]);
+}
+
+export function simplifyPolygon(points: [number, number][], epsilon?: number): [number, number][] {
+  if (points.length < 3) return points;
+  const out = simplifyRdp(points, epsilon ?? autoEpsilon(points));
+  return out.length >= 3 ? out : points;
+}
 
 function pointInPoly(pt: [number, number], poly: [number, number][]) {
   let inside = false;
@@ -15,14 +70,6 @@ function pointInPoly(pt: [number, number], poly: [number, number][]) {
   return inside;
 }
 
-function project(p: [number, number], a: [number, number], b: [number, number]) {
-  const dx = b[0] - a[0];
-  const dy = b[1] - a[1];
-  const len2 = dx * dx + dy * dy;
-  const t = len2 === 0 ? 0 : Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / len2));
-  return { t, point: [a[0] + t * dx, a[1] + t * dy] as [number, number] };
-}
-
 export function hitVertex(points: [number, number][], pt: [number, number], r: number) {
   let best = -1;
   let bestD = r;
@@ -36,17 +83,14 @@ export function hitVertex(points: [number, number][], pt: [number, number], r: n
   return best >= 0 ? best : null;
 }
 
-export function hitEdge(points: [number, number][], pt: [number, number], r: number) {
+function hitEdge(points: [number, number][], pt: [number, number], r: number) {
   let best: { i: number; t: number; point: [number, number] } | null = null;
   let bestD = r;
   for (let i = 0; i < points.length; i++) {
-    const a = points[i];
-    const b = points[(i + 1) % points.length];
-    const d = distPointToSegment(pt, a, b);
-    if (d <= bestD) {
-      bestD = d;
-      const { t, point } = project(pt, a, b);
-      best = { i, t, point };
+    const hit = closestOnSegment(pt, points[i], points[(i + 1) % points.length]);
+    if (hit.dist <= bestD) {
+      bestD = hit.dist;
+      best = { i, t: hit.t, point: hit.point };
     }
   }
   return best;

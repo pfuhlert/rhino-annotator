@@ -18,7 +18,6 @@ type Props = {
 export type AnnotatorApi = {
   toElements: () => Element[];
   undo: () => void;
-  clear: () => void;
 };
 
 export default function PatchCanvas({ src, jobId, jobs, tool, marks, onReady, onChange }: Props) {
@@ -57,11 +56,6 @@ export default function PatchCanvas({ src, jobId, jobs, tool, marks, onReady, on
       toElements: () => marksRef.current.map(({ type, points, jobId }) => ({ type, points, jobId })),
       undo: () => {
         marksRef.current = marksRef.current.slice(0, -1);
-        paint();
-        onChangeRef.current?.();
-      },
-      clear: () => {
-        marksRef.current = [];
         paint();
         onChangeRef.current?.();
       },

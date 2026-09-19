@@ -7,7 +7,6 @@ dependencies = [
     "httpx>=0.28",
     "pillow>=11",
     "python-dotenv>=1.2.3",
-    "python-multipart>=0.0.18",
     "sqlalchemy>=2.0",
     "uvicorn[standard]>=0.34",
 ]
