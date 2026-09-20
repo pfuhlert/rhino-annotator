@@ -1,6 +1,30 @@
 import type { Job } from "@/lib/api";
 
-export type Mark = { id: string; type: "point" | "polygon"; points: [number, number][]; jobId: number };
+export type Tool = "point" | "polygon" | "brush";
+export type Mark = {
+  id: string;
+  type: "point" | "polygon";
+  points: [number, number][];
+  holes?: [number, number][][];
+  jobId: number;
+};
+
+export function polyRings(m: Mark): [number, number][][] {
+  return m.holes?.length ? [m.points, ...m.holes] : [m.points];
+}
+
+export function withHoles<T extends object, H>(obj: T, holes?: H[][][]): T {
+  return holes?.length ? { ...obj, holes } : obj;
+}
+
+export function ringOf(m: Mark, ring: number) {
+  return ring === 0 ? m.points : m.holes?.[ring - 1];
+}
+
+export function shiftMark(m: Mark, dx: number, dy: number) {
+  m.points = m.points.map(([x, y]) => [x + dx, y + dy]);
+  if (m.holes) m.holes = m.holes.map((h) => h.map(([x, y]) => [x + dx, y + dy]));
+}
 
 export type Space = {
   imgLeft: number;
@@ -58,15 +82,27 @@ export function setupCanvas(canvas: HTMLCanvasElement, root: HTMLElement) {
   return ctx;
 }
 
-function poly(ctx: CanvasRenderingContext2D, pts: [number, number][], color: string, highlight = false) {
-  ctx.beginPath();
+export function addRing(ctx: CanvasRenderingContext2D, pts: [number, number][]) {
+  if (pts.length < 2) return;
   ctx.moveTo(pts[0][0], pts[0][1]);
   for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
   ctx.closePath();
+}
+
+function poly(
+  ctx: CanvasRenderingContext2D,
+  rings: [number, number][][],
+  color: string,
+  highlight = false,
+  fillOnly = false,
+) {
+  ctx.beginPath();
+  for (const pts of rings) addRing(ctx, pts);
   ctx.globalAlpha = highlight ? 0.35 : 0.25;
   ctx.fillStyle = color;
-  ctx.fill();
+  ctx.fill("evenodd");
   ctx.globalAlpha = 1;
+  if (fillOnly) return;
   ctx.lineJoin = "round";
   ctx.lineCap = "round";
   if (highlight) {
@@ -91,22 +127,106 @@ function handles(ctx: CanvasRenderingContext2D, pts: [number, number][], color: 
   }
 }
 
+export type SceneOpts = {
+  draft?: [number, number][];
+  focusId?: string | null;
+  selectedId?: string | null;
+  insertAt?: [number, number] | null;
+  tool?: Tool;
+  aim?: {
+    p: [number, number];
+    tool: Tool;
+    r: number;
+    color: string;
+    points?: [number, number][];
+    erase?: boolean;
+  } | null;
+};
+
+function brushStroke(
+  ctx: CanvasRenderingContext2D,
+  pts: [number, number][],
+  r: number,
+  s: Space,
+  color: string,
+  erase: boolean,
+) {
+  if (!pts.length) return;
+  ctx.save();
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.lineWidth = r * 2 * s.scale;
+  if (erase) {
+    ctx.globalCompositeOperation = "destination-out";
+    ctx.strokeStyle = ctx.fillStyle = "#000";
+    ctx.globalAlpha = 1;
+  } else {
+    ctx.strokeStyle = ctx.fillStyle = color;
+    ctx.globalAlpha = 0.28;
+  }
+  const p0 = imageToScreen(pts[0], s);
+  if (pts.length === 1) {
+    ctx.beginPath();
+    ctx.arc(p0[0], p0[1], r * s.scale, 0, Math.PI * 2);
+    ctx.fill();
+  } else {
+    ctx.beginPath();
+    ctx.moveTo(p0[0], p0[1]);
+    for (let i = 1; i < pts.length; i++) {
+      const p = imageToScreen(pts[i], s);
+      ctx.lineTo(p[0], p[1]);
+    }
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function toolGlyph(ctx: CanvasRenderingContext2D, x: number, y: number, tool: Tool, r: number) {
+  ctx.save();
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  const ring = (w: number, color: string) => {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = w;
+    if (tool === "point") {
+      ctx.beginPath();
+      ctx.arc(x, y, 3.5, 0, Math.PI * 2);
+      ctx.fillStyle = color;
+      ctx.fill();
+      ctx.stroke();
+    } else if (tool === "polygon") {
+      ctx.beginPath();
+      ctx.moveTo(x - 8, y);
+      ctx.lineTo(x + 8, y);
+      ctx.moveTo(x, y - 8);
+      ctx.lineTo(x, y + 8);
+      ctx.stroke();
+    } else {
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+  };
+  ring(3.5, "#111");
+  ring(1.5, "#fff");
+  ctx.restore();
+}
+
 export function paintScene(
   ctx: CanvasRenderingContext2D,
   root: HTMLElement,
   marks: Mark[],
-  draft: [number, number][],
   jobs: Job[],
-  focusId: string | null = null,
-  selectedId: string | null = null,
-  insertAt: [number, number] | null = null,
+  opts: SceneOpts = {},
 ) {
+  const draft = opts.draft ?? [];
+  const fillOnly = opts.tool === "brush";
   ctx.clearRect(0, 0, root.clientWidth, root.clientHeight);
   const s = measureSpace(root);
   if (!s) return;
   for (const m of marks) {
     const color = jobs.find((j) => j.id === m.jobId)?.color || "#fafafa";
-    const on = m.id === focusId;
+    const on = !fillOnly && m.id === opts.focusId;
     if (m.type === "point" && m.points[0]) {
       const [x, y] = imageToScreen(m.points[0], s);
       ctx.beginPath();
@@ -124,13 +244,17 @@ export function paintScene(
       ctx.lineWidth = 2;
       ctx.stroke();
     } else if (m.points.length > 1) {
-      const screen = m.points.map((p) => imageToScreen(p, s));
-      poly(ctx, screen, color, on);
-      if (m.id === selectedId) handles(ctx, screen, color);
+      const rings = polyRings(m).map((ring) => ring.map((p) => imageToScreen(p, s)));
+      poly(ctx, rings, color, on, fillOnly);
+      if (!fillOnly && m.id === opts.selectedId) {
+        for (const ring of rings) handles(ctx, ring, color);
+      }
     }
   }
-  if (insertAt) {
-    const [x, y] = imageToScreen(insertAt, s);
+  const aim = opts.aim;
+  if (aim?.points?.length) brushStroke(ctx, aim.points, aim.r, s, aim.color, !!aim.erase);
+  if (!fillOnly && opts.insertAt) {
+    const [x, y] = imageToScreen(opts.insertAt, s);
     ctx.beginPath();
     ctx.arc(x, y, 5, 0, Math.PI * 2);
     ctx.fillStyle = "#fff";
@@ -139,5 +263,9 @@ export function paintScene(
     ctx.lineWidth = 1.5;
     ctx.stroke();
   }
-  if (draft.length > 1) poly(ctx, draft, "#fff");
+  if (draft.length > 1) poly(ctx, [draft], "#fff");
+  if (aim) {
+    const [x, y] = imageToScreen(aim.p, s);
+    toolGlyph(ctx, x, y, aim.tool, aim.r * s.scale);
+  }
 }

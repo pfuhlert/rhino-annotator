@@ -12,11 +12,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { api, type Job, type Me, type Patch } from "@/lib/api";
+import type { Tool } from "@/lib/draw";
 import { isTypingTarget } from "@/lib/keys";
 
 const TOOLS = [
   ["point", "Point (P)"],
   ["polygon", "Polygon (L)"],
+  ["brush", "Brush (R)"],
 ] as const;
 
 type Menu = "job" | "tool";
@@ -27,7 +29,7 @@ export default function AnnotatePage() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [jobId, setJobId] = useState<number | null>(null);
   const [patch, setPatch] = useState<Patch | null>(null);
-  const [tool, setTool] = useState<"point" | "polygon">("polygon");
+  const [tool, setTool] = useState<Tool>("polygon");
   const [openMenu, setOpenMenu] = useState<Menu | null>(null);
   const [busy, setBusy] = useState(false);
   const toggleMenu = (id: Menu) => (open: boolean) =>
@@ -99,7 +101,9 @@ export default function AnnotatePage() {
       await api.save(
         cur.id,
         id,
-        (groups.get(id) ?? []).map(({ type, points }) => ({ type, points })),
+        (groups.get(id) ?? []).map(({ type, points, holes }) =>
+          holes?.length ? { type, points, holes } : { type, points },
+        ),
       );
     }
     setMe(await api.me());
@@ -132,6 +136,7 @@ export default function AnnotatePage() {
       const k = e.key.toLowerCase();
       if (k === "p") setTool("point");
       if (k === "l") setTool("polygon");
+      if (k === "r") setTool("brush");
       if ((k === "z" || k === "y") && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
         if (k === "y" || e.shiftKey) annoRef.current?.redo();
@@ -165,6 +170,10 @@ export default function AnnotatePage() {
           annoRef.current = a;
         }}
         onChange={queueSave}
+        onCycleTool={(dir) => {
+          const ids = TOOLS.map(([id]) => id);
+          setTool((cur) => ids[(ids.indexOf(cur) + dir + ids.length) % ids.length]);
+        }}
       />
 
       <header className="pointer-events-none absolute inset-x-0 top-0 z-10 flex items-center justify-between gap-4 bg-gradient-to-b from-black/70 to-transparent px-4 py-3">

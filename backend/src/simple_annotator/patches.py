@@ -17,6 +17,7 @@ router = APIRouter(prefix="/patches")
 class Element(BaseModel):
     type: str
     points: list[list[float]]
+    holes: list[list[list[float]]] = []
 
 
 class AnnotationIn(BaseModel):
@@ -148,7 +149,7 @@ def save_annotations(
             db.delete(row)
         db.commit()
         return {"id": None, "last_job_id": user.last_job_id}
-    payload = json.dumps([el.model_dump() for el in body.elements])
+    payload = json.dumps([el.model_dump(exclude_defaults=True) for el in body.elements])
     if row:
         row.elements = payload
     else:

@@ -1,4 +1,7 @@
-import type { Mark } from "./draw";
+import { polyRings, type Mark } from "./draw";
+
+const SIMPLIFY_MIN_PX = 1.5;
+const SIMPLIFY_DIAG_RATIO = 0.0065;
 
 function closestOnSegment(p: [number, number], a: [number, number], b: [number, number]) {
   const dx = b[0] - a[0];
@@ -20,7 +23,7 @@ function autoEpsilon(points: [number, number][]) {
     if (x > maxX) maxX = x;
     if (y > maxY) maxY = y;
   }
-  return Math.max(2, Math.hypot(maxX - minX, maxY - minY) * 0.008);
+  return Math.max(SIMPLIFY_MIN_PX, Math.hypot(maxX - minX, maxY - minY) * SIMPLIFY_DIAG_RATIO);
 }
 
 function simplifyRdp(points: [number, number][], epsilon: number): [number, number][] {
@@ -56,7 +59,7 @@ export function simplifyPolygon(points: [number, number][], epsilon?: number): [
   return out.length >= 3 ? out : points;
 }
 
-function pointInPoly(pt: [number, number], poly: [number, number][]) {
+export function pointInPoly(pt: [number, number], poly: [number, number][]) {
   let inside = false;
   for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
     const xi = poly[i][0];
@@ -70,17 +73,24 @@ function pointInPoly(pt: [number, number], poly: [number, number][]) {
   return inside;
 }
 
-export function hitVertex(points: [number, number][], pt: [number, number], r: number) {
-  let best = -1;
+export function inMark(pt: [number, number], m: Mark) {
+  if (!pointInPoly(pt, m.points)) return false;
+  return !(m.holes ?? []).some((h) => pointInPoly(pt, h));
+}
+
+export function hitVertex(rings: [number, number][][], pt: [number, number], r: number) {
+  let best: { ring: number; index: number } | null = null;
   let bestD = r;
-  for (let i = 0; i < points.length; i++) {
-    const d = Math.hypot(pt[0] - points[i][0], pt[1] - points[i][1]);
-    if (d <= bestD) {
-      bestD = d;
-      best = i;
+  for (let ring = 0; ring < rings.length; ring++) {
+    for (let i = 0; i < rings[ring].length; i++) {
+      const d = Math.hypot(pt[0] - rings[ring][i][0], pt[1] - rings[ring][i][1]);
+      if (d <= bestD) {
+        bestD = d;
+        best = { ring, index: i };
+      }
     }
   }
-  return best >= 0 ? best : null;
+  return best;
 }
 
 function hitEdge(points: [number, number][], pt: [number, number], r: number) {
@@ -96,19 +106,22 @@ function hitEdge(points: [number, number][], pt: [number, number], r: number) {
   return best;
 }
 
-export function insertTarget(points: [number, number][], pt: [number, number], scale: number) {
+export function insertTarget(rings: [number, number][][], pt: [number, number], scale: number) {
   const r = 12 / scale;
-  let best: { i: number; t: number; point: [number, number] } | null = null;
+  let best: { ring: number; i: number; point: [number, number] } | null = null;
   let bestD = r;
-  for (let i = 0; i < points.length; i++) {
-    const a = points[i];
-    const b = points[(i + 1) % points.length];
-    const mid: [number, number] = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
-    const d = Math.hypot(pt[0] - mid[0], pt[1] - mid[1]);
-    const nearerEnd = Math.min(Math.hypot(pt[0] - a[0], pt[1] - a[1]), Math.hypot(pt[0] - b[0], pt[1] - b[1]));
-    if (d <= bestD && d < nearerEnd) {
-      bestD = d;
-      best = { i, t: 0.5, point: mid };
+  for (let ring = 0; ring < rings.length; ring++) {
+    const points = rings[ring];
+    for (let i = 0; i < points.length; i++) {
+      const a = points[i];
+      const b = points[(i + 1) % points.length];
+      const mid: [number, number] = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+      const d = Math.hypot(pt[0] - mid[0], pt[1] - mid[1]);
+      const nearerEnd = Math.min(Math.hypot(pt[0] - a[0], pt[1] - a[1]), Math.hypot(pt[0] - b[0], pt[1] - b[1]));
+      if (d <= bestD && d < nearerEnd) {
+        bestD = d;
+        best = { ring, i, point: mid };
+      }
     }
   }
   return best;
@@ -121,7 +134,7 @@ export function hitMark(marks: Mark[], pt: [number, number], scale: number) {
     if (m.type === "point") {
       const p = m.points[0];
       if (p && Math.hypot(pt[0] - p[0], pt[1] - p[1]) <= r) return m.id;
-    } else if (m.points.length > 2 && (pointInPoly(pt, m.points) || hitEdge(m.points, pt, r))) {
+    } else if (m.points.length > 2 && (inMark(pt, m) || polyRings(m).some((ring) => hitEdge(ring, pt, r)))) {
       return m.id;
     }
   }

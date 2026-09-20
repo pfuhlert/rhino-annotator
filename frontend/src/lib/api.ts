@@ -1,6 +1,11 @@
 export type Job = { id: number; name: string; color: string };
 export type Me = { id: number; username: string; last_job_id: number | null; done_count: number };
-export type Element = { type: "point" | "polygon"; points: number[][]; jobId: number };
+export type Element = {
+  type: "point" | "polygon";
+  points: number[][];
+  holes?: number[][][];
+  jobId: number;
+};
 export type Patch = {
   id: number;
   job_id: number | null;
@@ -35,7 +40,7 @@ export const api = {
   currentPatch: () => req<Patch>("/patches/current"),
   nextPatch: () => req<Patch>("/patches/next"),
   prevPatch: () => req<Patch>("/patches/prev"),
-  save: (patchId: number, job_id: number, elements: { type: string; points: number[][] }[]) =>
+  save: (patchId: number, job_id: number, elements: { type: string; points: number[][]; holes?: number[][][] }[]) =>
     req<{ id: number | null; last_job_id: number }>(`/patches/${patchId}/annotations`, {
       method: "POST",
       body: JSON.stringify({ job_id, elements }),

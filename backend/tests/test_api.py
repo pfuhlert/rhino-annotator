@@ -86,6 +86,27 @@ def test_current_and_prev_patch(auth: TestClient):
     assert auth.get("/patches/next").json()["id"] == b["id"]
 
 
+def test_annotation_polygon_holes(auth: TestClient):
+    patch_id = auth.get("/patches/next").json()["id"]
+    points = [[0.0, 0.0], [100.0, 0.0], [100.0, 100.0], [0.0, 100.0]]
+    holes = [[[20.0, 20.0], [40.0, 20.0], [40.0, 40.0], [20.0, 40.0]]]
+    saved = auth.post(
+        f"/patches/{patch_id}/annotations",
+        json={"job_id": 1, "elements": [{"type": "polygon", "points": points, "holes": holes}]},
+    )
+    assert saved.status_code == 200
+    el = next(e for e in auth.get("/patches/current").json()["elements"] if e["type"] == "polygon")
+    assert el["points"] == points
+    assert el["holes"] == holes
+    again = auth.post(
+        f"/patches/{patch_id}/annotations",
+        json={"job_id": 1, "elements": [{"type": "point", "points": [[1.0, 2.0]]}]},
+    )
+    assert again.status_code == 200
+    loaded = auth.get("/patches/current").json()["elements"]
+    assert loaded == [{"type": "point", "points": [[1.0, 2.0]], "jobId": 1}]
+
+
 def test_annotation_rejects_bad_type(auth: TestClient):
     patch_id = auth.get("/patches/next").json()["id"]
     bad = auth.post(
