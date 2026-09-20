@@ -1,17 +1,31 @@
 #!/usr/bin/env node
 import { createConnection } from "node:net";
-import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
+import { spawn, spawnSync } from "node:child_process";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const artifacts = path.join(root, ".cursor/skills/verify-simple-annotator/artifacts");
 const defaultState = path.join("/tmp", "simple-annotator-verify-state.json");
+const pwBrowsers = process.env.VERIFY_PLAYWRIGHT_BROWSERS || "/tmp/simple-annotator-playwright";
+const pwArgs = ["--no-sandbox", "--disable-dev-shm-usage"];
+const verbs = new Set(["goto", "fill", "click", "wait", "select", "drag", "screenshot", "snapshot", "me"]);
 
 function statePath() {
   return process.env.VERIFY_STATE || defaultState;
+}
+
+function storagePath() {
+  return process.env.VERIFY_STORAGE || "/tmp/simple-annotator-verify-storage.json";
+}
+
+function nextVerifyDir() {
+  return path.join(root, "frontend", ".next-verify");
+}
+
+function defaultPath() {
+  return existsSync(storagePath()) ? "/annotate" : "/";
 }
 
 function loadState() {
@@ -43,7 +57,7 @@ async function waitHttp(url, ms = 120000) {
   while (Date.now() - start < ms) {
     try {
       const res = await fetch(url, { redirect: "manual" });
-      if (res.ok || res.status === 307 || res.status === 200) return;
+      if (res.ok || res.status === 307) return;
     } catch {
       /* not up */
     }
@@ -52,12 +66,41 @@ async function waitHttp(url, ms = 120000) {
   throw new Error(`timeout waiting for ${url}`);
 }
 
+function tailLog(file) {
+  if (!file || !existsSync(file)) return "";
+  return readFileSync(file, "utf8").trim().split("\n").slice(-20).join("\n");
+}
+
 function alive(pid) {
   try {
     process.kill(pid, 0);
     return true;
   } catch {
     return false;
+  }
+}
+
+function stopPid(pid) {
+  if (!pid || !alive(pid)) return;
+  try {
+    process.kill(-pid, "SIGTERM");
+  } catch {
+    try {
+      process.kill(pid, "SIGTERM");
+    } catch {
+      /* already gone */
+    }
+  }
+}
+
+function stopVerifyTree(pid) {
+  stopPid(pid);
+  const lock = path.join(nextVerifyDir(), "dev", "lock");
+  if (!existsSync(lock)) return;
+  try {
+    stopPid(JSON.parse(readFileSync(lock, "utf8")).pid);
+  } catch {
+    /* ignore */
   }
 }
 
@@ -75,6 +118,7 @@ async function cmdUp() {
     throw new Error("refusing default dev ports 3000/8000");
   }
   const sqlite = process.env.SIMPLE_ANNOTATOR_SQLITE || `/tmp/simple-annotator-verify-${runId}.sqlite`;
+  const log = `/tmp/simple-annotator-verify-${runId}.log`;
   const apiUrl = `http://127.0.0.1:${apiPort}`;
   const webUrl = `http://127.0.0.1:${webPort}`;
   const env = {
@@ -82,6 +126,7 @@ async function cmdUp() {
     API_PORT: String(apiPort),
     WEB_PORT: String(webPort),
     NEXT_PUBLIC_API_URL: apiUrl,
+    NEXT_DIST_DIR: ".next-verify",
     SIMPLE_ANNOTATOR_SQLITE: sqlite,
     UV_CACHE_DIR: process.env.UV_CACHE_DIR || "/tmp/uv-cache",
   };
@@ -89,44 +134,62 @@ async function cmdUp() {
   env.GIRDER_FOLDER_ID = "";
   mkdirSync(path.dirname(sqlite), { recursive: true });
   mkdirSync(artifacts, { recursive: true });
+  writeFileSync(log, "");
+  const fd = openSync(log, "a");
   const child = spawn(process.execPath, [path.join(root, "scripts/dev.mjs")], {
     cwd: root,
     env,
     detached: true,
-    stdio: "ignore",
+    stdio: ["ignore", fd, fd],
   });
+  closeSync(fd);
   child.unref();
-  const state = { runId, pid: child.pid, apiPort, webPort, sqlite, apiUrl, webUrl };
+  const state = { runId, pid: child.pid, apiPort, webPort, sqlite, apiUrl, webUrl, log };
   saveState(state);
   try {
     await waitHttp(`${apiUrl}/health`);
     await waitHttp(webUrl);
   } catch (err) {
-    try {
-      process.kill(child.pid, "SIGTERM");
-    } catch {
-      /* already gone */
-    }
-    throw err;
+    stopVerifyTree(child.pid);
+    const extra = tailLog(log);
+    throw extra ? new Error(`${err.message}\n${extra}`) : err;
   }
   console.log(JSON.stringify(state, null, 2));
 }
 
+async function ensureUp() {
+  if (existsSync(statePath())) {
+    const prev = JSON.parse(readFileSync(statePath(), "utf8"));
+    if (prev.pid && alive(prev.pid)) {
+      try {
+        const [api, web] = await Promise.all([fetch(`${prev.apiUrl}/health`), fetch(prev.webUrl)]);
+        if (api.ok && (web.ok || web.status < 500)) return prev;
+      } catch {
+        /* stale */
+      }
+      cmdDown();
+    }
+  }
+  await cmdUp();
+  return loadState();
+}
+
 function cmdDoctor() {
-  const state = loadState();
-  if (!state.pid || !alive(state.pid)) throw new Error("supervisor pid is not running");
-  return Promise.all([fetch(`${state.apiUrl}/health`), fetch(state.webUrl)]).then(async ([api, web]) => {
-    if (!api.ok) throw new Error(`api unhealthy ${api.status}`);
-    if (!web.ok && web.status >= 500) throw new Error(`web unhealthy ${web.status}`);
-    const report = {
-      ok: true,
-      pid: state.pid,
-      apiUrl: state.apiUrl,
-      webUrl: state.webUrl,
-      sqlite: state.sqlite,
-      ownsDefaultDevPorts: false,
-    };
-    console.log(JSON.stringify(report, null, 2));
+  return ensureUp().then((state) => {
+    console.log(
+      JSON.stringify(
+        {
+          ok: true,
+          pid: state.pid,
+          apiUrl: state.apiUrl,
+          webUrl: state.webUrl,
+          sqlite: state.sqlite,
+          log: state.log,
+        },
+        null,
+        2,
+      ),
+    );
   });
 }
 
@@ -136,25 +199,39 @@ function cmdDown() {
     return;
   }
   const state = JSON.parse(readFileSync(statePath(), "utf8"));
-  if (state.pid && alive(state.pid)) {
-    try {
-      process.kill(-state.pid, "SIGTERM");
-    } catch {
-      process.kill(state.pid, "SIGTERM");
-    }
-  }
+  stopVerifyTree(state.pid);
   if (state.sqlite && existsSync(state.sqlite)) rmSync(state.sqlite, { force: true });
+  const nextDir = nextVerifyDir();
+  if (existsSync(nextDir)) rmSync(nextDir, { recursive: true, force: true });
   rmSync(statePath(), { force: true });
-  const storage = path.join("/tmp", `simple-annotator-verify-storage.json`);
+  const storage = storagePath();
   if (existsSync(storage)) rmSync(storage, { force: true });
   console.log("stopped");
 }
 
-async function withPage(fn) {
+async function launchChromium() {
+  process.env.PLAYWRIGHT_BROWSERS_PATH = pwBrowsers;
   const { chromium } = await import("playwright");
-  const state = loadState();
-  const storage = process.env.VERIFY_STORAGE || "/tmp/simple-annotator-verify-storage.json";
-  const browser = await chromium.launch({ headless: true });
+  const opts = { headless: true, args: pwArgs };
+  try {
+    return await chromium.launch(opts);
+  } catch (err) {
+    if (!String(err).includes("Executable doesn't exist")) throw err;
+    mkdirSync(pwBrowsers, { recursive: true });
+    const install = spawnSync("npx", ["playwright", "install", "chromium"], {
+      cwd: root,
+      env: process.env,
+      stdio: "inherit",
+    });
+    if (install.status) throw err;
+    return chromium.launch(opts);
+  }
+}
+
+async function withPage(fn) {
+  const state = await ensureUp();
+  const storage = storagePath();
+  const browser = await launchChromium();
   const context = await browser.newContext({
     baseURL: state.webUrl,
     storageState: existsSync(storage) ? storage : undefined,
@@ -169,70 +246,107 @@ async function withPage(fn) {
   }
 }
 
+function parseSteps(args) {
+  const steps = [];
+  let cur = null;
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (verbs.has(a)) {
+      cur = { action: a, flags: {} };
+      steps.push(cur);
+      continue;
+    }
+    if (a.startsWith("--") && cur) {
+      const next = args[i + 1];
+      if (next === undefined || next.startsWith("--") || verbs.has(next)) cur.flags[a.slice(2)] = "";
+      else cur.flags[a.slice(2)] = args[++i];
+    }
+  }
+  return steps;
+}
+
+function xy(value) {
+  const [x, y] = String(value).split(",").map(Number);
+  if (![x, y].every(Number.isFinite)) throw new Error(`bad point ${value}`);
+  return { x, y };
+}
+
+function writeOut(file, body) {
+  mkdirSync(path.dirname(file), { recursive: true });
+  if (body !== undefined) writeFileSync(file, body);
+  console.log(file);
+  return file;
+}
+
+async function applyStep(page, state, step) {
+  const f = step.flags;
+  if (step.action === "goto") return page.goto(f.path || defaultPath());
+  if (step.action === "fill") return page.getByTestId(f.testid).fill(f.value);
+  if (step.action === "click") {
+    const loc = page.getByTestId(f.testid);
+    return f.at ? loc.click({ position: xy(f.at) }) : loc.click();
+  }
+  if (step.action === "wait") return page.getByTestId(f.testid).waitFor({ timeout: Number(f.timeout || 15000) });
+  if (step.action === "select") {
+    await page.getByTestId(f.testid).click();
+    const opt = page.getByTestId(f.option);
+    await opt.waitFor();
+    return opt.click();
+  }
+  if (step.action === "drag") {
+    const box = page.getByTestId(f.testid);
+    if (f.shift !== undefined) await page.keyboard.down("Shift");
+    await box.dragTo(box, { sourcePosition: xy(f.from), targetPosition: xy(f.to) });
+    if (f.shift !== undefined) await page.keyboard.up("Shift");
+    return;
+  }
+  if (step.action === "screenshot") {
+    const out = writeOut(f.out || path.join(artifacts, "screenshot.png"));
+    return page.screenshot({ path: out, fullPage: true });
+  }
+  if (step.action === "snapshot") {
+    return writeOut(f.out || path.join(artifacts, "aria.txt"), await page.locator("body").ariaSnapshot());
+  }
+  if (step.action === "me") {
+    const me = await page.request.get(`${state.webUrl}/me`);
+    if (!me.ok()) throw new Error("/me failed");
+    return writeOut(f.out || path.join(artifacts, "me.json"), JSON.stringify(await me.json(), null, 2));
+  }
+  throw new Error(`unknown browser action ${step.action}`);
+}
+
+async function runSteps(page, state, args, land = false) {
+  const steps = parseSteps(args);
+  if (!steps.length) throw new Error("browser needs goto|fill|click|wait|select|drag|screenshot|snapshot|me");
+  if (land && steps[0].action !== "goto") await page.goto(defaultPath());
+  for (const step of steps) await applyStep(page, state, step);
+}
+
 async function cmdBrowser(args) {
-  const action = args[0];
-  const flags = Object.fromEntries(
-    args.slice(1).flatMap((a, i, arr) => (a.startsWith("--") ? [[a.slice(2), arr[i + 1]]] : [])),
-  );
-  await withPage(async (page) => {
-    if (action === "goto") {
-      await page.goto(flags.path || args[1] || "/");
-      return;
-    }
-    if (action === "fill") {
-      await page.goto(flags.path || "/");
-      await page.getByTestId(flags.testid).fill(flags.value);
-      return;
-    }
-    if (action === "click") {
-      await page.goto(flags.path || "/");
-      await page.getByTestId(flags.testid).click();
-      await page.waitForTimeout(400);
-      return;
-    }
-    if (action === "screenshot") {
-      await page.goto(flags.path || "/");
-      const out = flags.path || path.join(artifacts, "screenshot.png");
-      mkdirSync(path.dirname(out), { recursive: true });
-      await page.screenshot({ path: out, fullPage: true });
-      console.log(out);
-      return;
-    }
-    if (action === "snapshot") {
-      await page.goto(flags.path || "/");
-      const out = flags.path || path.join(artifacts, "aria.txt");
-      mkdirSync(path.dirname(out), { recursive: true });
-      writeFileSync(out, await page.locator("body").ariaSnapshot());
-      console.log(out);
-      return;
-    }
-    throw new Error(`unknown browser action ${action}`);
-  });
+  await withPage((page, state) => runSteps(page, state, args, true));
 }
 
 async function cmdLoginProof() {
   const user = `v${Date.now()}`;
-  const password = "verify-pass";
+  const afterShot = path.join(artifacts, "login-after.png");
+  const afterAria = path.join(artifacts, "login-after.aria.txt");
+  const mePath = path.join(artifacts, "login-me.json");
   await withPage(async (page, state) => {
-    await page.goto("/");
-    await page.getByTestId("username").fill(user);
-    await page.getByTestId("password").fill(password);
-    await page.screenshot({
-      path: path.join(artifacts, "login-before.png"),
-      fullPage: true,
-    });
-    await page.getByTestId("register-submit").click();
-    await page.getByTestId("annotate-app").waitFor({ timeout: 60000 });
+    await runSteps(page, state, [
+      "goto", "--path", "/",
+      "fill", "--testid", "username", "--value", user,
+      "fill", "--testid", "password", "--value", "verify-pass",
+      "screenshot", "--out", path.join(artifacts, "login-before.png"),
+      "click", "--testid", "register-submit",
+      "wait", "--testid", "annotate-app", "--timeout", "60000",
+    ]);
     await page.getByTestId("patch-canvas").locator("img").waitFor({ timeout: 15000 });
-    const afterShot = path.join(artifacts, "login-after.png");
-    const afterAria = path.join(artifacts, "login-after.aria.txt");
-    await page.screenshot({ path: afterShot, fullPage: true });
-    writeFileSync(afterAria, await page.locator("body").ariaSnapshot());
-    const me = await page.request.get(`${state.webUrl}/me`);
-    if (!me.ok()) throw new Error("session cookie did not authenticate /me");
-    const body = await me.json();
-    if (body.username !== user) throw new Error("unexpected /me user");
-    writeFileSync(path.join(artifacts, "login-me.json"), JSON.stringify(body, null, 2));
+    await runSteps(page, state, [
+      "screenshot", "--out", afterShot,
+      "snapshot", "--out", afterAria,
+      "me", "--out", mePath,
+    ]);
+    if (JSON.parse(readFileSync(mePath, "utf8")).username !== user) throw new Error("unexpected /me user");
     console.log(JSON.stringify({ ok: true, user, afterShot, afterAria }, null, 2));
   });
 }
@@ -253,8 +367,7 @@ if (!cmd || !commands[cmd]) {
   process.exit(1);
 }
 
-Promise.resolve(commands[cmd]())
-  .catch((err) => {
-    console.error(err.message || err);
-    process.exit(1);
-  });
+Promise.resolve(commands[cmd]()).catch((err) => {
+  console.error(err.message || err);
+  process.exit(1);
+});

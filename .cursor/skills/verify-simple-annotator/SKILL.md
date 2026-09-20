@@ -1,105 +1,51 @@
 ---
 name: verify-simple-annotator
-description: Drive the Simple annotator web UI (Next.js + FastAPI) with an isolated stack and Playwright. Use when proving login, job switching, next, or previous without touching a developer's npm run dev session.
+description: Prove Simple annotator UI with ./scripts/verify-simple-annotator on the app host, including while npm run dev is already on :3000/:8000. Never Cursor browser tools or the dev ports — those miss a remote Kubernetes pod or hit the wrong stack.
 ---
 
 # Verify Simple annotator
 
-Primary surface is the Next.js UI. FastAPI is secondary (health, `/me`, SQLite). There is no product CLI.
+`npm run dev` on `:3000`/`:8000` may already be running. **Leave it.** Do not stop, kill, or reuse that process.
 
-Human/dev launch is root `npm run dev` on `127.0.0.1:3000` (web) and `127.0.0.1:8000` (API) with `backend/data/annotator.sqlite`. Verification never uses those ports or that file.
+Run the helper on this host. It starts a second stack (ports from 3100/8100, `/tmp` SQLite, `frontend/.next-verify`). Cursor browser tools hit the laptop, not the pod.
 
-## Launch
+## Run
 
-From the repo root:
-
-```bash
-chmod +x scripts/verify-simple-annotator
-./scripts/verify-simple-annotator up
-```
-
-This starts a second full stack via `scripts/dev.mjs` with:
-
-- free ports from 3100 (web) and 8100 (API), never 3000/8000
-- `SIMPLE_ANNOTATOR_SQLITE=/tmp/simple-annotator-verify-$RUN_ID.sqlite`
-- `NEXT_PUBLIC_API_URL` pointing at that API
-- `GIRDER_TOKEN` unset (placeholder crops)
-
-Ready when `GET $API_URL/health` returns `{"ok":true}` and the web port answers. `up` prints the state JSON (`pid`, `apiUrl`, `webUrl`, `sqlite`). State is stored in `/tmp/simple-annotator-verify-state.json`.
-
-Teardown:
-
-```bash
-./scripts/verify-simple-annotator down
-```
-
-`down` signals only the supervisor pid (and its process group) recorded by `up`. It does not kill by process name and does not touch a stack on 3000/8000.
-
-## Doctor
+From the repo root (dev server can stay up):
 
 ```bash
 ./scripts/verify-simple-annotator doctor
+./scripts/verify-simple-annotator login-proof
 ```
 
-Require `ok: true`, a live supervisor `pid`, `ownsDefaultDevPorts: false`, and both URLs from the state file. If doctor fails, stop driving. Never treat `http://127.0.0.1:3000` as the verify origin.
-
-## Drive
-
-Stable handles (use these, not CSS or coordinates):
-
-| Handle | Role |
-|---|---|
-| `username` | login textbox |
-| `password` | login password |
-| `login-submit` | Log in |
-| `register-submit` | Register |
-| `annotate-app` | annotate shell after auth |
-| `job-switcher` | job select trigger |
-| `tool-switcher` | tool select trigger |
-| `tool-point` / `tool-polygon` / `tool-brush` | tool options |
-| `next` / `prev` | advance or go back |
-
-Routes: `/` login, `/annotate` the loop.
-
-Playwright is wrapped by the helper (storage state in `/tmp/simple-annotator-verify-storage.json`):
-
-```bash
-./scripts/verify-simple-annotator browser goto --path /
-./scripts/verify-simple-annotator browser fill --testid username --value ada
-./scripts/verify-simple-annotator browser fill --testid password --value secret
-./scripts/verify-simple-annotator browser click --testid register-submit
-./scripts/verify-simple-annotator browser screenshot --path .cursor/skills/verify-simple-annotator/artifacts/shot.png
-./scripts/verify-simple-annotator browser snapshot --path .cursor/skills/verify-simple-annotator/artifacts/aria.txt
-```
-
-`login-proof` runs the login feature in one browser session (preferred for that feature). Read `features/README.md` before driving other features. Start each recipe from a fresh `up` unless the feature says otherwise.
-
-## Evidence
-
-Proof lives in `.cursor/skills/verify-simple-annotator/artifacts/` and must survive `down`.
-
-Standards:
-
-- Drive the real UI (register/login buttons, job select, next/prev). Do not POST `/auth/register` as a substitute for login proof.
-- Capture the action and the resulting state (before + after screenshot or ARIA, plus a side effect).
-- Side effects: `GET $WEB_URL/me` with the browser cookie (API is proxied through Next), and/or rows in the verify SQLite (`users`, `annotations`, `patch_visits`). Query with `sqlite3 $(./scripts/verify-simple-annotator sqlite)`.
-- Placeholder crops are the isolated production boundary (Girder unset). Do not mock FastAPI.
-
-## Cleanup
+Require `ok: true` and `webUrl` not on port 3000. Then drive `features/` against `$(./scripts/verify-simple-annotator url)` only.
 
 ```bash
 ./scripts/verify-simple-annotator down
 ```
 
-Removes the supervisor, verify SQLite, and Playwright storage. Does not delete `artifacts/`.
+`down` tears down only the verify supervisor. It must not change `:3000`/`:8000`.
 
-## Helpers
+`doctor` / `login-proof` start verify if needed. First browser launch may download Chromium to `/tmp/simple-annotator-playwright`. If doctor fails, read `log` and stop — do not fall back to `:3000`.
 
-All invocations are from the repo root. The helper is `scripts/verify-simple-annotator`.
+## Drive
 
-- `up` — isolated stack
-- `doctor` — read-only health of that stack
-- `down` — tear down that stack only
-- `url` / `sqlite` — print verify web URL or SQLite path
-- `browser …` — Playwright against the verify origin
-- `login-proof` — mapped login feature, writes `artifacts/login-before.png`, `login-after.png`, `login-after.aria.txt`, `login-me.json`
+Handles: `username`, `password`, `login-submit`, `register-submit`, `logout`, `annotate-app`, `job-switcher`, `job-glomerulus`, `job-tubule`, `tool-switcher`, `tool-point`, `tool-polygon`, `tool-brush`, `patch-canvas`, `next`, `prev`.
+
+One `browser` invocation is one session. Navigate with `goto --path`. Files use `--out`. After `login-proof`, the default route is `/annotate`.
+
+```bash
+./scripts/verify-simple-annotator browser \
+  goto --path /annotate \
+  wait --testid annotate-app \
+  click --testid next \
+  screenshot --out .cursor/skills/verify-simple-annotator/artifacts/after.png \
+  snapshot --out .cursor/skills/verify-simple-annotator/artifacts/after.aria.txt \
+  me --out .cursor/skills/verify-simple-annotator/artifacts/me.json
+```
+
+Also: `fill --testid … --value …`, `select --testid job-switcher --option job-tubule`, `click --testid patch-canvas --at 180,180`, `drag --testid patch-canvas --from 80,80 --to 220,160` (`--shift` erases). Use `login-proof` for register. Read `features/README.md` before other features.
+
+## Evidence
+
+Write under `.cursor/skills/verify-simple-annotator/artifacts/` (survives `down`). Need the UI action plus `/me` or `sqlite3 $(./scripts/verify-simple-annotator sqlite)`. Do not POST `/auth/register` as login proof. Crops are placeholders (`GIRDER_TOKEN` unset).

@@ -4,9 +4,9 @@ This directory is the maintained source for verifying user-facing behavior. Read
 
 ## Baseline preconditions
 
-- A developer `npm run dev` on 3000/8000 may already be running. That session is off-limits.
-- Launch an isolated stack with `./scripts/verify-simple-annotator up`.
-- Run `./scripts/verify-simple-annotator doctor` and require `ok: true` and `ownsDefaultDevPorts: false`.
+- Use only `./scripts/verify-simple-annotator`. Cursor browser tools cannot see this host on Kubernetes.
+- `npm run dev` on 3000/8000 may be running. Leave it; do not stop or drive it.
+- `doctor` / `login-proof` start a second stack if needed. Require `ok: true` and a `webUrl` that is not port 3000.
 - Drive only `$(./scripts/verify-simple-annotator url)`.
 - Crops are placeholders (`GIRDER_TOKEN` unset).
 - Never drive an instance this run did not start.
@@ -15,7 +15,7 @@ This directory is the maintained source for verifying user-facing behavior. Read
 
 - Start every recipe from the baseline state unless its preconditions say otherwise.
 - Prefer `data-testid` handles listed in the skill.
-- Treat helper commands as literal.
+- Treat helper commands as literal. One `browser` chain is one session; do not split a flow across invocations.
 - After a mutation, confirm with a second view (`/me` or SQLite), not only the screenshot.
 - `down` may delete the verify SQLite. Copy any DB proof into `artifacts/` first.
 

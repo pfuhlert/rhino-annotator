@@ -19,15 +19,25 @@ Login lets a user register or sign in from `/` and then reach the annotate loop 
 Preconditions:
 
 - Isolated stack is healthy (`./scripts/verify-simple-annotator doctor`).
-- Drive `$(./scripts/verify-simple-annotator url)`, never port 3000.
 
-- **Open login.** Run `./scripts/verify-simple-annotator browser goto --path /`. The Username and Password fields are visible.
-- **Register.** Preferred one-shot: `./scripts/verify-simple-annotator login-proof`. It fills `username` and `password`, clicks `register-submit`, waits for `annotate-app`, and writes artifacts.
-- **Sign in.** After `down` + `up`, fill the same username and click `login-submit`. `annotate-app` appears.
+- **Register.** One shot: `./scripts/verify-simple-annotator login-proof`.
+- **Sign in.** Same stack, after register:
+
+```bash
+./scripts/verify-simple-annotator browser \
+  goto --path /annotate \
+  click --testid logout \
+  fill --testid username --value "$USER" \
+  fill --testid password --value verify-pass \
+  click --testid login-submit \
+  wait --testid annotate-app
+```
+
+`$USER` is the username from `login-me.json`.
 - **Proof.** Artifacts `login-before.png`, `login-after.png`, `login-after.aria.txt` exist. `login-me.json` has the registered username. `annotate-app` is in the ARIA snapshot.
 
 ## Gotchas
 
 - POSTing `/auth/register` with curl is not login proof.
-- `browser fill` / `click` reload the route each invocation; use `login-proof` so register and redirect stay in one session.
+- Keep a multi-step flow in one `browser` chain (or `login-proof`).
 - A 401 on `/me` means the helper used the wrong origin or storage state.

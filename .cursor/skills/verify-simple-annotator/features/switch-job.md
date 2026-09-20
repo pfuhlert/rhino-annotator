@@ -1,6 +1,6 @@
 # Switch job
 
-Switch job changes the active label target on the current crop. The new job stays selected for the next crop until the user changes it again. Tools stay point and polygon.
+Switch job changes the active label target on the current crop. The new job stays selected for the next crop until the user changes it again.
 
 ## Sub-features
 
@@ -19,10 +19,17 @@ Preconditions:
 
 - Isolated stack is healthy and a user is on `/annotate` (`login-proof`).
 
-- **See jobs.** Open `job-switcher`; options include `glomerulus` and `tubule`.
-- **Change job.** Click `job-switcher`, then the `tubule` option.
-- **Advance.** Click `next` (empty crop is valid).
-- **Proof.** The next patch still has Job `tubule`. `GET $WEB_URL/me` (browser cookie) has `last_job_id` for tubule. `sqlite3 $(./scripts/verify-simple-annotator sqlite) 'select last_job_id from users;'` matches.
+```bash
+./scripts/verify-simple-annotator browser \
+  goto --path /annotate \
+  wait --testid annotate-app \
+  select --testid job-switcher --option job-tubule \
+  click --testid next \
+  snapshot --out .cursor/skills/verify-simple-annotator/artifacts/job-after.aria.txt \
+  me --out .cursor/skills/verify-simple-annotator/artifacts/job-me.json
+```
+
+- **Proof.** Snapshot Job is `tubule`. `job-me.json` `last_job_id` matches `sqlite3 $(./scripts/verify-simple-annotator sqlite) "select id from jobs where name='tubule';"`. Copy the query into `artifacts/` before `down`.
 
 ## Gotchas
 

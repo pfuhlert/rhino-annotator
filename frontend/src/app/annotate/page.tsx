@@ -182,6 +182,7 @@ export default function AnnotatePage() {
           <span className="text-xs text-muted-foreground">{me.done_count} done</span>
         </div>
         <Button
+          data-testid="logout"
           variant="ghost"
           size="sm"
           className="pointer-events-auto text-muted-foreground"
@@ -215,7 +216,7 @@ export default function AnnotatePage() {
             </SelectTrigger>
             <SelectContent position="popper" align="center" side="top">
               {jobs.map((j) => (
-                <SelectItem key={j.id} value={String(j.id)}>
+                <SelectItem key={j.id} value={String(j.id)} data-testid={`job-${j.name}`}>
                   <span
                     className="h-2.5 w-2.5 shrink-0 rounded-full"
                     style={{ background: j.color }}

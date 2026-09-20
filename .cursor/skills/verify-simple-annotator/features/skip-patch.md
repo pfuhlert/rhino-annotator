@@ -18,8 +18,19 @@ Preconditions:
 
 - Isolated stack is healthy and a user is on `/annotate`.
 
-- **Next.** Click `next` with no marks.
-- **Proof.** `annotate-app` remains. `sqlite3 $(./scripts/verify-simple-annotator sqlite) 'select count(*) from annotations;'` is unchanged versus just before next. A `patch_visits` row exists for the new crop. Save those counts under `artifacts/` before `down`.
+```bash
+sqlite3 "$(./scripts/verify-simple-annotator sqlite)" 'select count(*) from annotations;'
+./scripts/verify-simple-annotator browser \
+  goto --path /annotate \
+  wait --testid annotate-app \
+  click --testid next \
+  snapshot --out .cursor/skills/verify-simple-annotator/artifacts/skip-after.aria.txt
+sqlite3 "$(./scripts/verify-simple-annotator sqlite)" 'select count(*) from annotations; select count(*) from patch_visits;'
+```
+
+Copy both query outputs into `artifacts/` before `down`.
+
+- **Proof.** `annotate-app` remains. Annotation count is unchanged versus just before next. A `patch_visits` row exists for the new crop.
 
 ## Gotchas
 
