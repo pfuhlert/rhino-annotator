@@ -20,6 +20,7 @@ const TOOLS = [
   ["polygon", "Polygon (L)"],
   ["brush", "Brush (R)"],
 ] as const;
+const TOOL_IDS = TOOLS.map(([id]) => id);
 
 type Menu = "job" | "tool";
 
@@ -134,6 +135,12 @@ export default function AnnotatePage() {
     function onKey(e: KeyboardEvent) {
       if (isTypingTarget(e.target)) return;
       const k = e.key.toLowerCase();
+      if (k === "tab") {
+        e.preventDefault();
+        const dir = e.shiftKey ? -1 : 1;
+        setTool((cur) => TOOL_IDS[(TOOL_IDS.indexOf(cur) + dir + TOOL_IDS.length) % TOOL_IDS.length]);
+        return;
+      }
       if (k === "p") setTool("point");
       if (k === "l") setTool("polygon");
       if (k === "r") setTool("brush");
@@ -170,10 +177,6 @@ export default function AnnotatePage() {
           annoRef.current = a;
         }}
         onChange={queueSave}
-        onCycleTool={(dir) => {
-          const ids = TOOLS.map(([id]) => id);
-          setTool((cur) => ids[(ids.indexOf(cur) + dir + ids.length) % ids.length]);
-        }}
       />
 
       <header className="pointer-events-none absolute inset-x-0 top-0 z-10 flex items-center justify-between gap-4 bg-gradient-to-b from-black/70 to-transparent px-4 py-3">

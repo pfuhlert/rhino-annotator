@@ -44,7 +44,7 @@ One `browser` invocation is one session. Navigate with `goto --path`. Files use 
   me --out .cursor/skills/verify-simple-annotator/artifacts/me.json
 ```
 
-Also: `fill --testid … --value …`, `select --testid job-switcher --option job-tubule`, `click --testid patch-canvas --at 180,180`, `drag --testid patch-canvas --from 80,80 --to 220,160` (`--shift` erases). Use `login-proof` for register. Read `features/README.md` before other features.
+Also: `fill --testid … --value …`, `select --testid job-switcher --option job-tubule`, `press --key Tab` (`Shift+Tab` reverses), `wait --testid tool-switcher --text "Brush (R)"`, `click --testid patch-canvas --at 640,360`, `drag --testid patch-canvas --from 500,220 --via 800,240 --to 640,500` (`--shift` erases). Use `login-proof` for register. Read `features/README.md` before other features.
 
 ## Evidence
 

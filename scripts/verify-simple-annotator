@@ -10,7 +10,7 @@ const artifacts = path.join(root, ".cursor/skills/verify-simple-annotator/artifa
 const defaultState = path.join("/tmp", "simple-annotator-verify-state.json");
 const pwBrowsers = process.env.VERIFY_PLAYWRIGHT_BROWSERS || "/tmp/simple-annotator-playwright";
 const pwArgs = ["--no-sandbox", "--disable-dev-shm-usage"];
-const verbs = new Set(["goto", "fill", "click", "wait", "select", "drag", "screenshot", "snapshot", "me"]);
+const verbs = new Set(["goto", "fill", "click", "wait", "select", "drag", "press", "screenshot", "snapshot", "me"]);
 
 function statePath() {
   return process.env.VERIFY_STATE || defaultState;
@@ -286,17 +286,29 @@ async function applyStep(page, state, step) {
     const loc = page.getByTestId(f.testid);
     return f.at ? loc.click({ position: xy(f.at) }) : loc.click();
   }
-  if (step.action === "wait") return page.getByTestId(f.testid).waitFor({ timeout: Number(f.timeout || 15000) });
+  if (step.action === "wait") {
+    let loc = page.getByTestId(f.testid);
+    if (f.text) loc = loc.filter({ hasText: f.text });
+    return loc.waitFor({ timeout: Number(f.timeout || 15000) });
+  }
   if (step.action === "select") {
     await page.getByTestId(f.testid).click();
     const opt = page.getByTestId(f.option);
     await opt.waitFor();
-    return opt.click();
+    await opt.click();
+    return opt.waitFor({ state: "hidden" });
   }
+  if (step.action === "press") return page.keyboard.press(f.key);
   if (step.action === "drag") {
-    const box = page.getByTestId(f.testid);
+    const loc = page.getByTestId(f.testid);
+    const box = await loc.boundingBox();
+    if (!box) throw new Error(`no box for ${f.testid}`);
     if (f.shift !== undefined) await page.keyboard.down("Shift");
-    await box.dragTo(box, { sourcePosition: xy(f.from), targetPosition: xy(f.to) });
+    const pts = [xy(f.from), ...(f.via ? [xy(f.via)] : []), xy(f.to)];
+    await loc.hover({ position: pts[0] });
+    await page.mouse.down();
+    for (const p of pts.slice(1)) await page.mouse.move(box.x + p.x, box.y + p.y, { steps: 8 });
+    await page.mouse.up();
     if (f.shift !== undefined) await page.keyboard.up("Shift");
     return;
   }
@@ -317,7 +329,7 @@ async function applyStep(page, state, step) {
 
 async function runSteps(page, state, args, land = false) {
   const steps = parseSteps(args);
-  if (!steps.length) throw new Error("browser needs goto|fill|click|wait|select|drag|screenshot|snapshot|me");
+  if (!steps.length) throw new Error("browser needs goto|fill|click|wait|select|drag|press|screenshot|snapshot|me");
   if (land && steps[0].action !== "goto") await page.goto(defaultPath());
   for (const step of steps) await applyStep(page, state, step);
 }

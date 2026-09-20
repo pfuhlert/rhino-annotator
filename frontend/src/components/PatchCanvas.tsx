@@ -14,7 +14,6 @@ type Props = {
   marks?: Element[];
   onReady?: (api: AnnotatorApi) => void;
   onChange?: () => void;
-  onCycleTool?: (dir: 1 | -1) => void;
 };
 
 export type AnnotatorApi = {
@@ -23,7 +22,7 @@ export type AnnotatorApi = {
   redo: () => void;
 };
 
-export default function PatchCanvas({ src, jobId, jobs, tool, marks, onReady, onChange, onCycleTool }: Props) {
+export default function PatchCanvas({ src, jobId, jobs, tool, marks, onReady, onChange }: Props) {
   const initial = (marks ?? []).map((m) =>
     withHoles(
       { id: crypto.randomUUID(), type: m.type, points: m.points as [number, number][], jobId: m.jobId },
@@ -52,7 +51,6 @@ export default function PatchCanvas({ src, jobId, jobs, tool, marks, onReady, on
     marksRef,
     jobs,
     onChangeRef: commitRef,
-    onCycleTool,
   });
 
   function restore(next: Mark[] | null) {

@@ -35,3 +35,4 @@ Preconditions:
 
 - Switching job only retints new marks. Old marks keep their job color.
 - Do not infer stickiness from the first patch alone; load the next patch.
+- `select` can leave the listbox in the ARIA tree; snapshot only after Next/Previous, not immediately after the option click.

@@ -82,11 +82,11 @@ export function setupCanvas(canvas: HTMLCanvasElement, root: HTMLElement) {
   return ctx;
 }
 
-export function addRing(ctx: CanvasRenderingContext2D, pts: [number, number][]) {
+export function addRing(ctx: CanvasRenderingContext2D, pts: [number, number][], close = true) {
   if (pts.length < 2) return;
   ctx.moveTo(pts[0][0], pts[0][1]);
   for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
-  ctx.closePath();
+  if (close) ctx.closePath();
 }
 
 function poly(
@@ -98,7 +98,7 @@ function poly(
 ) {
   ctx.beginPath();
   for (const pts of rings) addRing(ctx, pts);
-  ctx.globalAlpha = highlight ? 0.35 : 0.25;
+  ctx.globalAlpha = 0.08;
   ctx.fillStyle = color;
   ctx.fill("evenodd");
   ctx.globalAlpha = 1;
@@ -107,11 +107,11 @@ function poly(
   ctx.lineCap = "round";
   if (highlight) {
     ctx.strokeStyle = "#fff";
-    ctx.lineWidth = 5;
+    ctx.lineWidth = 2;
     ctx.stroke();
   }
   ctx.strokeStyle = color;
-  ctx.lineWidth = 3;
+  ctx.lineWidth = 1;
   ctx.stroke();
 }
 
@@ -127,9 +127,27 @@ function handles(ctx: CanvasRenderingContext2D, pts: [number, number][], color: 
   }
 }
 
+function draftStroke(ctx: CanvasRenderingContext2D, pts: [number, number][], color: string) {
+  if (pts.length < 2) return;
+  ctx.lineJoin = "round";
+  ctx.lineCap = "round";
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  addRing(ctx, pts, false);
+  ctx.stroke();
+  ctx.setLineDash([4, 4]);
+  ctx.beginPath();
+  ctx.moveTo(pts[pts.length - 1][0], pts[pts.length - 1][1]);
+  ctx.lineTo(pts[0][0], pts[0][1]);
+  ctx.stroke();
+  ctx.setLineDash([]);
+}
+
 export type SceneOpts = {
   draft?: [number, number][];
-  focusId?: string | null;
+  draftColor?: string;
+  hoverId?: string | null;
   selectedId?: string | null;
   insertAt?: [number, number] | null;
   tool?: Tool;
@@ -226,8 +244,8 @@ export function paintScene(
   if (!s) return;
   for (const m of marks) {
     const color = jobs.find((j) => j.id === m.jobId)?.color || "#fafafa";
-    const on = !fillOnly && m.id === opts.focusId;
     if (m.type === "point" && m.points[0]) {
+      const on = !fillOnly && (m.id === opts.selectedId || m.id === opts.hoverId);
       const [x, y] = imageToScreen(m.points[0], s);
       ctx.beginPath();
       ctx.arc(x, y, on ? 10 : 8, 0, Math.PI * 2);
@@ -245,7 +263,8 @@ export function paintScene(
       ctx.stroke();
     } else if (m.points.length > 1) {
       const rings = polyRings(m).map((ring) => ring.map((p) => imageToScreen(p, s)));
-      poly(ctx, rings, color, on, fillOnly);
+      const halo = !fillOnly && m.id === opts.hoverId && m.id !== opts.selectedId;
+      poly(ctx, rings, color, halo, fillOnly);
       if (!fillOnly && m.id === opts.selectedId) {
         for (const ring of rings) handles(ctx, ring, color);
       }
@@ -263,7 +282,7 @@ export function paintScene(
     ctx.lineWidth = 1.5;
     ctx.stroke();
   }
-  if (draft.length > 1) poly(ctx, [draft], "#fff");
+  if (draft.length > 1) draftStroke(ctx, draft, opts.draftColor || "#fafafa");
   if (aim) {
     const [x, y] = imageToScreen(aim.p, s);
     toolGlyph(ctx, x, y, aim.tool, aim.r * s.scale);

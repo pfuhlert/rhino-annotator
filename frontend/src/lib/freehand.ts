@@ -28,19 +28,16 @@ export function useFreehand(opts: {
   marksRef: RefObject<Mark[]>;
   jobs: Job[];
   onChangeRef: RefObject<(() => void) | undefined>;
-  onCycleTool?: (dir: 1 | -1) => void;
 }): Ctl {
-  const { rootRef, canvasRef, imgRef, tool, jobId, marksRef, onChangeRef, jobs, onCycleTool } = opts;
+  const { rootRef, canvasRef, imgRef, tool, jobId, marksRef, onChangeRef, jobs } = opts;
   const toolRef = useRef(tool);
   const jobRef = useRef(jobId);
   const jobsRef = useRef(jobs);
-  const cycleRef = useRef(onCycleTool);
   const ctl = useRef<Ctl>({ flush() {}, reset() {} });
   useEffect(() => {
     toolRef.current = tool;
     jobRef.current = jobId;
     jobsRef.current = jobs;
-    cycleRef.current = onCycleTool;
   });
 
   useEffect(() => {
@@ -71,10 +68,6 @@ export function useFreehand(opts: {
 
     function changed() {
       onChangeRef.current?.();
-    }
-
-    function focus() {
-      return drag?.id || selected || hover;
     }
 
     function pad() {
@@ -159,7 +152,8 @@ export function useFreehand(opts: {
       const job = jobsRef.current.find((j) => j.id === jobRef.current);
       paintScene(ctx, root, marksRef.current, jobsRef.current, {
         draft: drawing ? draft : [],
-        focusId: focus(),
+        draftColor: job?.color,
+        hoverId: hover,
         selectedId: selected,
         insertAt,
         tool: toolRef.current,
@@ -177,9 +171,27 @@ export function useFreehand(opts: {
       });
     }
 
+    function clampView() {
+      const img = imgRef.current;
+      if (!img?.naturalWidth) return;
+      const w = root.clientWidth;
+      const h = root.clientHeight;
+      const fit = Math.min(w / img.naturalWidth, h / img.naturalHeight);
+      const cw = img.naturalWidth * fit;
+      const ch = img.naturalHeight * fit;
+      const axis = (p: number, origin: number, size: number, limit: number) => {
+        const drawn = size * view.z;
+        if (drawn <= limit) return limit / 2 - (origin + size / 2) * view.z;
+        return Math.min(-origin * view.z, Math.max(limit - (origin + size) * view.z, p));
+      };
+      view.x = axis(view.x, (w - cw) / 2, cw, w);
+      view.y = axis(view.y, (h - ch) / 2, ch, h);
+    }
+
     function applyView() {
       const img = imgRef.current;
       if (!img) return;
+      clampView();
       img.style.transform = `translate(${view.x}px, ${view.y}px) scale(${view.z})`;
       space = measureSpace(root);
       ctx = setupCanvas(canvas, root);
@@ -190,34 +202,22 @@ export function useFreehand(opts: {
       redraw();
     }
 
-    let lastCycle = 0;
     function onWheel(e: WheelEvent) {
+      e.preventDefault();
       if (e.ctrlKey || e.metaKey) {
-        e.preventDefault();
         const r = root.getBoundingClientRect();
         const z2 = Math.min(8, Math.max(1, view.z * Math.exp(-e.deltaY * 0.002)));
         const k = z2 / view.z;
         const cx = e.clientX - r.left;
         const cy = e.clientY - r.top;
-        view.x = z2 === 1 ? 0 : cx - (cx - view.x) * k;
-        view.y = z2 === 1 ? 0 : cy - (cy - view.y) * k;
+        view.x = cx - (cx - view.x) * k;
+        view.y = cy - (cy - view.y) * k;
         view.z = z2;
-        applyView();
-        return;
-      }
-      if (e.shiftKey && view.z > 1) {
-        e.preventDefault();
+      } else if (view.z > 1) {
         view.x -= e.deltaX;
         view.y -= e.deltaY;
-        applyView();
-        return;
-      }
-      e.preventDefault();
-      if (drawing || painting || drag) return;
-      const now = performance.now();
-      if (now - lastCycle < 80) return;
-      lastCycle = now;
-      cycleRef.current?.(e.deltaY > 0 || e.deltaX > 0 ? 1 : -1);
+      } else return;
+      applyView();
     }
 
     function hit(e: PointerEvent) {
@@ -328,6 +328,7 @@ export function useFreehand(opts: {
     }
 
     function onMove(e: PointerEvent) {
+      if (!drag && !painting && !drawing) space = measureSpace(root);
       if (space) pointer = imagePoint(e, space);
       const active = drag;
       if (active && space) {
@@ -351,7 +352,6 @@ export function useFreehand(opts: {
         redraw();
         return;
       }
-      space = measureSpace(root);
       hover = brushing() ? null : hit(e);
       const add = brushing() ? null : edgeInsert(e, selected);
       insertAt = add?.point ?? null;
@@ -427,20 +427,27 @@ export function useFreehand(opts: {
       redraw();
     }
 
+    function onLeave() {
+      if (drawing || painting || drag) return;
+      pointer = null;
+      hover = null;
+      insertAt = null;
+      root.style.cursor = "";
+      redraw();
+    }
+
     function onMenu(e: Event) {
       if (brushing()) e.preventDefault();
     }
 
-    const ro = new ResizeObserver(() => {
-      ctx = setupCanvas(canvas, root);
-      redraw();
-    });
+    const ro = new ResizeObserver(() => applyView());
     ro.observe(root);
     cursor();
     root.addEventListener("pointerdown", onDown);
     root.addEventListener("pointermove", onMove);
     root.addEventListener("pointerup", onUp);
     root.addEventListener("pointercancel", onUp);
+    root.addEventListener("pointerleave", onLeave);
     root.addEventListener("contextmenu", onMenu);
     root.addEventListener("wheel", onWheel, { passive: false });
     window.addEventListener("keydown", onKey);
@@ -453,6 +460,7 @@ export function useFreehand(opts: {
       root.removeEventListener("pointermove", onMove);
       root.removeEventListener("pointerup", onUp);
       root.removeEventListener("pointercancel", onUp);
+      root.removeEventListener("pointerleave", onLeave);
       root.removeEventListener("contextmenu", onMenu);
       root.removeEventListener("wheel", onWheel);
       window.removeEventListener("keydown", onKey);
