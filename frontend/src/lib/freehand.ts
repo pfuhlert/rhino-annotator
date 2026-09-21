@@ -137,7 +137,10 @@ export function useFreehand(opts: {
       if (!space || !id) return null;
       const m = marksRef.current.find((x) => x.id === id);
       if (m?.type !== "polygon") return null;
-      return insertTarget(polyRings(m), imagePoint(e, space), space.scale);
+      const rings = polyRings(m);
+      const pt = imagePoint(e, space);
+      if (hitVertex(rings, pt, pad())) return null;
+      return insertTarget(rings, pt, space.scale);
     }
 
     function cursorAt(e?: PointerEvent) {

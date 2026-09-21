@@ -113,14 +113,10 @@ export function insertTarget(rings: [number, number][][], pt: [number, number], 
   for (let ring = 0; ring < rings.length; ring++) {
     const points = rings[ring];
     for (let i = 0; i < points.length; i++) {
-      const a = points[i];
-      const b = points[(i + 1) % points.length];
-      const mid: [number, number] = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
-      const d = Math.hypot(pt[0] - mid[0], pt[1] - mid[1]);
-      const nearerEnd = Math.min(Math.hypot(pt[0] - a[0], pt[1] - a[1]), Math.hypot(pt[0] - b[0], pt[1] - b[1]));
-      if (d <= bestD && d < nearerEnd) {
-        bestD = d;
-        best = { ring, i, point: mid };
+      const hit = closestOnSegment(pt, points[i], points[(i + 1) % points.length]);
+      if (hit.dist <= bestD && hit.t > 0 && hit.t < 1) {
+        bestD = hit.dist;
+        best = { ring, i, point: hit.point };
       }
     }
   }
