@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from simple_annotator.config import COOKIE_NAME
 from simple_annotator.db import get_db
+from simple_annotator.girder import list_folders
 from simple_annotator.models import Annotation, Job, User
 from simple_annotator.models import Session as AuthSession
 
@@ -23,7 +24,8 @@ class Creds(BaseModel):
 
 
 class MePatch(BaseModel):
-    last_job_id: int
+    last_job_id: int | None = None
+    last_folder_id: str | None = None
 
 
 def _hash(password: str, salt: str | None = None) -> str:
@@ -58,7 +60,12 @@ def _set_session(db: Session, user: User, response: Response) -> None:
 
 
 def _user_json(user: User, done_count: int | None = None) -> dict:
-    out = {"id": user.id, "username": user.username, "last_job_id": user.last_job_id}
+    out = {
+        "id": user.id,
+        "username": user.username,
+        "last_job_id": user.last_job_id,
+        "last_folder_id": user.last_folder_id,
+    }
     if done_count is not None:
         out["done_count"] = done_count
     return out
@@ -120,10 +127,18 @@ def me(user: User = Depends(current_user), db: Session = Depends(get_db)) -> dic
 def patch_me(
     body: MePatch, user: User = Depends(current_user), db: Session = Depends(get_db)
 ) -> dict:
-    require_job(db, body.last_job_id)
-    user.last_job_id = body.last_job_id
+    if body.last_job_id is not None:
+        require_job(db, body.last_job_id)
+        user.last_job_id = body.last_job_id
+    if body.last_folder_id is not None:
+        user.last_folder_id = body.last_folder_id
     db.commit()
     return _user_json(user)
+
+
+@me_router.get("/folders")
+def folders(parent_id: str | None = None, _user: User = Depends(current_user)) -> dict:
+    return list_folders(parent_id)
 
 
 @me_router.get("/jobs")

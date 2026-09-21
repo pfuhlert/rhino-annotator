@@ -1,3 +1,4 @@
+import os
 from collections.abc import Generator
 
 from sqlalchemy import create_engine, event, select, text
@@ -5,6 +6,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from simple_annotator.config import sqlite_path
+from simple_annotator.girder import PLACEHOLDER_FOLDER
 from simple_annotator.models import Base, Job
 
 SEED_JOBS = (
@@ -48,11 +50,13 @@ def reset_engine() -> None:
     _SessionLocal = None
 
 
-def _migrate_visit_cursor(engine: Engine) -> None:
+def _migrate(engine: Engine) -> None:
     with engine.begin() as conn:
-        cols = {row[1] for row in conn.execute(text("PRAGMA table_info(users)"))}
-        if "current_visit_id" not in cols:
+        user_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(users)"))}
+        if "current_visit_id" not in user_cols:
             conn.execute(text("ALTER TABLE users ADD COLUMN current_visit_id INTEGER"))
+        if "last_folder_id" not in user_cols:
+            conn.execute(text("ALTER TABLE users ADD COLUMN last_folder_id VARCHAR(64)"))
         tables = {
             row[0]
             for row in conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'"))
@@ -69,12 +73,39 @@ def _migrate_visit_cursor(engine: Engine) -> None:
                 )
             )
             conn.execute(text("DROP TABLE visit_cursors"))
+        if "patch_visits" in tables:
+            visit_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(patch_visits)"))}
+            if "folder_id" not in visit_cols:
+                conn.execute(text("ALTER TABLE patch_visits ADD COLUMN folder_id VARCHAR(64)"))
+            conn.execute(
+                text("""
+                    UPDATE patch_visits SET folder_id = CASE
+                        WHEN patch_id IN (
+                            SELECT id FROM patches WHERE girder_item_id = :placeholder
+                        )
+                        THEN :placeholder ELSE :legacy_folder END
+                    WHERE folder_id IS NULL
+                """),
+                {
+                    "placeholder": PLACEHOLDER_FOLDER,
+                    "legacy_folder": os.environ.get("GIRDER_FOLDER_ID") or PLACEHOLDER_FOLDER,
+                },
+            )
+            conn.execute(
+                text("""
+                    UPDATE users SET last_folder_id = COALESCE(
+                        (SELECT folder_id FROM patch_visits WHERE id = users.current_visit_id),
+                        (SELECT folder_id FROM patch_visits WHERE user_id = users.id
+                         ORDER BY id DESC LIMIT 1)
+                    ) WHERE last_folder_id IS NULL
+                """)
+            )
 
 
 def init_db() -> None:
     engine = get_engine()
     Base.metadata.create_all(engine)
-    _migrate_visit_cursor(engine)
+    _migrate(engine)
     with session_factory()() as db:
         if db.scalar(select(Job).limit(1)):
             return

@@ -13,6 +13,7 @@ class User(Base):
     username: Mapped[str] = mapped_column(String(64), unique=True)
     password_hash: Mapped[str] = mapped_column(String(256))
     last_job_id: Mapped[int | None] = mapped_column(ForeignKey("jobs.id"), nullable=True)
+    last_folder_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     current_visit_id: Mapped[int | None] = mapped_column(
         ForeignKey("patch_visits.id", use_alter=True), nullable=True
     )
@@ -60,3 +61,4 @@ class PatchVisit(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
     patch_id: Mapped[int] = mapped_column(ForeignKey("patches.id"))
+    folder_id: Mapped[str | None] = mapped_column(String(64), nullable=True)

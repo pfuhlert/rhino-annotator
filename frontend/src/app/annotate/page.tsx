@@ -3,7 +3,9 @@
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import PatchCanvas, { type AnnotatorApi } from "@/components/PatchCanvas";
+import FolderPicker from "@/components/FolderPicker";
 import { Button } from "@/components/ui/button";
+import { Overlay, OverlayTrigger } from "@/components/Overlay";
 import {
   Select,
   SelectContent,
@@ -29,6 +31,7 @@ export default function AnnotatePage() {
   const [me, setMe] = useState<Me | null>(null);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [jobId, setJobId] = useState<number | null>(null);
+  const [folderId, setFolderId] = useState<string | null>(null);
   const [patch, setPatch] = useState<Patch | null>(null);
   const [tool, setTool] = useState<Tool>("polygon");
   const [openMenu, setOpenMenu] = useState<Menu | null>(null);
@@ -49,6 +52,7 @@ export default function AnnotatePage() {
   const showPatch = useCallback((next: Patch) => {
     setPatch(next);
     if (next.job_id) setJobId(next.job_id);
+    if (next.folder_id) setFolderId(next.folder_id);
     jobsOnPatch.current = new Set(next.elements.map((e) => e.jobId));
     if (next.job_id) jobsOnPatch.current.add(next.job_id);
   }, []);
@@ -73,6 +77,7 @@ export default function AnnotatePage() {
         setMe(who);
         setJobs(jobList);
         setJobId(who.last_job_id ?? jobList[0]?.id ?? null);
+        setFolderId(who.last_folder_id);
         await loadPatch("current");
       } catch {
         router.replace("/");
@@ -131,6 +136,20 @@ export default function AnnotatePage() {
     [patch, jobId, busy, loadPatch],
   );
 
+  async function switchFolder(id: string) {
+    if (id === folderId || busy) return;
+    setBusy(true);
+    window.clearTimeout(saveTimer.current);
+    try {
+      await persist();
+      setFolderId(id);
+      setMe(await api.setFolder(id));
+      await loadPatch("current");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (isTypingTarget(e.target)) return;
@@ -149,6 +168,7 @@ export default function AnnotatePage() {
         if (k === "y" || e.shiftKey) annoRef.current?.redo();
         else annoRef.current?.undo();
       }
+      if (e.metaKey || e.ctrlKey) return;
       if (k === "n" || k === "f") void finish("next");
       if (k === "b" || k === "arrowleft") void finish("prev");
     }
@@ -165,98 +185,116 @@ export default function AnnotatePage() {
   }
 
   return (
-    <main data-testid="annotate-app" className="relative h-dvh overflow-hidden bg-black">
-      <PatchCanvas
-        key={patch.id}
-        src={patch.image_url}
-        jobId={jobId}
-        jobs={jobs}
-        marks={patch.elements}
-        tool={tool}
-        onReady={(a) => {
-          annoRef.current = a;
-        }}
-        onChange={queueSave}
-      />
-
-      <header className="pointer-events-none absolute inset-x-0 top-0 z-10 flex items-center justify-between gap-4 bg-gradient-to-b from-black/70 to-transparent px-4 py-3">
-        <div className="pointer-events-auto flex items-center gap-3">
-          <span className="text-sm font-medium">{me.username}</span>
-          <span className="text-xs text-muted-foreground">{me.done_count} done</span>
-        </div>
-        <Button
-          data-testid="logout"
-          variant="ghost"
-          size="sm"
-          className="pointer-events-auto text-muted-foreground"
-          onClick={async () => {
-            await api.logout();
-            router.replace("/");
+    <Overlay
+      sidebar={
+        <>
+          <div className="flex items-center p-2 pb-0">
+            <span className="size-(--overlay-trigger-size) shrink-0" aria-hidden />
+            <OverlayTrigger />
+          </div>
+          <div className="flex min-h-0 flex-1 flex-col overflow-auto [scrollbar-width:none]">
+            <div className="flex w-full min-w-0 flex-col p-2 pt-0">
+              <div className="flex h-8 shrink-0 items-center px-2 text-xs font-medium text-sidebar-foreground/70">
+                Select a dataset:
+              </div>
+              <div className="w-full text-sm">
+                <FolderPicker selectedId={folderId} onUse={(id) => void switchFolder(id)} />
+              </div>
+            </div>
+          </div>
+          <div className="flex w-full items-center justify-between p-2">
+            <div className="flex min-w-0 items-baseline gap-2 px-2">
+              <div className="truncate text-sm font-medium">{me.username}</div>
+              <div className="shrink-0 text-xs text-muted-foreground">{me.done_count} done</div>
+            </div>
+            <Button
+              data-testid="logout"
+              variant="ghost"
+              size="sm"
+              onClick={async () => {
+                await api.logout();
+                router.replace("/");
+              }}
+            >
+              Log out
+            </Button>
+          </div>
+        </>
+      }
+    >
+      <main data-testid="annotate-app" className="relative flex min-h-0 w-full flex-1 flex-col overflow-hidden bg-black">
+        <PatchCanvas
+          key={patch.id}
+          src={patch.image_url}
+          jobId={jobId}
+          jobs={jobs}
+          marks={patch.elements}
+          tool={tool}
+          onReady={(a) => {
+            annoRef.current = a;
           }}
-        >
-          Log out
-        </Button>
-      </header>
-
-      <footer className="pointer-events-none absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-black/70 to-transparent px-4 py-4">
-        <div className="pointer-events-auto flex flex-wrap items-center justify-center gap-2">
-          <Button
-            data-testid="prev"
-            variant="outline"
-            disabled={busy || !patch.has_prev}
-            onClick={() => void finish("prev")}
-          >
-            Previous (B)
-          </Button>
-          <Select
-            value={String(jobId)}
-            open={openMenu === "job"}
-            onOpenChange={toggleMenu("job")}
-            onValueChange={(id) => void switchJob(Number(id))}
-          >
-            <SelectTrigger data-testid="job-switcher" aria-label="Job">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent position="popper" align="center" side="top">
-              {jobs.map((j) => (
-                <SelectItem key={j.id} value={String(j.id)} data-testid={`job-${j.name}`}>
-                  <span
-                    className="h-2.5 w-2.5 shrink-0 rounded-full"
-                    style={{ background: j.color }}
-                  />
-                  {j.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Select
-            value={tool}
-            open={openMenu === "tool"}
-            onOpenChange={toggleMenu("tool")}
-            onValueChange={(id) => setTool(id as (typeof TOOLS)[number][0])}
-          >
-            <SelectTrigger data-testid="tool-switcher" aria-label="Tool">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent position="popper" align="center" side="top">
-              {TOOLS.map(([id, label]) => (
-                <SelectItem key={id} value={id} data-testid={`tool-${id}`}>
-                  {label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Button data-testid="undo" variant="outline" onClick={() => annoRef.current?.undo()}>
-            Undo (Ctrl+Z)
-          </Button>
-          <Button data-testid="redo" variant="outline" onClick={() => annoRef.current?.redo()}>
-            Redo (Ctrl+Y)
-          </Button>
-          <Button data-testid="next" disabled={busy} onClick={() => void finish("next")}>
-            Next (N)
-          </Button>
-        </div>
-      </footer>
-    </main>
+          onChange={queueSave}
+        />
+        <footer className="pointer-events-none absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-black/70 to-transparent px-4 py-4">
+          <div className="pointer-events-auto flex flex-wrap items-center justify-center gap-2">
+            <Button
+              data-testid="prev"
+              variant="outline"
+              disabled={busy || !patch.has_prev}
+              onClick={() => void finish("prev")}
+            >
+              Previous (B)
+            </Button>
+            <Select
+              value={String(jobId)}
+              open={openMenu === "job"}
+              onOpenChange={toggleMenu("job")}
+              onValueChange={(id) => void switchJob(Number(id))}
+            >
+              <SelectTrigger data-testid="job-switcher" aria-label="Job">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent position="popper" align="center" side="top">
+                {jobs.map((j) => (
+                  <SelectItem key={j.id} value={String(j.id)} data-testid={`job-${j.name}`}>
+                    <span
+                      className="h-2.5 w-2.5 shrink-0 rounded-full"
+                      style={{ background: j.color }}
+                    />
+                    {j.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select
+              value={tool}
+              open={openMenu === "tool"}
+              onOpenChange={toggleMenu("tool")}
+              onValueChange={(id) => setTool(id as (typeof TOOLS)[number][0])}
+            >
+              <SelectTrigger data-testid="tool-switcher" aria-label="Tool">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent position="popper" align="center" side="top">
+                {TOOLS.map(([id, label]) => (
+                  <SelectItem key={id} value={id} data-testid={`tool-${id}`}>
+                    {label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button data-testid="undo" variant="outline" onClick={() => annoRef.current?.undo()}>
+              Undo (Ctrl+Z)
+            </Button>
+            <Button data-testid="redo" variant="outline" onClick={() => annoRef.current?.redo()}>
+              Redo (Ctrl+Y)
+            </Button>
+            <Button data-testid="next" disabled={busy} onClick={() => void finish("next")}>
+              Next (N)
+            </Button>
+          </div>
+        </footer>
+      </main>
+    </Overlay>
   );
 }

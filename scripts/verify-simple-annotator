@@ -131,7 +131,6 @@ async function cmdUp() {
     UV_CACHE_DIR: process.env.UV_CACHE_DIR || "/tmp/uv-cache",
   };
   env.GIRDER_TOKEN = "";
-  env.GIRDER_FOLDER_ID = "";
   mkdirSync(path.dirname(sqlite), { recursive: true });
   mkdirSync(artifacts, { recursive: true });
   writeFileSync(log, "");

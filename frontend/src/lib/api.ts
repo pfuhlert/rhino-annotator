@@ -1,5 +1,24 @@
 export type Job = { id: number; name: string; color: string };
-export type Me = { id: number; username: string; last_job_id: number | null; done_count: number };
+export type Me = {
+  id: number;
+  username: string;
+  last_job_id: number | null;
+  last_folder_id: string | null;
+  done_count: number;
+};
+export type FolderChild = {
+  id: string;
+  name: string;
+  n_items: number;
+  n_folders: number;
+};
+export type FolderLevel = {
+  id: string | null;
+  name: string;
+  parent_id: string | null;
+  n_items: number;
+  children: FolderChild[];
+};
 export type Element = {
   type: "point" | "polygon";
   points: number[][];
@@ -9,6 +28,7 @@ export type Element = {
 export type Patch = {
   id: number;
   job_id: number | null;
+  folder_id: string;
   image_url: string;
   has_prev: boolean;
   elements: Element[];
@@ -36,7 +56,11 @@ export const api = {
   me: () => req<Me>("/me"),
   setJob: (last_job_id: number) =>
     req<Me>("/me", { method: "PATCH", body: JSON.stringify({ last_job_id }) }),
+  setFolder: (last_folder_id: string) =>
+    req<Me>("/me", { method: "PATCH", body: JSON.stringify({ last_folder_id }) }),
   jobs: () => req<Job[]>("/jobs"),
+  folders: (parent_id?: string | null) =>
+    req<FolderLevel>(`/folders${parent_id ? `?parent_id=${encodeURIComponent(parent_id)}` : ""}`),
   currentPatch: () => req<Patch>("/patches/current"),
   nextPatch: () => req<Patch>("/patches/next"),
   prevPatch: () => req<Patch>("/patches/prev"),

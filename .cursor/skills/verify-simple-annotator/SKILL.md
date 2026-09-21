@@ -30,7 +30,7 @@ Require `ok: true` and `webUrl` not on port 3000. Then drive `features/` against
 
 ## Drive
 
-Handles: `username`, `password`, `login-submit`, `register-submit`, `logout`, `annotate-app`, `job-switcher`, `job-glomerulus`, `job-tubule`, `tool-switcher`, `tool-point`, `tool-polygon`, `tool-brush`, `patch-canvas`, `next`, `prev`.
+Handles: `username`, `password`, `login-submit`, `register-submit`, `logout`, `annotate-app`, `job-switcher`, `job-glomerulus`, `job-tubule`, `folder-switcher`, `folder-placeholder`, `sidebar-trigger`, `tool-switcher`, `tool-point`, `tool-polygon`, `tool-brush`, `patch-canvas`, `next`, `prev`.
 
 One `browser` invocation is one session. Navigate with `goto --path`. Files use `--out`. After `login-proof`, the default route is `/annotate`.
 
