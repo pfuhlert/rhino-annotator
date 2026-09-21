@@ -103,7 +103,9 @@ export default function AnnotatePage() {
       jobsOnPatch.current.add(mark.jobId);
     }
     jobsOnPatch.current.add(jid);
+    const allowed = new Set(jobs.map((j) => j.id));
     for (const id of jobsOnPatch.current) {
+      if (!allowed.has(id)) continue;
       await api.save(
         cur.id,
         id,
@@ -144,6 +146,10 @@ export default function AnnotatePage() {
       await persist();
       setFolderId(id);
       setMe(await api.setFolder(id));
+      const jobList = await api.jobs();
+      setJobs(jobList);
+      const nextId = jobList.find((j) => j.id === jobIdRef.current)?.id ?? jobList[0]?.id;
+      if (nextId != null && nextId !== jobIdRef.current) await switchJob(nextId);
       await loadPatch("current");
     } finally {
       setBusy(false);

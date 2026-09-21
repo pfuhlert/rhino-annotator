@@ -127,6 +127,23 @@ def _resource(parent_id: str) -> tuple[str, dict]:
     return "folder", response.raise_for_status().json()
 
 
+def is_elmi_folder(folder_id: str | None) -> bool:
+    if not girder_enabled() or not folder_id or folder_id == PLACEHOLDER_FOLDER:
+        return False
+    seen: set[str] = set()
+    pid = folder_id
+    while pid and pid not in seen:
+        seen.add(pid)
+        try:
+            kind, info = _resource(pid)
+        except httpx.HTTPError:
+            return False
+        if info.get("name") == "ELMI":
+            return True
+        pid = info.get("parentId") if kind == "folder" else None
+    return False
+
+
 def list_folders(parent_id: str | None = None) -> dict:
     empty = {"id": None, "name": "", "parent_id": None, "n_items": 0}
     if not girder_enabled() or parent_id == PLACEHOLDER_FOLDER:

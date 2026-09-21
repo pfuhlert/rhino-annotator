@@ -243,7 +243,8 @@ export function paintScene(
   const s = measureSpace(root);
   if (!s) return;
   for (const m of marks) {
-    const color = jobs.find((j) => j.id === m.jobId)?.color || "#fafafa";
+    const color = jobs.find((j) => j.id === m.jobId)?.color;
+    if (!color) continue;
     if (m.type === "point" && m.points[0]) {
       const on = !fillOnly && (m.id === opts.selectedId || m.id === opts.hoverId);
       const [x, y] = imageToScreen(m.points[0], s);

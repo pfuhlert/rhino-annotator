@@ -15,6 +15,18 @@ SEED_JOBS = (
     ("vessel", "#059669"),
     ("other", "#d97706"),
 )
+ELMI_JOBS = (
+    ("GBM", "#e11d48"),
+    ("Podocyte", "#2563eb"),
+    ("Foot process", "#7c3aed"),
+    ("Endothelium", "#059669"),
+    ("Capillary lumen", "#0891b2"),
+    ("Mesangium", "#ca8a04"),
+    ("Electron dense deposit", "#ea580c"),
+    ("Nucleus", "#db2777"),
+    ("Mitochondria", "#4f46e5"),
+    ("Other / artifact", "#78716c"),
+)
 
 _engine: Engine | None = None
 _SessionLocal: sessionmaker | None = None
@@ -107,10 +119,10 @@ def init_db() -> None:
     Base.metadata.create_all(engine)
     _migrate(engine)
     with session_factory()() as db:
-        if db.scalar(select(Job).limit(1)):
-            return
-        for name, color in SEED_JOBS:
-            db.add(Job(name=name, color=color))
+        have = {j.name for j in db.scalars(select(Job)).all()}
+        for name, color in (*SEED_JOBS, *ELMI_JOBS):
+            if name not in have:
+                db.add(Job(name=name, color=color))
         db.commit()
 
 

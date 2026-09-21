@@ -8,8 +8,8 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from simple_annotator.config import COOKIE_NAME
-from simple_annotator.db import get_db
-from simple_annotator.girder import list_folders
+from simple_annotator.db import ELMI_JOBS, SEED_JOBS, get_db
+from simple_annotator.girder import is_elmi_folder, list_folders
 from simple_annotator.models import Annotation, Job, User
 from simple_annotator.models import Session as AuthSession
 
@@ -142,6 +142,7 @@ def folders(parent_id: str | None = None, _user: User = Depends(current_user)) -
 
 
 @me_router.get("/jobs")
-def list_jobs(_user: User = Depends(current_user), db: Session = Depends(get_db)) -> list[dict]:
-    jobs = db.scalars(select(Job).order_by(Job.id)).all()
+def list_jobs(user: User = Depends(current_user), db: Session = Depends(get_db)) -> list[dict]:
+    names = {n for n, _ in (ELMI_JOBS if is_elmi_folder(user.last_folder_id) else SEED_JOBS)}
+    jobs = [j for j in db.scalars(select(Job).order_by(Job.id)).all() if j.name in names]
     return [{"id": j.id, "name": j.name, "color": j.color} for j in jobs]

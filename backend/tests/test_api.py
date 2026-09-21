@@ -149,6 +149,26 @@ def test_folders_and_per_folder_series(auth: TestClient):
     assert auth.get("/patches/prev").json()["id"] == c["id"]
 
 
+def test_elmi_jobs(auth: TestClient, monkeypatch: pytest.MonkeyPatch):
+    from simple_annotator import girder
+    from simple_annotator.db import ELMI_JOBS, SEED_JOBS
+
+    monkeypatch.setenv("GIRDER_TOKEN", "test")
+
+    def respond(request):
+        if request.url.path == "/folder/elmi":
+            return httpx.Response(400, json={})
+        if request.url.path == "/collection/elmi":
+            return httpx.Response(200, json={"name": "ELMI"})
+        pytest.fail(f"Unexpected request: {request.url}")
+
+    with httpx.Client(base_url="https://girder.test", transport=httpx.MockTransport(respond)) as gc:
+        monkeypatch.setattr(girder, "_gc", gc)
+        assert [j["name"] for j in auth.get("/jobs").json()] == [n for n, _ in SEED_JOBS]
+        auth.patch("/me", json={"last_folder_id": "elmi"})
+        assert [j["name"] for j in auth.get("/jobs").json()] == [n for n, _ in ELMI_JOBS]
+
+
 def test_new_girder_user_can_load_folder_picker(auth, monkeypatch):
     from simple_annotator import girder
 
