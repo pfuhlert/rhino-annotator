@@ -17,7 +17,7 @@ import {
 import { hitMark, hitVertex, insertTarget, simplifyPolygon } from "./geometry";
 import { isTypingTarget } from "./keys";
 
-type Ctl = { flush: (commit?: boolean) => void; reset: () => void };
+type Ctl = { flush: (commit?: boolean) => void; reset: (clearSelect?: boolean) => void };
 
 export function useFreehand(opts: {
   rootRef: RefObject<HTMLDivElement | null>;
@@ -98,8 +98,13 @@ export function useFreehand(opts: {
       draft.length = 0;
     }
 
-    function reset() {
+    function reset(clearSelect = false) {
       cancelGesture();
+      if (clearSelect) {
+        selected = null;
+        hover = null;
+        insertAt = null;
+      }
       brush = null;
       brushDirty = false;
       if (brushing()) ensureBrush();
@@ -222,7 +227,7 @@ export function useFreehand(opts: {
 
     function hit(e: PointerEvent) {
       if (!space) return null;
-      return hitMark(marksRef.current, imagePoint(e, space), space.scale);
+      return hitMark(marksRef.current, imagePoint(e, space), space.scale, jobRef.current);
     }
 
     function sample(e: PointerEvent) {
@@ -473,7 +478,7 @@ export function useFreehand(opts: {
     prev.current = { tool, jobId };
     if (!last) return;
     if (last.tool === "brush" && (tool !== "brush" || last.jobId !== jobId)) ctl.current.flush();
-    ctl.current.reset();
+    ctl.current.reset(last.jobId !== jobId);
   }, [tool, jobId]);
 
   return {

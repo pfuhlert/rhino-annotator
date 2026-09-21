@@ -127,10 +127,11 @@ export function insertTarget(rings: [number, number][][], pt: [number, number], 
   return best;
 }
 
-export function hitMark(marks: Mark[], pt: [number, number], scale: number) {
+export function hitMark(marks: Mark[], pt: [number, number], scale: number, jobId: number) {
   const r = 10 / scale;
   for (let i = marks.length - 1; i >= 0; i--) {
     const m = marks[i];
+    if (m.jobId !== jobId) continue;
     if (m.type === "point") {
       const p = m.points[0];
       if (p && Math.hypot(pt[0] - p[0], pt[1] - p[1]) <= r) return m.id;
