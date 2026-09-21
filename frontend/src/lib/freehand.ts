@@ -27,17 +27,23 @@ export function useFreehand(opts: {
   jobId: number;
   marksRef: RefObject<Mark[]>;
   jobs: Job[];
+  radius: number;
+  onRadiusChange: (radius: number) => void;
   onChangeRef: RefObject<(() => void) | undefined>;
 }): Ctl {
-  const { rootRef, canvasRef, imgRef, tool, jobId, marksRef, onChangeRef, jobs } = opts;
+  const { rootRef, canvasRef, imgRef, tool, jobId, marksRef, onChangeRef, jobs, radius, onRadiusChange } = opts;
   const toolRef = useRef(tool);
   const jobRef = useRef(jobId);
   const jobsRef = useRef(jobs);
-  const ctl = useRef<Ctl>({ flush() {}, reset() {} });
+  const radiusRef = useRef(radius);
+  const onRadiusChangeRef = useRef(onRadiusChange);
+  const ctl = useRef({ flush(_?: boolean) {}, reset(_?: boolean) {}, redraw() {} });
   useEffect(() => {
     toolRef.current = tool;
     jobRef.current = jobId;
     jobsRef.current = jobs;
+    radiusRef.current = radius;
+    onRadiusChangeRef.current = onRadiusChange;
   });
 
   useEffect(() => {
@@ -49,7 +55,6 @@ export function useFreehand(opts: {
     let drawing = false;
     let painting = false;
     let erasing = false;
-    let radius = 16;
     let brush: Brush | null = null;
     let brushDirty = false;
     let pointer: [number, number] | null = null;
@@ -126,7 +131,7 @@ export function useFreehand(opts: {
       redraw();
     }
 
-    ctl.current = { flush, reset };
+    ctl.current = { flush, reset, redraw };
 
     function edgeInsert(e: PointerEvent, id: string | null) {
       if (!space || !id) return null;
@@ -167,7 +172,7 @@ export function useFreehand(opts: {
             ? {
                 p: pointer,
                 tool: "brush",
-                r: radius,
+                r: radiusRef.current,
                 color: job?.color || "#fafafa",
                 points: painting && stroke.length ? stroke : undefined,
                 erase: erasing,
@@ -248,7 +253,7 @@ export function useFreehand(opts: {
       const b = ensureBrush();
       if (!b || stroke.length < 1) return;
       const a = stroke.length === 1 ? stroke : stroke.slice(-2);
-      b.stamp(a, radius, erasing);
+      b.stamp(a, radiusRef.current, erasing);
       brushDirty = true;
     }
 
@@ -367,8 +372,9 @@ export function useFreehand(opts: {
     function onKey(e: KeyboardEvent) {
       if (isTypingTarget(e.target)) return;
       if (e.key === "[" || e.key === "]") {
-        radius = Math.min(80, Math.max(2, radius + (e.key === "]" ? 2 : -2)));
-        redraw();
+        onRadiusChangeRef.current(
+          Math.min(80, Math.max(2, radiusRef.current + (e.key === "]" ? 2 : -2))),
+        );
         return;
       }
       if (e.key !== "Delete" && e.key !== "Backspace") return;
@@ -471,6 +477,10 @@ export function useFreehand(opts: {
       window.removeEventListener("keydown", onKey);
     };
   }, [rootRef, canvasRef, imgRef, marksRef, onChangeRef]);
+
+  useEffect(() => {
+    ctl.current.redraw();
+  }, [radius]);
 
   const prev = useRef<{ tool: Tool; jobId: number } | null>(null);
   useEffect(() => {

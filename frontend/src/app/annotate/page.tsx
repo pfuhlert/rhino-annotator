@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { BrushSizeControl } from "@/components/BrushSizeControl";
 import PatchCanvas, { type AnnotatorApi } from "@/components/PatchCanvas";
 import FolderPicker from "@/components/FolderPicker";
 import { Button } from "@/components/ui/button";
@@ -24,7 +25,7 @@ const TOOLS = [
 ] as const;
 const TOOL_IDS = TOOLS.map(([id]) => id);
 
-type Menu = "job" | "tool";
+type Menu = "job" | "tool" | "size";
 
 export default function AnnotatePage() {
   const router = useRouter();
@@ -34,6 +35,7 @@ export default function AnnotatePage() {
   const [folderId, setFolderId] = useState<string | null>(null);
   const [patch, setPatch] = useState<Patch | null>(null);
   const [tool, setTool] = useState<Tool>("polygon");
+  const [brushRadius, setBrushRadius] = useState(16);
   const [openMenu, setOpenMenu] = useState<Menu | null>(null);
   const [busy, setBusy] = useState(false);
   const toggleMenu = (id: Menu) => (open: boolean) =>
@@ -236,6 +238,8 @@ export default function AnnotatePage() {
           jobs={jobs}
           marks={patch.elements}
           tool={tool}
+          radius={brushRadius}
+          onRadiusChange={setBrushRadius}
           onReady={(a) => {
             annoRef.current = a;
           }}
@@ -289,6 +293,14 @@ export default function AnnotatePage() {
                 ))}
               </SelectContent>
             </Select>
+            {tool === "brush" && (
+              <BrushSizeControl
+                value={brushRadius}
+                onChange={setBrushRadius}
+                open={openMenu === "size"}
+                onOpenChange={toggleMenu("size")}
+              />
+            )}
             <Button data-testid="undo" variant="outline" onClick={() => annoRef.current?.undo()}>
               Undo (Ctrl+Z)
             </Button>

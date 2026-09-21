@@ -11,6 +11,8 @@ type Props = {
   jobId: number;
   jobs: Job[];
   tool: Tool;
+  radius: number;
+  onRadiusChange: (radius: number) => void;
   marks?: Element[];
   onReady?: (api: AnnotatorApi) => void;
   onChange?: () => void;
@@ -22,7 +24,17 @@ export type AnnotatorApi = {
   redo: () => void;
 };
 
-export default function PatchCanvas({ src, jobId, jobs, tool, marks, onReady, onChange }: Props) {
+export default function PatchCanvas({
+  src,
+  jobId,
+  jobs,
+  tool,
+  radius,
+  onRadiusChange,
+  marks,
+  onReady,
+  onChange,
+}: Props) {
   const initial = (marks ?? []).map((m) =>
     withHoles(
       { id: crypto.randomUUID(), type: m.type, points: m.points as [number, number][], jobId: m.jobId },
@@ -50,6 +62,8 @@ export default function PatchCanvas({ src, jobId, jobs, tool, marks, onReady, on
     jobId,
     marksRef,
     jobs,
+    radius,
+    onRadiusChange,
     onChangeRef: commitRef,
   });
 
