@@ -4,7 +4,13 @@ import random
 import httpx
 from PIL import Image, ImageDraw
 
-from simple_annotator.config import CROP_SIZE, GIRDER_API_URL, GIRDER_FOLDER_ID, GIRDER_TOKEN
+from simple_annotator.config import (
+    CROP_SIZE,
+    FULL_IMAGE_MAX,
+    GIRDER_API_URL,
+    GIRDER_FOLDER_ID,
+    GIRDER_TOKEN,
+)
 
 _gc: httpx.Client | None = None
 _placeholders: dict[tuple[int, int], bytes] = {}
@@ -28,30 +34,31 @@ def _client() -> httpx.Client:
     return _gc
 
 
+def _region(item_id: str, w: int, h: int) -> dict:
+    if max(w, h) <= FULL_IMAGE_MAX:
+        left, top, width, height = 0, 0, w, h
+    else:
+        width, height = min(CROP_SIZE, w), min(CROP_SIZE, h)
+        left = random.randint(0, max(0, w - width))
+        top = random.randint(0, max(0, h - height))
+    return {
+        "girder_item_id": item_id,
+        "left": left,
+        "top": top,
+        "width": width,
+        "height": height,
+    }
+
+
 def pick_region() -> dict:
     if not girder_enabled():
-        return {
-            "girder_item_id": "placeholder",
-            "left": random.randint(0, 4000),
-            "top": random.randint(0, 4000),
-            "width": CROP_SIZE,
-            "height": CROP_SIZE,
-        }
+        return _region("placeholder", CROP_SIZE, CROP_SIZE)
     items = _client().get("/item", params={"folderId": GIRDER_FOLDER_ID, "limit": 100}).json()
     if not items:
         raise RuntimeError("no girder items in folder")
     item = random.choice(items)
     info = _client().get(f"/item/{item['_id']}/tiles").json()
-    w, h = int(info["sizeX"]), int(info["sizeY"])
-    left = random.randint(0, max(0, w - CROP_SIZE))
-    top = random.randint(0, max(0, h - CROP_SIZE))
-    return {
-        "girder_item_id": item["_id"],
-        "left": left,
-        "top": top,
-        "width": min(CROP_SIZE, w),
-        "height": min(CROP_SIZE, h),
-    }
+    return _region(item["_id"], int(info["sizeX"]), int(info["sizeY"]))
 
 
 def fetch_image(item_id: str, left: int, top: int, width: int, height: int) -> bytes:

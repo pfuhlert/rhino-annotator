@@ -7,6 +7,7 @@ load_dotenv(Path(__file__).resolve().parents[3] / ".env")
 
 COOKIE_NAME = "sa_session"
 CROP_SIZE = int(os.environ.get("CROP_SIZE", "1024"))
+FULL_IMAGE_MAX = int(os.environ.get("FULL_IMAGE_MAX", "4096"))
 GIRDER_API_URL = os.environ.get("GIRDER_API_URL", "https://rhinodb.ims.bio/api/v1")
 GIRDER_FOLDER_ID = os.environ.get("GIRDER_FOLDER_ID", "")
 GIRDER_TOKEN = os.environ.get("GIRDER_TOKEN", "")
