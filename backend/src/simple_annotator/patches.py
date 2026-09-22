@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from simple_annotator.auth import current_user, require_job
 from simple_annotator.db import get_db
-from simple_annotator.girder import PLACEHOLDER_FOLDER, fetch_image, pick_region
+from simple_annotator.girder import PLACEHOLDER_FOLDER, fetch_image, image_nm_per_px, pick_region
 from simple_annotator.models import Annotation, Patch, PatchVisit, User
 
 router = APIRouter(prefix="/patches")
@@ -50,6 +50,7 @@ def _dump(db: Session, user: User, patch: Patch, visit: PatchVisit) -> dict:
         "job_id": user.last_job_id,
         "folder_id": visit.folder_id,
         "image_url": f"/patches/{patch.id}/image",
+        "nm_per_px": image_nm_per_px(patch.girder_item_id),
         "has_prev": prev is not None,
         "elements": _elements(db, user, patch.id),
     }

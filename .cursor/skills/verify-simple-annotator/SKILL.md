@@ -9,6 +9,8 @@ description: Prove Simple annotator UI with ./scripts/verify-simple-annotator on
 
 Run the helper on this host. It starts a second stack (ports from 3100/8100, `/tmp` SQLite, `frontend/.next-verify`). Cursor browser tools hit the laptop, not the pod.
 
+Keep all verification build output under `frontend/.next-verify/`, which ESLint excludes. Cleanup must target only the current run’s build directory; the helper’s default `down` deletes the entire `.next-verify/` tree.
+
 ## Run
 
 From the repo root (dev server can stay up):

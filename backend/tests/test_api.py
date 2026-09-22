@@ -240,3 +240,23 @@ def test_annotation_saves_preserve_selected_job(auth: TestClient):
         assert current["job_id"] == 2
         assert current["elements"] == [{**e, "jobId": 1} for e in elements]
     assert auth.post(path, json={"job_id": -1, "elements": []}).status_code == 404
+
+
+def test_patch_calibration_follows_image_through_history(auth, monkeypatch):
+    from simple_annotator import patches
+    from simple_annotator.girder import _region
+
+    existing = auth.get("/patches/current").json()
+    assert existing["nm_per_px"] is None
+    regions = iter([_region("a", 2048, 2048), _region("b", 2048, 2048)])
+    monkeypatch.setattr(patches, "pick_region", lambda _: next(regions))
+    monkeypatch.setattr(
+        patches, "image_nm_per_px", lambda item: {"a": 0.48828125, "b": 4.8828125}.get(item)
+    )
+    a = auth.get("/patches/next").json()
+    b = auth.get("/patches/next").json()
+    assert a["nm_per_px"] == 0.48828125
+    assert b["nm_per_px"] == 4.8828125
+    assert auth.get("/patches/prev").json()["nm_per_px"] == a["nm_per_px"]
+    assert auth.get("/patches/current").json()["nm_per_px"] == a["nm_per_px"]
+    assert auth.get("/patches/next").json()["nm_per_px"] == b["nm_per_px"]

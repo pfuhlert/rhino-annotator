@@ -79,3 +79,82 @@ def test_item_errors_are_not_cached_as_images(monkeypatch):
         with pytest.raises(httpx.HTTPStatusError):
             girder._images("denied")
     assert "denied" not in girder._images_cache
+
+
+@pytest.fixture
+def calibration_client(monkeypatch):
+    monkeypatch.setenv("GIRDER_TOKEN", "test")
+    girder._image_nm_per_px.cache_clear()
+    responses = {
+        "/item/a": {"folderId": "tem", "meta": {"nm_per_px": 0.48828125}},
+        "/item/b": {"folderId": "tem", "meta": {"nm_per_px": 4.8828125}},
+        "/folder/tem": {"name": "TEM", "parentId": "elmi"},
+        "/folder/elmi": {"name": "ELMI"},
+        "/folder/histo": {"name": "HISTO"},
+        "/item/a/tiles/internal_metadata": {"xml": {"nm_per_px": 1.220703125}},
+    }
+    calls = []
+
+    def respond(request):
+        path = request.url.path
+        calls.append(path)
+        data = responses[path]
+        return (
+            httpx.Response(data, json={})
+            if isinstance(data, int)
+            else httpx.Response(200, json=data)
+        )
+
+    with httpx.Client(base_url="https://girder.test", transport=httpx.MockTransport(respond)) as gc:
+        monkeypatch.setattr(girder, "_gc", gc)
+        yield responses, calls
+    girder._image_nm_per_px.cache_clear()
+
+
+def test_is_elmi_folder_returns_false_on_girder_failure(calibration_client):
+    responses, _ = calibration_client
+    responses["/folder/tem"] = 503
+    assert girder.is_elmi_folder("tem") is False
+
+
+def test_tem_calibration_is_per_image_and_cached(calibration_client):
+    _, calls = calibration_client
+    assert girder.image_nm_per_px("a") == 0.48828125
+    assert girder.image_nm_per_px("b") == 4.8828125
+    assert girder.image_nm_per_px("a") == 0.48828125
+    assert calls.count("/item/a") == 1
+
+
+def test_tem_calibration_falls_back_to_embedded_tiff_metadata(calibration_client):
+    responses, _ = calibration_client
+    responses["/item/a"]["meta"] = {}
+    assert girder.image_nm_per_px("a") == 1.220703125
+
+
+@pytest.mark.parametrize("value", [0, -1, "unknown", True])
+def test_invalid_calibration_is_hidden(calibration_client, value):
+    responses, _ = calibration_client
+    responses["/item/a"]["meta"]["nm_per_px"] = value
+    assert girder.image_nm_per_px("a") is None
+
+
+def test_missing_calibration_and_non_tem_images_are_hidden(calibration_client):
+    responses, calls = calibration_client
+    responses["/item/a"]["meta"] = {"magnification": 83000}
+    responses["/item/a/tiles/internal_metadata"] = {}
+    responses["/item/b"]["folderId"] = "histo"
+    assert girder.image_nm_per_px("a") is None
+    assert girder.image_nm_per_px("b") is None
+    assert girder.image_nm_per_px("placeholder") is None
+    assert "/item/placeholder" not in calls
+
+
+@pytest.mark.parametrize("path", ["/item/a", "/folder/tem", "/folder/elmi"])
+def test_calibration_failure_does_not_block_image_and_is_retried(calibration_client, path):
+    responses, calls = calibration_client
+    data = responses[path]
+    responses[path] = 503
+    assert girder.image_nm_per_px("a") is None
+    responses[path] = data
+    assert girder.image_nm_per_px("a") == 0.48828125
+    assert calls.count(path) == 2

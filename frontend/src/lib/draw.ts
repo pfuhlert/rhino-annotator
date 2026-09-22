@@ -27,6 +27,8 @@ export function shiftMark(m: Mark, dx: number, dy: number) {
 }
 
 export type Space = {
+  imageWidth: number;
+  imageHeight: number;
   imgLeft: number;
   imgTop: number;
   ox: number;
@@ -43,6 +45,8 @@ export function measureSpace(root: HTMLElement): Space | null {
   const rootRect = root.getBoundingClientRect();
   const scale = Math.min(rect.width / img.naturalWidth, rect.height / img.naturalHeight);
   return {
+    imageWidth: img.naturalWidth,
+    imageHeight: img.naturalHeight,
     imgLeft: rect.left,
     imgTop: rect.top,
     ox: (rect.width - img.naturalWidth * scale) / 2,

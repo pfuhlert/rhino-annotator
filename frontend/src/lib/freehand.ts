@@ -12,6 +12,7 @@ import {
   setupCanvas,
   shiftMark,
   type Mark,
+  type Space,
   type Tool,
 } from "./draw";
 import { hitMark, hitVertex, insertTarget, simplifyPolygon } from "./geometry";
@@ -30,6 +31,7 @@ export function useFreehand(opts: {
   radius: number;
   onRadiusChange: (radius: number) => void;
   onChangeRef: RefObject<(() => void) | undefined>;
+  onViewChange?: (space: Space | null) => void;
 }): Ctl {
   const {
     rootRef,
@@ -42,12 +44,14 @@ export function useFreehand(opts: {
     jobs,
     radius,
     onRadiusChange,
+    onViewChange,
   } = opts;
   const toolRef = useRef(tool);
   const jobRef = useRef(jobId);
   const jobsRef = useRef(jobs);
   const radiusRef = useRef(radius);
   const onRadiusChangeRef = useRef(onRadiusChange);
+  const onViewChangeRef = useRef(onViewChange);
   const ctl = useRef({ flush() {}, reset(_?: boolean) {}, redraw() {} });
   useEffect(() => {
     toolRef.current = tool;
@@ -55,6 +59,7 @@ export function useFreehand(opts: {
     jobsRef.current = jobs;
     radiusRef.current = radius;
     onRadiusChangeRef.current = onRadiusChange;
+    onViewChangeRef.current = onViewChange;
   });
 
   useEffect(() => {
@@ -124,7 +129,7 @@ export function useFreehand(opts: {
       }
       brush = null;
       if (brushing()) ensureBrush();
-      redraw();
+      applyView();
     }
 
     function flush() {
@@ -216,6 +221,7 @@ export function useFreehand(opts: {
         for (const p of stroke) draft.push(imageToScreen(p, space));
       }
       redraw();
+      onViewChangeRef.current?.(space);
     }
 
     function onWheel(e: WheelEvent) {

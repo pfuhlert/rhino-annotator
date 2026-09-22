@@ -30,6 +30,7 @@ export type Patch = {
   job_id: number | null;
   folder_id: string;
   image_url: string;
+  nm_per_px: number | null;
   has_prev: boolean;
   elements: Element[];
 };

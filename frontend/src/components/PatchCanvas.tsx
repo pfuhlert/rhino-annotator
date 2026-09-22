@@ -1,13 +1,15 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Element, Job } from "@/lib/api";
 import { withHoles, type Mark, type Tool } from "@/lib/draw";
 import { useFreehand } from "@/lib/freehand";
 import { createHistory } from "@/lib/history";
+import { measureScaleBar } from "@/lib/scale-bar";
 
 type Props = {
   src: string;
+  nmPerPixel: number | null;
   jobId: number;
   jobs: Job[];
   tool: Tool;
@@ -27,6 +29,7 @@ export type AnnotatorApi = {
 
 export default function PatchCanvas({
   src,
+  nmPerPixel,
   jobId,
   jobs,
   tool,
@@ -36,18 +39,21 @@ export default function PatchCanvas({
   onReady,
   onChange,
 }: Props) {
-  const initial = (marks ?? []).map((m) =>
-    withHoles(
-      { id: crypto.randomUUID(), type: m.type, points: m.points as [number, number][], jobId: m.jobId },
-      m.holes as [number, number][][] | undefined,
+  const [initial] = useState(() =>
+    (marks ?? []).map((m) =>
+      withHoles(
+        { id: crypto.randomUUID(), type: m.type, points: m.points as [number, number][], jobId: m.jobId },
+        m.holes as [number, number][][] | undefined,
+      ),
     ),
   );
   const marksRef = useRef<Mark[]>(initial);
   const rootRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const imgRef = useRef<HTMLImageElement>(null);
+  const [scaleBar, setScaleBar] = useState<ReturnType<typeof measureScaleBar>>(null);
   const persistRef = useRef(onChange);
-  const history = useRef(createHistory(initial)).current;
+  const [history] = useState(() => createHistory(initial));
   useEffect(() => {
     persistRef.current = onChange;
   });
@@ -66,6 +72,18 @@ export default function PatchCanvas({
     radius,
     onRadiusChange,
     onChangeRef: commitRef,
+    onViewChange: (space) => {
+      if (!rootRef.current) return;
+      const next = measureScaleBar(rootRef.current, nmPerPixel, space);
+      setScaleBar((prev) =>
+        prev?.x === next?.x &&
+        prev?.y === next?.y &&
+        prev?.width === next?.width &&
+        prev?.label === next?.label
+          ? prev
+          : next,
+      );
+    },
   });
 
   function restore(next: Mark[] | null) {
@@ -102,6 +120,21 @@ export default function PatchCanvas({
         onLoad={() => brush.reset()}
       />
       <canvas ref={canvasRef} className="pointer-events-none absolute inset-0" />
+      {scaleBar && (
+        <div
+          data-testid="scale-bar"
+          className="pointer-events-none absolute z-10 text-center text-xs leading-5 font-medium text-white drop-shadow-[0_1px_2px_#000]"
+          style={{
+            left: scaleBar.x,
+            top: scaleBar.y,
+            width: scaleBar.width,
+            transform: "translateY(-100%)",
+          }}
+        >
+          {scaleBar.label}
+          <div className="h-2 border-x-2 border-b-2 border-white" />
+        </div>
+      )}
     </div>
   );
 }

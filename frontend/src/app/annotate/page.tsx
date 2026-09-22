@@ -236,6 +236,7 @@ export default function AnnotatePage() {
         <PatchCanvas
           key={patch.id}
           src={patch.image_url}
+          nmPerPixel={patch.nm_per_px}
           jobId={jobId}
           jobs={jobs}
           marks={patch.elements}

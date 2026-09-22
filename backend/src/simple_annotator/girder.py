@@ -1,6 +1,8 @@
 import io
+import math
 import os
 import random
+from functools import lru_cache
 from pathlib import Path
 
 import httpx
@@ -128,16 +130,20 @@ def _resource(parent_id: str) -> tuple[str, dict]:
 
 
 def is_elmi_folder(folder_id: str | None) -> bool:
+    try:
+        return _is_elmi_folder(folder_id)
+    except httpx.HTTPError:
+        return False
+
+
+def _is_elmi_folder(folder_id: str | None) -> bool:
     if not girder_enabled() or not folder_id or folder_id == PLACEHOLDER_FOLDER:
         return False
     seen: set[str] = set()
     pid = folder_id
     while pid and pid not in seen:
         seen.add(pid)
-        try:
-            kind, info = _resource(pid)
-        except httpx.HTTPError:
-            return False
+        kind, info = _resource(pid)
         if info.get("name") == "ELMI":
             return True
         pid = info.get("parentId") if kind == "folder" else None
@@ -202,6 +208,31 @@ def pick_region(folder_id: str | None) -> dict:
             continue
         return _region(item["_id"], int(data["sizeX"]), int(data["sizeY"]))
     raise RuntimeError("no girder items in folder")
+
+
+def image_nm_per_px(item_id: str) -> float | None:
+    if not girder_enabled() or item_id == PLACEHOLDER_FOLDER:
+        return None
+    try:
+        return _image_nm_per_px(item_id)
+    except httpx.HTTPError:
+        return None
+
+
+@lru_cache(maxsize=512)
+def _image_nm_per_px(item_id: str) -> float | None:
+    item = _client().get(f"/item/{item_id}").raise_for_status().json()
+    if not _is_elmi_folder(item.get("folderId")):
+        return None
+    value = item.get("meta", {}).get("nm_per_px")
+    if value is None:
+        metadata = (
+            _client().get(f"/item/{item_id}/tiles/internal_metadata").raise_for_status().json()
+        )
+        value = metadata.get("xml", {}).get("nm_per_px")
+    if type(value) in (int, float) and math.isfinite(value) and value > 0:
+        return float(value)
+    return None
 
 
 def fetch_image(item_id: str, left: int, top: int, width: int, height: int) -> bytes:
