@@ -20,6 +20,7 @@ type Props = {
 
 export type AnnotatorApi = {
   toElements: () => Element[];
+  flush: () => void;
   undo: () => void;
   redo: () => void;
 };
@@ -76,10 +77,9 @@ export default function PatchCanvas({
 
   useEffect(() => {
     onReady?.({
-      toElements: () => {
-        brush.flush(false);
-        return marksRef.current.map(({ type, points, holes, jobId }) => ({ type, points, holes, jobId }));
-      },
+      toElements: () =>
+        marksRef.current.map(({ type, points, holes, jobId }) => ({ type, points, holes, jobId })),
+      flush: () => brush.flush(),
       undo: () => restore(history.undo()),
       redo: () => restore(history.redo()),
     });

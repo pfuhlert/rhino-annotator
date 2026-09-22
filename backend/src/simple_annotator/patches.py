@@ -25,11 +25,6 @@ class AnnotationIn(BaseModel):
     elements: list[Element] = []
 
 
-def _set_job(db: Session, user: User, job_id: int) -> None:
-    require_job(db, job_id)
-    user.last_job_id = job_id
-
-
 def _elements(db: Session, user: User, patch_id: int) -> list[dict]:
     out: list[dict] = []
     for row in db.scalars(
@@ -173,7 +168,7 @@ def save_annotations(
         raise HTTPException(404, "patch not found")
     if any(el.type not in {"point", "polygon"} for el in body.elements):
         raise HTTPException(400, "invalid element type")
-    _set_job(db, user, body.job_id)
+    require_job(db, body.job_id)
     row = db.scalar(
         select(Annotation).where(
             Annotation.patch_id == patch.id,

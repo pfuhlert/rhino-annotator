@@ -129,8 +129,9 @@ export default function AnnotatePage() {
       if (!patch || jobId == null || busy) return;
       if (kind === "prev" && !patch.has_prev) return;
       setBusy(true);
-      window.clearTimeout(saveTimer.current);
       try {
+        annoRef.current?.flush();
+        window.clearTimeout(saveTimer.current);
         await persist();
         await loadPatch(kind);
       } finally {
@@ -143,8 +144,9 @@ export default function AnnotatePage() {
   async function switchFolder(id: string) {
     if (id === folderId || busy) return;
     setBusy(true);
-    window.clearTimeout(saveTimer.current);
     try {
+      annoRef.current?.flush();
+      window.clearTimeout(saveTimer.current);
       await persist();
       setFolderId(id);
       setMe(await api.setFolder(id));

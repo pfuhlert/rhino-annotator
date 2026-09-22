@@ -225,3 +225,18 @@ def test_folder_migration_preserves_history(auth, monkeypatch, existing_columns,
     assert current["elements"] == [{**element, "jobId": 1}]
     assert auth.get("/patches/next").json()["id"] == second["id"]
     assert auth.get("/patches/prev").json()["id"] == first["id"]
+
+
+def test_annotation_saves_preserve_selected_job(auth: TestClient):
+    auth.patch("/me", json={"last_job_id": 2})
+    patch_id = auth.get("/patches/current").json()["id"]
+    path = f"/patches/{patch_id}/annotations"
+    for elements in ([{"type": "point", "points": [[10.0, 12.0]]}], []):
+        saved = auth.post(path, json={"job_id": 1, "elements": elements})
+        assert saved.status_code == 200
+        assert saved.json()["last_job_id"] == 2
+        assert auth.get("/me").json()["last_job_id"] == 2
+        current = auth.get("/patches/current").json()
+        assert current["job_id"] == 2
+        assert current["elements"] == [{**e, "jobId": 1} for e in elements]
+    assert auth.post(path, json={"job_id": -1, "elements": []}).status_code == 404

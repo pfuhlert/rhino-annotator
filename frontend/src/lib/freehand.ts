@@ -17,7 +17,7 @@ import {
 import { hitMark, hitVertex, insertTarget, simplifyPolygon } from "./geometry";
 import { isTypingTarget } from "./keys";
 
-type Ctl = { flush: (commit?: boolean) => void; reset: (clearSelect?: boolean) => void };
+type Ctl = { flush: () => void; reset: (clearSelect?: boolean) => void };
 
 export function useFreehand(opts: {
   rootRef: RefObject<HTMLDivElement | null>;
@@ -31,13 +31,24 @@ export function useFreehand(opts: {
   onRadiusChange: (radius: number) => void;
   onChangeRef: RefObject<(() => void) | undefined>;
 }): Ctl {
-  const { rootRef, canvasRef, imgRef, tool, jobId, marksRef, onChangeRef, jobs, radius, onRadiusChange } = opts;
+  const {
+    rootRef,
+    canvasRef,
+    imgRef,
+    tool,
+    jobId,
+    marksRef,
+    onChangeRef,
+    jobs,
+    radius,
+    onRadiusChange,
+  } = opts;
   const toolRef = useRef(tool);
   const jobRef = useRef(jobId);
   const jobsRef = useRef(jobs);
   const radiusRef = useRef(radius);
   const onRadiusChangeRef = useRef(onRadiusChange);
-  const ctl = useRef({ flush(_?: boolean) {}, reset(_?: boolean) {}, redraw() {} });
+  const ctl = useRef({ flush() {}, reset(_?: boolean) {}, redraw() {} });
   useEffect(() => {
     toolRef.current = tool;
     jobRef.current = jobId;
@@ -56,7 +67,8 @@ export function useFreehand(opts: {
     let painting = false;
     let erasing = false;
     let brush: Brush | null = null;
-    let brushDirty = false;
+    let brushJobId = jobRef.current;
+    let stampedPoints = 0;
     let pointer: [number, number] | null = null;
     let space = measureSpace(root);
     let ctx = setupCanvas(canvas, root);
@@ -88,8 +100,8 @@ export function useFreehand(opts: {
       if (!img?.naturalWidth) return null;
       if (!brush || brush.width !== img.naturalWidth || brush.height !== img.naturalHeight) {
         brush = createBrush(img.naturalWidth, img.naturalHeight);
-        brush.enter(jobPolys(marksRef.current, jobRef.current));
-        brushDirty = false;
+        brushJobId = jobRef.current;
+        brush.enter(jobPolys(marksRef.current, brushJobId));
       }
       return brush;
     }
@@ -111,23 +123,13 @@ export function useFreehand(opts: {
         insertAt = null;
       }
       brush = null;
-      brushDirty = false;
       if (brushing()) ensureBrush();
       redraw();
     }
 
-    function commitMask(commit: boolean) {
-      const b = ensureBrush();
-      if (!b) return;
-      marksRef.current = applyPolys(marksRef.current, jobRef.current, b.toPolygons());
-      brushDirty = false;
-      if (commit) changed();
-    }
-
-    function flush(commit = true) {
-      if (painting) endPaint();
-      else if (brush && brushDirty) commitMask(commit);
-      if (commit) cancelGesture();
+    function flush() {
+      endPaint();
+      cancelGesture();
       redraw();
     }
 
@@ -150,7 +152,8 @@ export function useFreehand(opts: {
       if (insertAt) return "copy";
       if (e && selected && space) {
         const m = marksRef.current.find((x) => x.id === selected);
-        if (m?.type === "polygon" && hitVertex(polyRings(m), imagePoint(e, space), pad())) return "move";
+        if (m?.type === "polygon" && hitVertex(polyRings(m), imagePoint(e, space), pad()))
+          return "move";
       }
       if (hover) return "grab";
       return "crosshair";
@@ -243,8 +246,9 @@ export function useFreehand(opts: {
       const img = imagePoint(e, space);
       const screen = screenPoint(e, space);
       const last = stroke[stroke.length - 1];
-      const min = 2 / space.scale;
-      if (!last || Math.hypot(img[0] - last[0], img[1] - last[1]) >= min) {
+      const min = painting ? 0 : 2 / space.scale;
+      const distance = last ? Math.hypot(img[0] - last[0], img[1] - last[1]) : Infinity;
+      if (distance > 0 && distance >= min) {
         stroke.push(img);
         draft.push(screen);
       } else {
@@ -254,16 +258,19 @@ export function useFreehand(opts: {
 
     function stampLive() {
       const b = ensureBrush();
-      if (!b || stroke.length < 1) return;
-      const a = stroke.length === 1 ? stroke : stroke.slice(-2);
+      if (!b || stroke.length <= stampedPoints) return;
+      const a = stroke.slice(Math.max(0, stampedPoints - 1));
       b.stamp(a, radiusRef.current, erasing);
-      brushDirty = true;
+      stampedPoints = stroke.length;
     }
 
     function endPaint() {
       if (!painting) return;
       painting = false;
-      if (stroke.length) commitMask(true);
+      if (brush && stroke.length) {
+        marksRef.current = applyPolys(marksRef.current, brushJobId, brush.toPolygons());
+        changed();
+      }
       stroke.length = 0;
       draft.length = 0;
     }
@@ -284,6 +291,7 @@ export function useFreehand(opts: {
         hover = null;
         painting = true;
         erasing = e.shiftKey || e.button === 2;
+        stampedPoints = 0;
         stroke.length = 0;
         draft.length = 0;
         pointer = imagePoint(e, space);
@@ -321,7 +329,12 @@ export function useFreehand(opts: {
       if (toolRef.current === "point") {
         marksRef.current = [
           ...marksRef.current,
-          { id: crypto.randomUUID(), type: "point", points: [imagePoint(e, space)], jobId: jobRef.current },
+          {
+            id: crypto.randomUUID(),
+            type: "point",
+            points: [imagePoint(e, space)],
+            jobId: jobRef.current,
+          },
         ];
         selected = marksRef.current.at(-1)?.id ?? null;
         draft.length = 0;
@@ -360,7 +373,8 @@ export function useFreehand(opts: {
         return;
       }
       if (painting || drawing) {
-        for (const ev of e.getCoalescedEvents?.() ?? [e]) sample(ev);
+        const events = e.getCoalescedEvents?.();
+        for (const ev of events?.length ? events : [e]) sample(ev);
         if (painting) stampLive();
         redraw();
         return;
@@ -431,7 +445,10 @@ export function useFreehand(opts: {
       draft.length = 0;
       if (points.length >= 3) {
         const id = crypto.randomUUID();
-        marksRef.current = [...marksRef.current, { id, type: "polygon", points, jobId: jobRef.current }];
+        marksRef.current = [
+          ...marksRef.current,
+          { id, type: "polygon", points, jobId: jobRef.current },
+        ];
         selected = id;
         changed();
       }
@@ -495,7 +512,7 @@ export function useFreehand(opts: {
   }, [tool, jobId]);
 
   return {
-    flush: (commit?: boolean) => ctl.current.flush(commit),
+    flush: () => ctl.current.flush(),
     reset: () => ctl.current.reset(),
   };
 }

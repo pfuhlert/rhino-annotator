@@ -26,7 +26,7 @@ function autoEpsilon(points: [number, number][]) {
   return Math.max(SIMPLIFY_MIN_PX, Math.hypot(maxX - minX, maxY - minY) * SIMPLIFY_DIAG_RATIO);
 }
 
-function simplifyRdp(points: [number, number][], epsilon: number): [number, number][] {
+export function simplifyLine(points: [number, number][], epsilon: number): [number, number][] {
   if (points.length < 3) return points;
   const keep = new Uint8Array(points.length);
   keep[0] = 1;
@@ -55,7 +55,7 @@ function simplifyRdp(points: [number, number][], epsilon: number): [number, numb
 
 export function simplifyPolygon(points: [number, number][], epsilon?: number): [number, number][] {
   if (points.length < 3) return points;
-  const out = simplifyRdp(points, epsilon ?? autoEpsilon(points));
+  const out = simplifyLine(points, epsilon ?? autoEpsilon(points));
   return out.length >= 3 ? out : points;
 }
 
