@@ -41,7 +41,9 @@ Preconditions:
   snapshot --out .cursor/skills/verify-simple-annotator/artifacts/mark-after.aria.txt
 ```
 
-Cursor check: choose Point and hover the canvas. Point and Polygon use native SVG cursors (hotspots 12,12 and 8,8); verify their computed cursor URL and asset response with `browser script`. Native cursors do not appear in screenshots. Press L, R, and P without moving the pointer to check tool switching. Brush draws its size circle on the canvas and uses `--cursor none`. Hover an existing annotation and assert `--cursor grab` to check its edit cursor.
+Cursor check: choose Point and hover the canvas. Point and Polygon use native SVG cursors (hotspots 12,12 and 8,8); verify their computed cursor URL and asset response with `browser script`. Native cursors do not appear in screenshots. Press L, R, and P without moving the pointer to check tool switching. Brush uses a native SVG circle scaled to the current brush radius and zoom. Circles exceeding the browser’s 128px cursor limit use a separate outline with `--cursor none`. Pointer movement must not repaint the annotation canvas; scrolling must keep the circle centered under the pointer. Hover an existing annotation and assert `--cursor grab` to check its edit cursor.
+
+Brush cursor regression: run `./scripts/verify-simple-annotator browser script --file .cursor/skills/verify-simple-annotator/features/brush-cursor.mjs` after `login-proof`. It checks native and oversized cursors, pan/zoom clamping, wheel coordinates, resize, tool switching, zero bounds reads or canvas redraws during idle brush movement and leave, cached-origin updates, scale-bar mounting, polygon hover cleanup, toolbar layering, and paint/erase coverage while zoomed and panned. Evidence is written to `artifacts/brush-cursor-*`.
 
 Shortcut regression: after selecting a job and closing the menu, press N/F to advance and B/ArrowLeft to return. The selected job must stay unchanged; the selector must not consume navigation keys as typeahead. Repeat P/L/R and Tab/Shift+Tab after job and image changes.
 

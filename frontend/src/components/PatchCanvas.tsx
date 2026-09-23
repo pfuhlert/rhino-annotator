@@ -51,6 +51,7 @@ export default function PatchCanvas({
   const rootRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const imgRef = useRef<HTMLImageElement>(null);
+  const cursorRef = useRef<HTMLDivElement>(null);
   const [scaleBar, setScaleBar] = useState<ReturnType<typeof measureScaleBar>>(null);
   const persistRef = useRef(onChange);
   const [history] = useState(() => createHistory(initial));
@@ -67,6 +68,7 @@ export default function PatchCanvas({
     onAiPoint,
     onRemote,
     canvasRef,
+    cursorRef,
     imgRef,
     tool,
     jobId,
@@ -123,6 +125,12 @@ export default function PatchCanvas({
         onLoad={() => brush.reset()}
       />
       <canvas ref={canvasRef} className="pointer-events-none absolute inset-0" />
+      <div
+        ref={cursorRef}
+        data-testid="brush-cursor"
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 overflow-hidden"
+      />
       {scaleBar && (
         <div
           data-testid="scale-bar"

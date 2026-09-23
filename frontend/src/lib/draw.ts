@@ -153,11 +153,10 @@ export type SceneOpts = {
   selectedId?: string | null;
   insertAt?: [number, number] | null;
   tool?: Tool;
-  aim?: {
-    p: [number, number];
+  brush?: {
     r: number;
     color: string;
-    points?: [number, number][];
+    points: [number, number][];
     erase?: boolean;
   } | null;
 };
@@ -197,19 +196,6 @@ function brushStroke(
     }
     ctx.stroke();
   }
-  ctx.restore();
-}
-
-function brushCursor(ctx: CanvasRenderingContext2D, x: number, y: number, r: number) {
-  ctx.save();
-  ctx.beginPath();
-  ctx.arc(x, y, r, 0, Math.PI * 2);
-  ctx.strokeStyle = "#111";
-  ctx.lineWidth = 3.5;
-  ctx.stroke();
-  ctx.strokeStyle = "#fff";
-  ctx.lineWidth = 1.5;
-  ctx.stroke();
   ctx.restore();
 }
 
@@ -269,8 +255,8 @@ export function paintScene(
     ctx.fillStyle = ctx.strokeStyle;
     ctx.fillRect(x - 2, y - 2, 4, 4);
   }
-  const aim = opts.aim;
-  if (aim?.points?.length) brushStroke(ctx, aim.points, aim.r, s, aim.color, !!aim.erase);
+  const brush = opts.brush;
+  if (brush?.points.length) brushStroke(ctx, brush.points, brush.r, s, brush.color, !!brush.erase);
   if (!fillOnly && opts.insertAt) {
     const [x, y] = imageToScreen(opts.insertAt, s);
     ctx.beginPath();
@@ -282,8 +268,4 @@ export function paintScene(
     ctx.stroke();
   }
   if (draft.length > 1) draftStroke(ctx, draft, opts.draftColor || "#fafafa");
-  if (aim) {
-    const [x, y] = imageToScreen(aim.p, s);
-    brushCursor(ctx, x, y, aim.r * s.scale);
-  }
 }
