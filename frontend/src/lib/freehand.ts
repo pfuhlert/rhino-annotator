@@ -445,6 +445,14 @@ export function useFreehand(opts: {
 
     function onKey(e: KeyboardEvent) {
       if (isTypingTarget(e.target)) return;
+      if (e.key === "Escape") {
+        selected = null;
+        hover = null;
+        insertAt = null;
+        cursor();
+        redraw();
+        return;
+      }
       if (e.key === "[" || e.key === "]") {
         latest.current.onRadiusChange(
           Math.min(80, Math.max(2, latest.current.radius + (e.key === "]" ? 2 : -2))),
