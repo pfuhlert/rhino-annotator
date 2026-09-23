@@ -1,3 +1,4 @@
+import fcntl
 import os
 from collections.abc import Generator
 
@@ -64,6 +65,9 @@ def reset_engine() -> None:
 
 def _migrate(engine: Engine) -> None:
     with engine.begin() as conn:
+        ai_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(ai_tasks)"))}
+        if ai_cols and "finished" not in ai_cols:
+            conn.execute(text("ALTER TABLE ai_tasks ADD COLUMN finished FLOAT"))
         user_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(users)"))}
         if "current_visit_id" not in user_cols:
             conn.execute(text("ALTER TABLE users ADD COLUMN current_visit_id INTEGER"))
@@ -115,15 +119,17 @@ def _migrate(engine: Engine) -> None:
 
 
 def init_db() -> None:
-    engine = get_engine()
-    Base.metadata.create_all(engine)
-    _migrate(engine)
-    with session_factory()() as db:
-        have = {j.name for j in db.scalars(select(Job)).all()}
-        for name, color in (*SEED_JOBS, *ELMI_JOBS):
-            if name not in have:
-                db.add(Job(name=name, color=color))
-        db.commit()
+    with open(str(sqlite_path()) + ".init.lock", "w") as handle:
+        fcntl.flock(handle, fcntl.LOCK_EX)
+        engine = get_engine()
+        Base.metadata.create_all(engine)
+        _migrate(engine)
+        with session_factory()() as db:
+            have = {j.name for j in db.scalars(select(Job)).all()}
+            for name, color in (*SEED_JOBS, *ELMI_JOBS):
+                if name not in have:
+                    db.add(Job(name=name, color=color))
+            db.commit()
 
 
 def get_db() -> Generator[Session]:

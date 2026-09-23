@@ -1,29 +1,8 @@
-from pathlib import Path
+import json
 
 import httpx
 import pytest
 from fastapi.testclient import TestClient
-
-
-@pytest.fixture
-def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setenv("SIMPLE_ANNOTATOR_SQLITE", str(tmp_path / "t.sqlite"))
-    monkeypatch.setenv("GIRDER_TOKEN", "")
-    from simple_annotator import db
-
-    db.reset_engine()
-    from simple_annotator.main import create_app
-
-    app = create_app()
-    with TestClient(app) as c:
-        yield c
-    db.reset_engine()
-
-
-@pytest.fixture
-def auth(client: TestClient):
-    client.post("/auth/register", json={"username": "ada", "password": "secret"})
-    return client
 
 
 def test_register_login_and_me(client: TestClient):
@@ -55,15 +34,13 @@ def test_sticky_job_and_annotations(auth: TestClient):
     img = auth.get(f"/patches/{patch_id}/image")
     assert img.status_code == 200
     assert img.headers["content-type"] == "image/png"
-    body = {"job_id": tubule["id"], "elements": [{"type": "point", "points": [[10.0, 12.0]]}]}
-    saved = auth.post(f"/patches/{patch_id}/annotations", json=body)
+    element = {"id": "point", "jobId": tubule["id"], "type": "point", "points": [[10, 12]]}
+    saved = auth.patch(f"/patches/{patch_id}/annotations", json={"upsert": [element]})
     assert saved.status_code == 200
-    again = auth.post(
-        f"/patches/{patch_id}/annotations",
-        json={"job_id": tubule["id"], "elements": [{"type": "point", "points": [[11.0, 13.0]]}]},
-    )
+    element["points"] = [[11, 13]]
+    again = auth.patch(f"/patches/{patch_id}/annotations", json={"upsert": [element]})
     assert again.status_code == 200
-    assert again.json()["id"] == saved.json()["id"]
+    assert auth.get("/patches/current").json()["elements"] == [element]
     me = auth.get("/me").json()
     assert me["last_job_id"] == tubule["id"]
     assert me["done_count"] == 1
@@ -90,28 +67,34 @@ def test_annotation_polygon_holes(auth: TestClient):
     patch_id = auth.get("/patches/next").json()["id"]
     points = [[0.0, 0.0], [100.0, 0.0], [100.0, 100.0], [0.0, 100.0]]
     holes = [[[20.0, 20.0], [40.0, 20.0], [40.0, 40.0], [20.0, 40.0]]]
-    saved = auth.post(
+    saved = auth.patch(
         f"/patches/{patch_id}/annotations",
-        json={"job_id": 1, "elements": [{"type": "polygon", "points": points, "holes": holes}]},
+        json={
+            "upsert": [
+                {"id": "shape", "jobId": 1, "type": "polygon", "points": points, "holes": holes}
+            ]
+        },
     )
     assert saved.status_code == 200
     el = next(e for e in auth.get("/patches/current").json()["elements"] if e["type"] == "polygon")
     assert el["points"] == points
     assert el["holes"] == holes
-    again = auth.post(
+    again = auth.patch(
         f"/patches/{patch_id}/annotations",
-        json={"job_id": 1, "elements": [{"type": "point", "points": [[1.0, 2.0]]}]},
+        json={"upsert": [{"id": "shape", "jobId": 1, "type": "point", "points": [[1.0, 2.0]]}]},
     )
     assert again.status_code == 200
     loaded = auth.get("/patches/current").json()["elements"]
-    assert loaded == [{"type": "point", "points": [[1.0, 2.0]], "jobId": 1}]
+    assert [{k: v for k, v in e.items() if k != "id"} for e in loaded] == [
+        {"type": "point", "points": [[1.0, 2.0]], "jobId": 1}
+    ]
 
 
 def test_annotation_rejects_bad_type(auth: TestClient):
     patch_id = auth.get("/patches/next").json()["id"]
-    bad = auth.post(
+    bad = auth.patch(
         f"/patches/{patch_id}/annotations",
-        json={"job_id": 1, "elements": [{"type": "box", "points": [[0, 0]]}]},
+        json={"upsert": [{"jobId": 1, "type": "box", "points": [[0, 0]]}]},
     )
     assert bad.status_code == 400
 
@@ -200,13 +183,24 @@ def test_folder_migration_preserves_history(auth, monkeypatch, existing_columns,
     from sqlalchemy import text
 
     from simple_annotator import db
+    from simple_annotator.models import Annotation
 
     monkeypatch.setenv("GIRDER_FOLDER_ID", legacy_folder)
     first = auth.get("/patches/current").json()
     second = auth.get("/patches/next").json()
     auth.get("/patches/prev")
     element = {"type": "point", "points": [[10.0, 12.0]]}
-    auth.post(f"/patches/{first['id']}/annotations", json={"job_id": 1, "elements": [element]})
+
+    with db.session_factory()() as session:
+        session.add(
+            Annotation(
+                patch_id=first["id"],
+                user_id=auth.get("/me").json()["id"],
+                job_id=1,
+                elements=json.dumps([element]),
+            )
+        )
+        session.commit()
     with db.get_engine().begin() as conn:
         if legacy_folder:
             conn.execute(text("UPDATE patches SET girder_item_id = 'legacy-image'"))
@@ -222,7 +216,9 @@ def test_folder_migration_preserves_history(auth, monkeypatch, existing_columns,
     current = auth.get("/patches/current").json()
     assert current["id"] == first["id"]
     assert current["folder_id"] == (legacy_folder or "placeholder")
-    assert current["elements"] == [{**element, "jobId": 1}]
+    assert [{k: v for k, v in e.items() if k != "id"} for e in current["elements"]] == [
+        {**element, "jobId": 1}
+    ]
     assert auth.get("/patches/next").json()["id"] == second["id"]
     assert auth.get("/patches/prev").json()["id"] == first["id"]
 
@@ -231,15 +227,14 @@ def test_annotation_saves_preserve_selected_job(auth: TestClient):
     auth.patch("/me", json={"last_job_id": 2})
     patch_id = auth.get("/patches/current").json()["id"]
     path = f"/patches/{patch_id}/annotations"
-    for elements in ([{"type": "point", "points": [[10.0, 12.0]]}], []):
-        saved = auth.post(path, json={"job_id": 1, "elements": elements})
-        assert saved.status_code == 200
-        assert saved.json()["last_job_id"] == 2
+    element = {"id": "point", "jobId": 1, "type": "point", "points": [[10.0, 12.0]]}
+    for changes, expected in [({"upsert": [element]}, [element]), ({"delete": ["point"]}, [])]:
+        assert auth.patch(path, json=changes).status_code == 200
         assert auth.get("/me").json()["last_job_id"] == 2
         current = auth.get("/patches/current").json()
         assert current["job_id"] == 2
-        assert current["elements"] == [{**e, "jobId": 1} for e in elements]
-    assert auth.post(path, json={"job_id": -1, "elements": []}).status_code == 404
+        assert current["elements"] == expected
+    assert auth.patch(path, json={"upsert": [{**element, "jobId": -1}]}).status_code == 404
 
 
 def test_patch_calibration_follows_image_through_history(auth, monkeypatch):
@@ -260,3 +255,30 @@ def test_patch_calibration_follows_image_through_history(auth, monkeypatch):
     assert auth.get("/patches/prev").json()["nm_per_px"] == a["nm_per_px"]
     assert auth.get("/patches/current").json()["nm_per_px"] == a["nm_per_px"]
     assert auth.get("/patches/next").json()["nm_per_px"] == b["nm_per_px"]
+
+
+def test_legacy_annotations_keep_their_ids_when_edited_and_deleted(auth):
+    from simple_annotator.db import session_factory
+    from simple_annotator.models import Annotation
+
+    patch_id = auth.get("/patches/current").json()["id"]
+    user_id = auth.get("/me").json()["id"]
+    marks = [{"type": "point", "points": [[x, 10]]} for x in (10, 20, 30)]
+    marks[2]["id"] = "existing"
+    with session_factory()() as db:
+        db.add(Annotation(patch_id=patch_id, user_id=user_id, job_id=1, elements=json.dumps(marks)))
+        db.commit()
+    original = auth.get("/patches/current").json()["elements"]
+    edited = {**original[1], "points": [[25, 15]]}
+    response = auth.patch(
+        f"/patches/{patch_id}/annotations",
+        json={"upsert": [edited], "delete": [original[0]["id"]]},
+    )
+    assert response.status_code == 200
+    loaded = auth.get("/patches/current").json()["elements"]
+    assert {el["id"]: el for el in loaded} == {edited["id"]: edited, "existing": original[2]}
+    assert (
+        auth.patch(f"/patches/{patch_id}/annotations", json={"delete": [edited["id"]]}).status_code
+        == 200
+    )
+    assert auth.get("/patches/current").json()["elements"] == [original[2]]

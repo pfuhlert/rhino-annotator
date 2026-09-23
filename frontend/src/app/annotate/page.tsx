@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BrushSizeControl } from "@/components/BrushSizeControl";
 import PatchCanvas, { type AnnotatorApi } from "@/components/PatchCanvas";
 import FolderPicker from "@/components/FolderPicker";
@@ -16,6 +16,8 @@ import {
 } from "@/components/ui/select";
 import { api, type Job, type Me, type Patch } from "@/lib/api";
 import type { Tool } from "@/lib/draw";
+import { createAnnotationSync } from "@/lib/annotation-sync";
+import { useAi } from "@/lib/use-ai";
 import { isTypingTarget } from "@/lib/keys";
 
 const TOOLS = [
@@ -40,11 +42,21 @@ export default function AnnotatePage() {
   const [busy, setBusy] = useState(false);
   const toggleMenu = (id: Menu) => (open: boolean) =>
     setOpenMenu(open ? id : (cur) => (cur === id ? null : cur));
+  const keyHandler = useRef<(e: KeyboardEvent) => void>(() => {});
   const annoRef = useRef<AnnotatorApi | null>(null);
   const patchRef = useRef<Patch | null>(null);
   const jobIdRef = useRef<number | null>(null);
   const saveTimer = useRef<number>(0);
-  const jobsOnPatch = useRef<Set<number>>(new Set());
+  const sync = useRef<ReturnType<typeof createAnnotationSync> | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const ai = useAi(patch?.id, (elements, sourcePatchId) => {
+    if (patchRef.current?.id === sourcePatchId) annoRef.current?.add(elements);
+  });
+  const pending = useMemo(
+    () => ai.tasks.filter((t) => t.patch_id === patch?.id),
+    [ai.tasks, patch?.id],
+  );
+  const supportsAi = !!jobs.find((j) => j.id === jobId)?.ai;
 
   useEffect(() => {
     patchRef.current = patch;
@@ -52,11 +64,12 @@ export default function AnnotatePage() {
   }, [patch, jobId]);
 
   const showPatch = useCallback((next: Patch) => {
+    patchRef.current = next;
+    annoRef.current = null;
+    sync.current = createAnnotationSync(next.elements, (changes) => api.edit(next.id, changes));
     setPatch(next);
     if (next.job_id) setJobId(next.job_id);
     if (next.folder_id) setFolderId(next.folder_id);
-    jobsOnPatch.current = new Set(next.elements.map((e) => e.jobId));
-    if (next.job_id) jobsOnPatch.current.add(next.job_id);
   }, []);
 
   const loadPatch = useCallback(
@@ -93,35 +106,31 @@ export default function AnnotatePage() {
   }
 
   async function persist() {
-    const cur = patchRef.current;
-    const jid = jobIdRef.current;
-    if (!cur || jid == null) return;
-    const marks = annoRef.current?.toElements() ?? [];
-    const groups = new Map<number, typeof marks>();
-    for (const mark of marks) {
-      const list = groups.get(mark.jobId) || [];
-      list.push(mark);
-      groups.set(mark.jobId, list);
-      jobsOnPatch.current.add(mark.jobId);
+    const saver = sync.current;
+    if (!saver || !annoRef.current) return;
+    try {
+      await saver.save(annoRef.current.toElements());
+      setSaveError(null);
+      setMe(await api.me());
+    } catch (error) {
+      setSaveError("Changes could not be saved. Please retry before leaving.");
+      throw error;
     }
-    jobsOnPatch.current.add(jid);
-    const allowed = new Set(jobs.map((j) => j.id));
-    for (const id of jobsOnPatch.current) {
-      if (!allowed.has(id)) continue;
-      await api.save(
-        cur.id,
-        id,
-        (groups.get(id) ?? []).map(({ type, points, holes }) =>
-          holes?.length ? { type, points, holes } : { type, points },
-        ),
-      );
-    }
-    setMe(await api.me());
+  }
+
+  function cancelLatestPending() {
+    const task = pending.findLast((t) => t.status !== "failed");
+    if (task) void ai.cancel(task.id);
+    return !!task;
+  }
+
+  function undo() {
+    if (!cancelLatestPending()) annoRef.current?.undo();
   }
 
   function queueSave() {
     window.clearTimeout(saveTimer.current);
-    saveTimer.current = window.setTimeout(() => void persist(), 200);
+    saveTimer.current = window.setTimeout(() => void persist().catch(() => {}), 200);
   }
 
   const finish = useCallback(
@@ -134,6 +143,8 @@ export default function AnnotatePage() {
         window.clearTimeout(saveTimer.current);
         await persist();
         await loadPatch(kind);
+      } catch {
+        // Keep the current image open when saving fails.
       } finally {
         setBusy(false);
       }
@@ -155,36 +166,52 @@ export default function AnnotatePage() {
       const nextId = jobList.find((j) => j.id === jobIdRef.current)?.id ?? jobList[0]?.id;
       if (nextId != null && nextId !== jobIdRef.current) await switchJob(nextId);
       await loadPatch("current");
+    } catch {
+      setSaveError("Could not switch datasets. Please retry.");
     } finally {
       setBusy(false);
     }
   }
 
   useEffect(() => {
-    function onKey(e: KeyboardEvent) {
+    keyHandler.current = (e: KeyboardEvent) => {
       if (isTypingTarget(e.target)) return;
       const k = e.key.toLowerCase();
       if (k === "tab") {
         e.preventDefault();
         const dir = e.shiftKey ? -1 : 1;
-        setTool((cur) => TOOL_IDS[(TOOL_IDS.indexOf(cur) + dir + TOOL_IDS.length) % TOOL_IDS.length]);
+        setTool(
+          (cur) => TOOL_IDS[(TOOL_IDS.indexOf(cur) + dir + TOOL_IDS.length) % TOOL_IDS.length],
+        );
         return;
       }
-      if (k === "p") setTool("point");
-      if (k === "l") setTool("polygon");
-      if (k === "r") setTool("brush");
+      if (k === "escape") cancelLatestPending();
+      if (!e.ctrlKey && !e.metaKey && !e.altKey && ["p", "l", "r"].includes(k)) {
+        e.preventDefault();
+        e.stopPropagation();
+        setTool(k === "p" ? "point" : k === "l" ? "polygon" : "brush");
+        return;
+      }
       if ((k === "z" || k === "y") && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
         if (k === "y" || e.shiftKey) annoRef.current?.redo();
-        else annoRef.current?.undo();
+        else undo();
       }
       if (e.metaKey || e.ctrlKey) return;
-      if (k === "n" || k === "f") void finish("next");
-      if (k === "b" || k === "arrowleft") void finish("prev");
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [finish]);
+      const direction =
+        k === "n" || k === "f" ? "next" : k === "b" || k === "arrowleft" ? "prev" : null;
+      if (direction) {
+        e.preventDefault();
+        e.stopPropagation();
+        void finish(direction);
+      }
+    };
+  });
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => keyHandler.current(e);
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, []);
 
   if (!me || !patch || jobId == null) {
     return (
@@ -232,10 +259,16 @@ export default function AnnotatePage() {
         </>
       }
     >
-      <main data-testid="annotate-app" className="relative flex min-h-0 w-full flex-1 flex-col overflow-hidden bg-black">
+      <main
+        data-testid="annotate-app"
+        className="relative flex min-h-0 w-full flex-1 flex-col overflow-hidden bg-black"
+      >
         <PatchCanvas
           key={patch.id}
           src={patch.image_url}
+          pending={pending}
+          onAiPoint={supportsAi ? ([x, y]) => ai.submit(patch.id, jobId, x, y) : undefined}
+          onRemote={(elements) => sync.current?.accept(elements)}
           nmPerPixel={patch.nm_per_px}
           jobId={jobId}
           jobs={jobs}
@@ -248,6 +281,69 @@ export default function AnnotatePage() {
           }}
           onChange={queueSave}
         />
+        {(supportsAi || ai.tasks.length > 0) && (
+          <details
+            className="absolute right-4 top-4 z-20 max-w-sm rounded-md border bg-background/95 px-3 py-2 text-sm shadow"
+            data-testid="ai-queue"
+          >
+            <summary className="cursor-pointer" aria-live="polite">
+              {ai.tasks.length
+                ? `AI · ${ai.tasks.filter((t) => t.status !== "failed").length} pending${ai.tasks.some((t) => t.status === "failed") ? " · needs attention" : ""}`
+                : ai.worker === "ready"
+                  ? "AI ready"
+                  : ai.worker === "loading"
+                    ? "AI warming up…"
+                    : "AI offline"}
+            </summary>
+            <div className="max-h-64 space-y-2 overflow-auto pt-2">
+              {ai.tasks.length === 0 && (
+                <p className="text-xs text-muted-foreground">
+                  Click inside a structure with Point (P). AI replaces the dot with its outline. R
+                  switches to the brush.
+                </p>
+              )}
+              {ai.tasks.map((task) => (
+                <div key={task.id} className="flex items-center gap-2 text-xs">
+                  <span className="min-w-0 flex-1">
+                    {task.error ||
+                      `${task.patch_id === patch.id ? "This image" : `Image ${task.patch_id}`} · ${task.status}`}
+                  </span>
+                  {task.status === "failed" && (
+                    <button
+                      className="underline"
+                      onClick={() => {
+                        void ai.cancel(task.id).then((ok) => {
+                          if (ok) ai.submit(task.patch_id, task.job_id, task.x, task.y);
+                        });
+                      }}
+                    >
+                      Retry
+                    </button>
+                  )}
+                  <button
+                    className="underline"
+                    data-testid={`ai-cancel-${task.id}`}
+                    aria-label="Cancel AI annotation"
+                    onClick={() => void ai.cancel(task.id)}
+                  >
+                    {task.status === "failed" ? "Dismiss" : "Cancel"}
+                  </button>
+                </div>
+              ))}
+            </div>
+          </details>
+        )}
+        {saveError && (
+          <div
+            role="alert"
+            className="absolute left-4 top-4 z-20 rounded bg-background p-3 text-sm"
+          >
+            {saveError}{" "}
+            <button className="underline" onClick={() => void persist().catch(() => {})}>
+              Retry save
+            </button>
+          </div>
+        )}
         <footer className="pointer-events-none absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-black/70 to-transparent px-4 py-4">
           <div className="pointer-events-auto flex flex-wrap items-center justify-center gap-2">
             <Button
@@ -304,7 +400,7 @@ export default function AnnotatePage() {
                 onOpenChange={toggleMenu("size")}
               />
             )}
-            <Button data-testid="undo" variant="outline" onClick={() => annoRef.current?.undo()}>
+            <Button data-testid="undo" variant="outline" onClick={undo}>
               Undo (Ctrl+Z)
             </Button>
             <Button data-testid="redo" variant="outline" onClick={() => annoRef.current?.redo()}>

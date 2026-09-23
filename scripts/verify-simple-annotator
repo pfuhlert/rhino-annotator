@@ -3,14 +3,14 @@ import { createConnection } from "node:net";
 import { spawn, spawnSync } from "node:child_process";
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const artifacts = path.join(root, ".cursor/skills/verify-simple-annotator/artifacts");
 const defaultState = path.join("/tmp", "simple-annotator-verify-state.json");
 const pwBrowsers = process.env.VERIFY_PLAYWRIGHT_BROWSERS || "/tmp/simple-annotator-playwright";
 const pwArgs = ["--no-sandbox", "--disable-dev-shm-usage"];
-const verbs = new Set(["goto", "fill", "click", "wait", "select", "drag", "press", "screenshot", "snapshot", "me"]);
+const verbs = new Set(["goto", "fill", "click", "hover", "wait", "select", "drag", "press", "screenshot", "snapshot", "me", "script"]);
 
 function statePath() {
   return process.env.VERIFY_STATE || defaultState;
@@ -20,8 +20,8 @@ function storagePath() {
   return process.env.VERIFY_STORAGE || "/tmp/simple-annotator-verify-storage.json";
 }
 
-function nextVerifyDir() {
-  return path.join(root, "frontend", ".next-verify");
+function nextVerifyDir(state) {
+  return path.join(root, "frontend", state.distDir || ".next-verify");
 }
 
 function defaultPath() {
@@ -93,9 +93,9 @@ function stopPid(pid) {
   }
 }
 
-function stopVerifyTree(pid) {
-  stopPid(pid);
-  const lock = path.join(nextVerifyDir(), "dev", "lock");
+function stopVerifyTree(state) {
+  stopPid(state.pid);
+  const lock = path.join(nextVerifyDir(state), "dev", "lock");
   if (!existsSync(lock)) return;
   try {
     stopPid(JSON.parse(readFileSync(lock, "utf8")).pid);
@@ -112,6 +112,7 @@ async function cmdUp() {
     }
   }
   const runId = process.env.VERIFY_RUN_ID || `${Date.now()}`;
+  const distDir = `.next-verify/${runId.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
   const webPort = await freePort(Number(process.env.VERIFY_WEB_PORT || 3100));
   const apiPort = await freePort(Number(process.env.VERIFY_API_PORT || 8100));
   if ([3000, 8000].includes(webPort) || [3000, 8000].includes(apiPort)) {
@@ -126,16 +127,22 @@ async function cmdUp() {
     API_PORT: String(apiPort),
     WEB_PORT: String(webPort),
     NEXT_PUBLIC_API_URL: apiUrl,
-    NEXT_DIST_DIR: ".next-verify",
+    NEXT_DIST_DIR: distDir,
     SIMPLE_ANNOTATOR_SQLITE: sqlite,
     UV_CACHE_DIR: process.env.UV_CACHE_DIR || "/tmp/uv-cache",
   };
   env.GIRDER_TOKEN = "";
+  if (process.env.VERIFY_GIRDER_API_URL) {
+    const fixture = new URL(process.env.VERIFY_GIRDER_API_URL);
+    if (fixture.hostname !== "127.0.0.1") throw new Error("fixture image source must be local");
+    env.GIRDER_API_URL = fixture.href.replace(/\/$/, "");
+    env.GIRDER_TOKEN = "verify-fixture";
+  }
   mkdirSync(path.dirname(sqlite), { recursive: true });
   mkdirSync(artifacts, { recursive: true });
   writeFileSync(log, "");
   const fd = openSync(log, "a");
-  const child = spawn(process.execPath, [path.join(root, "scripts/dev.mjs")], {
+  const child = spawn("npm", ["run", "dev"], {
     cwd: root,
     env,
     detached: true,
@@ -143,13 +150,13 @@ async function cmdUp() {
   });
   closeSync(fd);
   child.unref();
-  const state = { runId, pid: child.pid, apiPort, webPort, sqlite, apiUrl, webUrl, log };
+  const state = { runId, distDir, pid: child.pid, apiPort, webPort, sqlite, apiUrl, webUrl, log };
   saveState(state);
   try {
     await waitHttp(`${apiUrl}/health`);
     await waitHttp(webUrl);
   } catch (err) {
-    stopVerifyTree(child.pid);
+    stopVerifyTree(state);
     const extra = tailLog(log);
     throw extra ? new Error(`${err.message}\n${extra}`) : err;
   }
@@ -198,9 +205,9 @@ function cmdDown() {
     return;
   }
   const state = JSON.parse(readFileSync(statePath(), "utf8"));
-  stopVerifyTree(state.pid);
+  stopVerifyTree(state);
   if (state.sqlite && existsSync(state.sqlite)) rmSync(state.sqlite, { force: true });
-  const nextDir = nextVerifyDir();
+  const nextDir = nextVerifyDir(state);
   if (existsSync(nextDir)) rmSync(nextDir, { recursive: true, force: true });
   rmSync(statePath(), { force: true });
   const storage = storagePath();
@@ -279,13 +286,29 @@ function writeOut(file, body) {
 
 async function applyStep(page, state, step) {
   const f = step.flags;
+  if (step.action === "script") {
+    const check = await import(pathToFileURL(path.resolve(f.file)).href);
+    return check.default(page, state);
+  }
   if (step.action === "goto") return page.goto(f.path || defaultPath());
   if (step.action === "fill") return page.getByTestId(f.testid).fill(f.value);
-  if (step.action === "click") {
+  if (step.action === "click" || step.action === "hover") {
     const loc = page.getByTestId(f.testid);
-    return f.at ? loc.click({ position: xy(f.at) }) : loc.click();
+    return loc[step.action](f.at ? { position: xy(f.at) } : {});
   }
   if (step.action === "wait") {
+    if (f.cursor) {
+      return page.waitForFunction(({ id, cursor }) => {
+        const el = document.querySelector(`[data-testid="${id}"]`);
+        return el && getComputedStyle(el).cursor === cursor;
+      }, { id: f.testid, cursor: f.cursor });
+    }
+    if (f.image !== undefined) {
+      return page.waitForFunction((id) => {
+        const img = document.querySelector(`[data-testid="${id}"] img`);
+        return img?.complete && img.naturalWidth > 0;
+      }, f.testid);
+    }
     let loc = page.getByTestId(f.testid);
     if (f.text) loc = loc.filter({ hasText: f.text });
     return loc.waitFor({ timeout: Number(f.timeout || 15000) });
@@ -306,6 +329,7 @@ async function applyStep(page, state, step) {
     const pts = [xy(f.from), ...(f.via ? [xy(f.via)] : []), xy(f.to)];
     await loc.hover({ position: pts[0] });
     await page.mouse.down();
+    if (f.pause) await page.waitForTimeout(Math.min(2000, Number(f.pause)));
     for (const p of pts.slice(1)) await page.mouse.move(box.x + p.x, box.y + p.y, { steps: 8 });
     await page.mouse.up();
     if (f.shift !== undefined) await page.keyboard.up("Shift");
@@ -328,7 +352,7 @@ async function applyStep(page, state, step) {
 
 async function runSteps(page, state, args, land = false) {
   const steps = parseSteps(args);
-  if (!steps.length) throw new Error("browser needs goto|fill|click|wait|select|drag|press|screenshot|snapshot|me");
+  if (!steps.length) throw new Error("browser needs goto|fill|click|hover|wait|select|drag|press|screenshot|snapshot|me");
   if (land && steps[0].action !== "goto") await page.goto(defaultPath());
   for (const step of steps) await applyStep(page, state, step);
 }

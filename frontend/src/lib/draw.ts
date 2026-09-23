@@ -1,13 +1,7 @@
-import type { Job } from "@/lib/api";
+import type { AiTask, Element, Job } from "@/lib/api";
 
 export type Tool = "point" | "polygon" | "brush";
-export type Mark = {
-  id: string;
-  type: "point" | "polygon";
-  points: [number, number][];
-  holes?: [number, number][][];
-  jobId: number;
-};
+export type Mark = Element;
 
 export function polyRings(m: Mark): [number, number][][] {
   return m.holes?.length ? [m.points, ...m.holes] : [m.points];
@@ -66,7 +60,10 @@ export function screenPoint(e: PointerEvent, s: Space): [number, number] {
 }
 
 export function imageToScreen(p: [number, number], s: Space): [number, number] {
-  return [p[0] * s.scale + s.ox + (s.imgLeft - s.rootLeft), p[1] * s.scale + s.oy + (s.imgTop - s.rootTop)];
+  return [
+    p[0] * s.scale + s.ox + (s.imgLeft - s.rootLeft),
+    p[1] * s.scale + s.oy + (s.imgTop - s.rootTop),
+  ];
 }
 
 export function setupCanvas(canvas: HTMLCanvasElement, root: HTMLElement) {
@@ -149,6 +146,7 @@ function draftStroke(ctx: CanvasRenderingContext2D, pts: [number, number][], col
 }
 
 export type SceneOpts = {
+  pending?: AiTask[];
   draft?: [number, number][];
   draftColor?: string;
   hoverId?: string | null;
@@ -157,7 +155,6 @@ export type SceneOpts = {
   tool?: Tool;
   aim?: {
     p: [number, number];
-    tool: Tool;
     r: number;
     color: string;
     points?: [number, number][];
@@ -203,34 +200,16 @@ function brushStroke(
   ctx.restore();
 }
 
-function toolGlyph(ctx: CanvasRenderingContext2D, x: number, y: number, tool: Tool, r: number) {
+function brushCursor(ctx: CanvasRenderingContext2D, x: number, y: number, r: number) {
   ctx.save();
-  ctx.lineCap = "round";
-  ctx.lineJoin = "round";
-  const ring = (w: number, color: string) => {
-    ctx.strokeStyle = color;
-    ctx.lineWidth = w;
-    if (tool === "point") {
-      ctx.beginPath();
-      ctx.arc(x, y, 3.5, 0, Math.PI * 2);
-      ctx.fillStyle = color;
-      ctx.fill();
-      ctx.stroke();
-    } else if (tool === "polygon") {
-      ctx.beginPath();
-      ctx.moveTo(x - 8, y);
-      ctx.lineTo(x + 8, y);
-      ctx.moveTo(x, y - 8);
-      ctx.lineTo(x, y + 8);
-      ctx.stroke();
-    } else {
-      ctx.beginPath();
-      ctx.arc(x, y, r, 0, Math.PI * 2);
-      ctx.stroke();
-    }
-  };
-  ring(3.5, "#111");
-  ring(1.5, "#fff");
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.strokeStyle = "#111";
+  ctx.lineWidth = 3.5;
+  ctx.stroke();
+  ctx.strokeStyle = "#fff";
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
   ctx.restore();
 }
 
@@ -275,6 +254,21 @@ export function paintScene(
       }
     }
   }
+  for (const task of opts.pending ?? []) {
+    const [x, y] = imageToScreen([task.x, task.y], s);
+    ctx.beginPath();
+    ctx.arc(x, y, 9, 0, Math.PI * 2);
+    ctx.strokeStyle =
+      task.status === "failed"
+        ? "#f87171"
+        : (jobs.find((j) => j.id === task.job_id)?.color ?? "#fff");
+    ctx.lineWidth = 2;
+    ctx.setLineDash([3, 3]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = ctx.strokeStyle;
+    ctx.fillRect(x - 2, y - 2, 4, 4);
+  }
   const aim = opts.aim;
   if (aim?.points?.length) brushStroke(ctx, aim.points, aim.r, s, aim.color, !!aim.erase);
   if (!fillOnly && opts.insertAt) {
@@ -290,6 +284,6 @@ export function paintScene(
   if (draft.length > 1) draftStroke(ctx, draft, opts.draftColor || "#fafafa");
   if (aim) {
     const [x, y] = imageToScreen(aim.p, s);
-    toolGlyph(ctx, x, y, aim.tool, aim.r * s.scale);
+    brushCursor(ctx, x, y, aim.r * s.scale);
   }
 }

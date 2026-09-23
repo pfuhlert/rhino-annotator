@@ -1,0 +1,165 @@
+import json
+import math
+import time
+from uuid import UUID
+
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
+
+from simple_annotator.annotations import (
+    Changes,
+    ai_element_id,
+    apply_changes,
+    elements,
+    lock,
+    require_patch,
+)
+from simple_annotator.auth import current_user
+from simple_annotator.config import AI_PROFILES
+from simple_annotator.db import get_db
+from simple_annotator.girder import image_nm_per_px
+from simple_annotator.models import AiTask, AiWorker, Job, Patch, User
+
+router = APIRouter(prefix="/patches")
+
+
+class Prompt(BaseModel):
+    id: UUID
+    job_id: int
+    x: float
+    y: float
+
+
+def task_json(task: AiTask) -> dict:
+    point = json.loads(task.input)
+    return {
+        "id": task.id,
+        "patch_id": task.patch_id,
+        "job_id": task.job_id,
+        "x": point["x"],
+        "y": point["y"],
+        "status": task.status,
+        "error": task.error,
+        "elapsed_ms": task.elapsed_ms,
+    }
+
+
+@router.get("/ai")
+def status(
+    patch_id: int,
+    after: float = 0,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    require_patch(db, user.id, patch_id)
+    worker = db.get(AiWorker, 1)
+    available = bool(worker and time.time() - worker.updated < 15)
+    tasks = db.scalars(
+        select(AiTask)
+        .where(
+            AiTask.user_id == user.id,
+            (AiTask.status.in_(["queued", "running", "failed"]))
+            | (
+                (AiTask.patch_id == patch_id)
+                & (AiTask.status == "done")
+                & (AiTask.finished > after)
+            ),
+        )
+        .order_by(AiTask.created)
+    ).all()
+    done = {ai_element_id(t.id) for t in tasks if t.status == "done"}
+    return {
+        "cursor": max((t.finished or 0 for t in tasks), default=after),
+        "worker": worker.status if available else "offline",
+        "tasks": [task_json(t) for t in tasks if t.status != "done"],
+        "elements": [el for el in elements(db, user.id, patch_id) if el["id"] in done]
+        if done
+        else [],
+    }
+
+
+@router.post("/{patch_id}/ai", status_code=202)
+def enqueue(
+    patch_id: int,
+    body: Prompt,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    require_patch(db, user.id, patch_id)
+    task_id = str(body.id)
+    patch = db.get(Patch, patch_id)
+    scale = image_nm_per_px(patch.girder_item_id)
+    lock(db)
+    old = db.get(AiTask, task_id)
+    if old:
+        saved = task_json(old)
+        if (
+            old.user_id != user.id
+            or old.patch_id != patch_id
+            or old.job_id != body.job_id
+            or saved["x"] != body.x
+            or saved["y"] != body.y
+        ):
+            raise HTTPException(409, "request ID already used")
+        return saved
+    job = db.get(Job, body.job_id)
+    profile = AI_PROFILES.get(job.name) if job else None
+    if not profile:
+        raise HTTPException(400, "AI is not configured for this job")
+    if not (
+        math.isfinite(body.x)
+        and math.isfinite(body.y)
+        and 0 <= body.x < patch.width
+        and 0 <= body.y < patch.height
+    ):
+        raise HTTPException(400, "click must be inside the image")
+    worker = db.get(AiWorker, 1)
+    if not worker or time.time() - worker.updated >= 15:
+        raise HTTPException(503, "AI worker is offline")
+    count = db.scalar(
+        select(func.count())
+        .select_from(AiTask)
+        .where(AiTask.user_id == user.id, AiTask.status.in_(["queued", "running"]))
+    )
+    if count >= 32:
+        raise HTTPException(429, "AI queue is full; please let a few annotations finish")
+    task = AiTask(
+        id=task_id,
+        user_id=user.id,
+        patch_id=patch_id,
+        job_id=body.job_id,
+        status="queued",
+        created=time.time(),
+        input=json.dumps(
+            {
+                **profile,
+                "x": body.x,
+                "y": body.y,
+                "nm_per_px": scale,
+                "item_id": patch.girder_item_id,
+                "left": patch.left,
+                "top": patch.top,
+                "width": patch.width,
+                "height": patch.height,
+            }
+        ),
+    )
+    db.add(task)
+    db.commit()
+    return task_json(task)
+
+
+@router.delete("/ai/{task_id}")
+def cancel(task_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
+    lock(db)
+    task = db.get(AiTask, task_id)
+    if not task or task.user_id != user.id:
+        raise HTTPException(404, "AI task not found")
+    # Completion may win the race with Cancel; remove its annotation in the same transaction.
+    if task.status == "done":
+        apply_changes(db, user.id, task.patch_id, Changes(delete=[ai_element_id(task.id)]))
+    task.status = "cancelled"
+    db.commit()
+    return {"ok": True}

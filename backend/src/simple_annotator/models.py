@@ -62,3 +62,26 @@ class PatchVisit(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
     patch_id: Mapped[int] = mapped_column(ForeignKey("patches.id"))
     folder_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+
+class AiTask(Base):
+    __tablename__ = "ai_tasks"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    patch_id: Mapped[int] = mapped_column(ForeignKey("patches.id"), index=True)
+    job_id: Mapped[int] = mapped_column(ForeignKey("jobs.id"))
+    status: Mapped[str] = mapped_column(String(16), index=True)
+    created: Mapped[float]
+    input: Mapped[str] = mapped_column(Text)
+    error: Mapped[str | None]
+    elapsed_ms: Mapped[int | None]
+    finished: Mapped[float | None]
+
+
+class AiWorker(Base):
+    __tablename__ = "ai_worker"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    updated: Mapped[float]
+    status: Mapped[str]

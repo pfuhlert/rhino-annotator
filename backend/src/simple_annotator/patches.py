@@ -1,38 +1,15 @@
-import json
-
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
-from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from simple_annotator.auth import current_user, require_job
+from simple_annotator.annotations import Changes, apply_changes, elements, lock, require_patch
+from simple_annotator.auth import current_user
 from simple_annotator.db import get_db
 from simple_annotator.girder import PLACEHOLDER_FOLDER, fetch_image, image_nm_per_px, pick_region
-from simple_annotator.models import Annotation, Patch, PatchVisit, User
+from simple_annotator.models import Patch, PatchVisit, User
 
 router = APIRouter(prefix="/patches")
-
-
-class Element(BaseModel):
-    type: str
-    points: list[list[float]]
-    holes: list[list[list[float]]] = []
-
-
-class AnnotationIn(BaseModel):
-    job_id: int
-    elements: list[Element] = []
-
-
-def _elements(db: Session, user: User, patch_id: int) -> list[dict]:
-    out: list[dict] = []
-    for row in db.scalars(
-        select(Annotation).where(Annotation.patch_id == patch_id, Annotation.user_id == user.id)
-    ):
-        for el in json.loads(row.elements):
-            out.append({**el, "jobId": row.job_id})
-    return out
 
 
 def _dump(db: Session, user: User, patch: Patch, visit: PatchVisit) -> dict:
@@ -52,7 +29,7 @@ def _dump(db: Session, user: User, patch: Patch, visit: PatchVisit) -> dict:
         "image_url": f"/patches/{patch.id}/image",
         "nm_per_px": image_nm_per_px(patch.girder_item_id),
         "has_prev": prev is not None,
-        "elements": _elements(db, user, patch.id),
+        "elements": elements(db, user.id, patch.id),
     }
 
 
@@ -157,37 +134,15 @@ def patch_image(
     return Response(content=data, media_type="image/png")
 
 
-@router.post("/{patch_id}/annotations")
-def save_annotations(
+@router.patch("/{patch_id}/annotations")
+def edit_annotations(
     patch_id: int,
-    body: AnnotationIn,
+    body: Changes,
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
 ) -> dict:
-    patch = db.get(Patch, patch_id)
-    if not patch:
-        raise HTTPException(404, "patch not found")
-    if any(el.type not in {"point", "polygon"} for el in body.elements):
-        raise HTTPException(400, "invalid element type")
-    require_job(db, body.job_id)
-    row = db.scalar(
-        select(Annotation).where(
-            Annotation.patch_id == patch.id,
-            Annotation.user_id == user.id,
-            Annotation.job_id == body.job_id,
-        )
-    )
-    if not body.elements:
-        if row:
-            db.delete(row)
-        db.commit()
-        return {"id": None, "last_job_id": user.last_job_id}
-    payload = json.dumps([el.model_dump(exclude_defaults=True) for el in body.elements])
-    if row:
-        row.elements = payload
-    else:
-        row = Annotation(patch_id=patch.id, user_id=user.id, job_id=body.job_id, elements=payload)
-        db.add(row)
+    require_patch(db, user.id, patch_id)
+    lock(db)
+    apply_changes(db, user.id, patch_id, body)
     db.commit()
-    db.refresh(row)
-    return {"id": row.id, "last_job_id": user.last_job_id}
+    return {"ok": True}

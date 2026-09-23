@@ -30,6 +30,7 @@ function loadDotenv(file) {
 }
 
 loadDotenv(path.join(root, ".env"));
+const withAi = process.env.SIMPLE_ANNOTATOR_AI !== "0";
 
 const apiPort = process.env.API_PORT || "8000";
 const webPort = process.env.WEB_PORT || "3000";
@@ -56,19 +57,19 @@ function ensureUv() {
   if (["nfs", "nfs4", "ceph"].includes(fstype())) {
     mkdirSync(env.VIRTUAL_ENV, { recursive: true });
   }
-  const sync = spawnSync("uv", ["sync"], { cwd: backend, env, stdio: "inherit" });
+  const sync = spawnSync("uv", ["sync", "--inexact", ...(withAi ? ["--extra", "ai"] : [])], { cwd: backend, env, stdio: "inherit" });
   if (sync.status !== 0) process.exit(sync.status ?? 1);
   return env;
 }
 
 const children = [];
 
-function start(cmd, args, opts) {
+function start(cmd, args, opts, optional = false) {
   const child = spawn(cmd, args, { stdio: "inherit", ...opts });
   children.push(child);
   child.on("exit", (code, signal) => {
     if (signal) return;
-    if (code && code !== 0) {
+    if (code && code !== 0 && !optional) {
       for (const c of children) {
         if (!c.killed) c.kill("SIGTERM");
       }
@@ -92,9 +93,13 @@ const uvArgs = ["nfs", "nfs4", "ceph"].includes(fstype()) ? ["run", "--active"] 
 
 start(
   "uv",
-  [...uvArgs, "uvicorn", "simple_annotator.main:app", "--reload", "--host", "127.0.0.1", "--port", apiPort],
+  [...uvArgs, "--no-sync", "uvicorn", "simple_annotator.main:app", "--reload", "--host", "127.0.0.1", "--port", apiPort],
   { cwd: backend, env: { ...env, PYTHONPATH: path.join(backend, "src") } },
 );
+
+if (withAi) {
+  start("uv", [...uvArgs, "--no-sync", "python", "-m", "simple_annotator.ai_worker"], { cwd: backend, env }, true);
+}
 
 if (!apiOnly) {
   if (!existsSync(path.join(frontend, "package.json"))) {

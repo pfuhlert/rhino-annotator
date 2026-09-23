@@ -1,14 +1,17 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { Element, Job } from "@/lib/api";
-import { withHoles, type Mark, type Tool } from "@/lib/draw";
+import type { AiTask, Element, Job } from "@/lib/api";
+import { type Mark, type Tool } from "@/lib/draw";
 import { useFreehand } from "@/lib/freehand";
 import { createHistory } from "@/lib/history";
 import { measureScaleBar } from "@/lib/scale-bar";
 
 type Props = {
   src: string;
+  pending?: AiTask[];
+  onAiPoint?: (point: [number, number]) => void;
+  onRemote?: (elements: Element[]) => void;
   nmPerPixel: number | null;
   jobId: number;
   jobs: Job[];
@@ -22,6 +25,7 @@ type Props = {
 
 export type AnnotatorApi = {
   toElements: () => Element[];
+  add: (elements: Element[]) => void;
   flush: () => void;
   undo: () => void;
   redo: () => void;
@@ -29,6 +33,9 @@ export type AnnotatorApi = {
 
 export default function PatchCanvas({
   src,
+  pending,
+  onAiPoint,
+  onRemote,
   nmPerPixel,
   jobId,
   jobs,
@@ -39,14 +46,7 @@ export default function PatchCanvas({
   onReady,
   onChange,
 }: Props) {
-  const [initial] = useState(() =>
-    (marks ?? []).map((m) =>
-      withHoles(
-        { id: crypto.randomUUID(), type: m.type, points: m.points as [number, number][], jobId: m.jobId },
-        m.holes as [number, number][][] | undefined,
-      ),
-    ),
-  );
+  const [initial] = useState(() => structuredClone(marks ?? []));
   const marksRef = useRef<Mark[]>(initial);
   const rootRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -63,6 +63,9 @@ export default function PatchCanvas({
   });
   const brush = useFreehand({
     rootRef,
+    pending,
+    onAiPoint,
+    onRemote,
     canvasRef,
     imgRef,
     tool,
@@ -95,8 +98,8 @@ export default function PatchCanvas({
 
   useEffect(() => {
     onReady?.({
-      toElements: () =>
-        marksRef.current.map(({ type, points, holes, jobId }) => ({ type, points, holes, jobId })),
+      add: (elements) => brush.add(elements),
+      toElements: () => marksRef.current,
       flush: () => brush.flush(),
       undo: () => restore(history.undo()),
       redo: () => restore(history.redo()),

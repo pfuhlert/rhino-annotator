@@ -37,3 +37,5 @@ Each feature file starts with an H1 and one paragraph, then exactly four H2 sect
 - [Switch job](./switch-job.md) covers changing the job on a patch and sticky `last_job_id`.
 - [Annotate and next](./annotate-submit.md) covers Tab tool cycle, point, polygon, brush, and `elements` types.
 - [Next without marks](./skip-patch.md) covers Next advancing without an annotation row.
+
+- [AI annotation](./ai-annotation.md) covers the background GPU queue, local TEM fixtures, and normal annotation editing.

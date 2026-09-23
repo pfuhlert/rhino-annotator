@@ -11,6 +11,16 @@ dependencies = [
     "uvicorn[standard]>=0.34",
 ]
 
+[project.optional-dependencies]
+ai = [
+    "numpy>=2",
+    "opencv-python-headless>=4.10",
+    "segment-anything==1.0",
+    "torch>=2.6,<3",
+    "torchvision>=0.21",
+    "xxhash>=3",
+]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

@@ -1,4 +1,4 @@
-export type Job = { id: number; name: string; color: string };
+export type Job = { id: number; name: string; color: string; ai?: boolean };
 export type Me = {
   id: number;
   username: string;
@@ -19,10 +19,26 @@ export type FolderLevel = {
   n_items: number;
   children: FolderChild[];
 };
+const AI_ELEMENT_PREFIX = "ai-";
+export function aiTaskId(elementId: string): string | null {
+  return elementId.startsWith(AI_ELEMENT_PREFIX) ? elementId.slice(AI_ELEMENT_PREFIX.length) : null;
+}
+
+export type AiWorkerState = "offline" | "loading" | "ready";
+export type AiTask = {
+  id: string;
+  patch_id: number;
+  job_id: number;
+  x: number;
+  y: number;
+  status: string;
+  error: string | null;
+};
 export type Element = {
+  id: string;
   type: "point" | "polygon";
-  points: number[][];
-  holes?: number[][][];
+  points: [number, number][];
+  holes?: [number, number][][];
   jobId: number;
 };
 export type Patch = {
@@ -43,7 +59,11 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(text || res.statusText);
+    let message = text;
+    try {
+      message = JSON.parse(text).detail || text;
+    } catch {}
+    throw Object.assign(new Error(message || res.statusText), { status: res.status });
   }
   return res.json() as Promise<T>;
 }
@@ -65,9 +85,16 @@ export const api = {
   currentPatch: () => req<Patch>("/patches/current"),
   nextPatch: () => req<Patch>("/patches/next"),
   prevPatch: () => req<Patch>("/patches/prev"),
-  save: (patchId: number, job_id: number, elements: { type: string; points: number[][]; holes?: number[][][] }[]) =>
-    req<{ id: number | null; last_job_id: number }>(`/patches/${patchId}/annotations`, {
-      method: "POST",
-      body: JSON.stringify({ job_id, elements }),
-    }),
+  aiStatus: (patchId: number, after = 0, signal?: AbortSignal) =>
+    req<{
+      cursor: number;
+      worker: AiWorkerState;
+      tasks: AiTask[];
+      elements: Element[];
+    }>(`/patches/ai?patch_id=${patchId}&after=${after}`, { signal }),
+  aiSubmit: (patchId: number, prompt: { id: string; job_id: number; x: number; y: number }) =>
+    req<AiTask>(`/patches/${patchId}/ai`, { method: "POST", body: JSON.stringify(prompt) }),
+  aiCancel: (id: string) => req(`/patches/ai/${id}`, { method: "DELETE" }),
+  edit: (patchId: number, changes: { upsert: Element[]; delete: string[] }) =>
+    req(`/patches/${patchId}/annotations`, { method: "PATCH", body: JSON.stringify(changes) }),
 };

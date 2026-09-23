@@ -5,8 +5,8 @@ Annotate and next records point, polygon, and brush marks on the current crop, t
 ## Sub-features
 
 - `tool-cycle` moves Point → Polygon → Brush with Tab (Shift+Tab reverses).
-- `tool-point` places a point with tool Point (P).
-- `tool-polygon` traces a polygon with tool Polygon (L).
+- `tool-point` places a point with tool Point (P); its fixed-size dot-and-ring cursor marks the exact click location.
+- `tool-polygon` traces a polygon with tool Polygon (L); a lasso cursor identifies the tool and a small crosshair marks the drawing position.
 - `tool-brush` paints a filled region with tool Brush (R); erase (Shift or right-drag) can cut a hole.
 - `next-empty` advances with zero marks.
 - `next-save` inserts an `annotations` row.
@@ -40,6 +40,10 @@ Preconditions:
   click --testid next \
   snapshot --out .cursor/skills/verify-simple-annotator/artifacts/mark-after.aria.txt
 ```
+
+Cursor check: choose Point and hover the canvas. Point and Polygon use native SVG cursors (hotspots 12,12 and 8,8); verify their computed cursor URL and asset response with `browser script`. Native cursors do not appear in screenshots. Press L, R, and P without moving the pointer to check tool switching. Brush draws its size circle on the canvas and uses `--cursor none`. Hover an existing annotation and assert `--cursor grab` to check its edit cursor.
+
+Shortcut regression: after selecting a job and closing the menu, press N/F to advance and B/ArrowLeft to return. The selected job must stay unchanged; the selector must not consume navigation keys as typeahead. Repeat P/L/R and Tab/Shift+Tab after job and image changes.
 
 - **Proof.** Screenshot after marks. `sqlite3 $(./scripts/verify-simple-annotator sqlite) 'select elements from annotations;'` includes `point` and `polygon`. Copy that output into `artifacts/` before `down`.
 

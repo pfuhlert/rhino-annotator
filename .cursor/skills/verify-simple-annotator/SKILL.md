@@ -7,9 +7,9 @@ description: Prove Simple annotator UI with ./scripts/verify-simple-annotator on
 
 `npm run dev` on `:3000`/`:8000` may already be running. **Leave it.** Do not stop, kill, or reuse that process.
 
-Run the helper on this host. It starts a second stack (ports from 3100/8100, `/tmp` SQLite, `frontend/.next-verify`). Cursor browser tools hit the laptop, not the pod.
+Run the helper on this host. It runs `npm run dev`, including the AI worker by default, in a second stack (ports from 3100/8100, `/tmp` SQLite, `frontend/.next-verify`). Cursor browser tools hit the laptop, not the pod.
 
-Keep all verification build output under `frontend/.next-verify/`, which ESLint excludes. Cleanup must target only the current run’s build directory; the helper’s default `down` deletes the entire `.next-verify/` tree.
+Keep all verification build output under `frontend/.next-verify/`, which ESLint excludes. Cleanup must target only the current run’s build directory; the helper records each run’s build directory and `down` deletes only that run’s directory.
 
 ## Run
 
@@ -48,6 +48,10 @@ One `browser` invocation is one session. Navigate with `goto --path`. Files use 
 
 Also: `fill --testid … --value …`, `select --testid job-switcher --option job-tubule`, `press --key Tab` (`Shift+Tab` reverses), `wait --testid tool-switcher --text "Brush (R)"`, `click --testid patch-canvas --at 640,360`, `drag --testid patch-canvas --from 500,220 --via 800,240 --to 640,500` (`--shift` erases). Use `login-proof` for register. Read `features/README.md` before other features.
 
+For assertions requiring network interception or canvas instrumentation, use `browser script --file /path/to/check.mjs`. The module exports `default async (page, state) => { ... }` and runs in the same isolated browser session.
+
 ## Evidence
 
 Write under `.cursor/skills/verify-simple-annotator/artifacts/` (survives `down`). Need the UI action plus `/me` or `sqlite3 $(./scripts/verify-simple-annotator sqlite)`. Do not POST `/auth/register` as login proof. Crops are placeholders (`GIRDER_TOKEN` unset).
+
+For real-image AI verification, use the localhost-only fixture described in [AI annotation](features/ai-annotation.md). All other runs keep the placeholder image source.

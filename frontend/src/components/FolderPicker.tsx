@@ -35,7 +35,13 @@ function FolderRow({
         {nItems > 0 ? <span className="ml-1 text-xs text-muted-foreground">{nItems}</span> : null}
       </button>
       {onUse && (
-        <Button type="button" size="xs" variant={active ? "default" : "outline"} onClick={onUse}>
+        <Button
+          data-testid={`use-folder-${id}`}
+          type="button"
+          size="xs"
+          variant={active ? "default" : "outline"}
+          onClick={onUse}
+        >
           {active ? "Used" : "Use"}
         </Button>
       )}

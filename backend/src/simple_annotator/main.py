@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from simple_annotator import auth, patches
+from simple_annotator import ai, auth, patches
 from simple_annotator.db import init_db
 
 
@@ -17,6 +17,7 @@ def create_app() -> FastAPI:
     )
     app.include_router(auth.router)
     app.include_router(auth.me_router)
+    app.include_router(ai.router)
     app.include_router(patches.router)
 
     @app.get("/health")
