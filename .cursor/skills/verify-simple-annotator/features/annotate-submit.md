@@ -7,6 +7,7 @@ Annotate and next records point, polygon, and brush marks on the current crop, t
 - `tool-cycle` moves Point → Polygon → Brush with Tab (Shift+Tab reverses).
 - `tool-point` places a point with tool Point (P); its fixed-size dot-and-ring cursor marks the exact click location.
 - `tool-polygon` traces a polygon with tool Polygon (L); a lasso cursor identifies the tool and a small crosshair marks the drawing position.
+- `image-boundaries` keeps new points, polygon drawing, vertex edits, and whole-shape movement inside the image. Outside starts are ignored; a partially overlapping brush remains usable. Whole-shape drags retain their grab offset when constrained by an edge.
 - `tool-brush` paints a filled region with tool Brush (R); erase (Shift or right-drag) can cut a hole.
 - `next-empty` advances with zero marks.
 - `next-save` inserts an `annotations` row.
@@ -41,9 +42,11 @@ Preconditions:
   snapshot --out .cursor/skills/verify-simple-annotator/artifacts/mark-after.aria.txt
 ```
 
-Cursor check: choose Point and hover the canvas. Point and Polygon use native SVG cursors (hotspots 12,12 and 8,8); verify their computed cursor URL and asset response with `browser script`. Native cursors do not appear in screenshots. Press L, R, and P without moving the pointer to check tool switching. Brush uses a native SVG circle scaled to the current brush radius and zoom. Circles exceeding the browser’s 128px cursor limit use a separate outline with `--cursor none`. Pointer movement must not repaint the annotation canvas; scrolling must keep the circle centered under the pointer. Hover an existing annotation and assert `--cursor grab` to check its edit cursor.
+Cursor check: choose Point and hover the canvas. Point and Polygon use native SVG cursors (hotspots 12,12 and 8,8); verify their computed cursor URL and asset response with `browser script`. Native cursors do not appear in screenshots. Press L, R, and P without moving the pointer to check tool switching. Brush uses a native SVG circle scaled to the current brush radius and zoom. Circles exceeding the browser’s 128px cursor limit, or crossing an image edge, use a separate outline clipped to the image with `--cursor none`. Point drags stop on the last valid image pixel; polygon outlines may reach the exact image edge. Point and Polygon show `not-allowed` in empty margins; Brush does too when its footprint no longer overlaps the image. Existing edge handles remain selectable. Pointer movement must not repaint the annotation canvas; scrolling must keep the circle centered under the pointer. Hover an existing annotation and assert `--cursor grab` to check its edit cursor.
 
-Brush cursor regression: run `./scripts/verify-simple-annotator browser script --file .cursor/skills/verify-simple-annotator/features/brush-cursor.mjs` after `login-proof`. It checks native and oversized cursors, pan/zoom clamping, wheel coordinates, resize, tool switching, zero bounds reads or canvas redraws during idle brush movement and leave, cached-origin updates, scale-bar mounting, polygon hover cleanup, toolbar layering, and paint/erase coverage while zoomed and panned. Evidence is written to `artifacts/brush-cursor-*`.
+Brush cursor regression: run `./scripts/verify-simple-annotator browser script --file .cursor/skills/verify-simple-annotator/features/brush-cursor.mjs` after `login-proof`. It checks native and oversized cursors, pan/zoom clamping, wheel coordinates, resize, tool switching, zero bounds reads or canvas redraws during idle brush movement and leave, one transform per visible outline movement with no visibility toggles, cached-origin updates, scale-bar mounting, polygon hover cleanup, toolbar layering, and paint/erase coverage while zoomed and panned. Evidence is written to `artifacts/brush-cursor-*`.
+
+Image boundary regression: run `./scripts/verify-simple-annotator browser script --file .cursor/skills/verify-simple-annotator/features/image-bounds.mjs` after `login-proof`. It closes the sidebar to expose the margins, checks outside starts and stationary tool changes, constrained drawing and editing, overshooting an edge and reversing without losing the grab offset, undo/redo and persistence, partial brush paint/erase and live preview clipping, and hover feedback after zoom and resize without pointer movement. Evidence is written to `artifacts/image-bounds-*`.
 
 Shortcut regression: after selecting a job and closing the menu, press N/F to advance and B/ArrowLeft to return. The selected job must stay unchanged; the selector must not consume navigation keys as typeahead. Repeat P/L/R and Tab/Shift+Tab after job and image changes.
 
@@ -51,7 +54,7 @@ Shortcut regression: after selecting a job and closing the menu, press N/F to ad
 
 ## Gotchas
 
-- `--at` / `--from` are CSS pixels on `patch-canvas`, not image pixels. Default verify window is 1280×720; a 1024 crop is letterboxed, so x < ~280 is gutter (`180,180` saved x=-142). Use ~`640,360` for a point.
+- `--at` / `--from` are CSS pixels on `patch-canvas`, not image pixels. Default verify window is 1280×720; a 1024 crop is letterboxed, so x < ~280 is gutter and cannot start a point or polygon. Close the sidebar to test that margin. Use ~`640,360` for a point.
 - A straight `drag` simplifies to fewer than 3 points and is dropped. Use `--via` so the path has three corners.
 - Tab is handled on `window`; do not Tab while a select is open.
 - `select` waits for the menu to close; a drag right after an option click otherwise loses `pointerdown` to the dismiss layer.

@@ -9,14 +9,20 @@ import {
   paintScene,
   polyRings,
   ringOf,
-  screenPoint,
   setupCanvas,
-  shiftMark,
   type Mark,
+  type PointerPosition,
   type Space,
   type Tool,
 } from "./draw";
-import { hitMark, hitVertex, insertTarget, simplifyPolygon } from "./geometry";
+import { hasPolygonArea, hitMark, hitVertex, insertTarget, simplifyPolygon } from "./geometry";
+import {
+  brushTouchesImage,
+  clampToImage,
+  insideImageBounds,
+  insidePixelBounds,
+  moveWithinImage,
+} from "./image-bounds";
 import { isTypingTarget } from "./keys";
 
 type Ctl = {
@@ -75,6 +81,7 @@ export function useFreehand(opts: {
     let ctx = setupCanvas(canvas, root);
     let selected: string | null = null;
     let hover: string | null = null;
+    let pointer: PointerPosition | null = null;
     let drag:
       | { kind: "move"; id: string; last: [number, number] }
       | { kind: "vertex"; id: string; ring: number; index: number }
@@ -118,16 +125,13 @@ export function useFreehand(opts: {
 
     function reset(clearSelect = false) {
       cancelGesture();
-      if (clearSelect) {
-        selected = null;
-        hover = null;
-        insertAt = null;
-      }
+      if (clearSelect) selected = null;
+      hover = null;
+      insertAt = null;
       brush = null;
       if (brushing()) ensureBrush();
       drain();
       applyView();
-      cursor();
     }
 
     function drain() {
@@ -160,7 +164,7 @@ export function useFreehand(opts: {
 
     ctl.current = { flush, reset, redraw, cursor, add };
 
-    function edgeInsert(e: PointerEvent, id: string | null) {
+    function edgeInsert(e: PointerPosition, id: string | null) {
       if (!space || !id) return null;
       const m = marksRef.current.find((x) => x.id === id);
       if (m?.type !== "polygon") return null;
@@ -170,26 +174,37 @@ export function useFreehand(opts: {
       return insertTarget(rings, pt, space.scale);
     }
 
-    function cursorAt(e?: PointerEvent) {
+    function canStartAt(point: [number, number]) {
+      const contains = latest.current.tool === "point" ? insidePixelBounds : insideImageBounds;
+      return space !== null && contains(point, space);
+    }
+
+    function cursorAt() {
       if (brushing())
-        return brushCursor.update(space ? latest.current.radius * space.scale : null, space);
+        return brushCursor.update(
+          pointer,
+          space,
+          space ? latest.current.radius * space.scale : null,
+        );
       if (drag?.kind === "vertex") return "move";
       if (drag) return "grabbing";
       if (insertAt) return "copy";
-      if (e && selected && space) {
+      if (pointer && selected && space) {
         const m = marksRef.current.find((x) => x.id === selected);
-        if (m?.type === "polygon" && hitVertex(polyRings(m), imagePoint(e, space), pad()))
+        if (m?.type === "polygon" && hitVertex(polyRings(m), imagePoint(pointer, space), pad()))
           return "move";
       }
       if (hover) return "grab";
+      if (!drawing && pointer && (!space || !canStartAt(imagePoint(pointer, space))))
+        return "not-allowed";
       return latest.current.tool === "point"
         ? 'url("/cursors/point.svg") 12 12, crosshair'
         : 'url("/cursors/polygon.svg") 8 8, crosshair';
     }
 
-    function cursor(e?: PointerEvent) {
+    function cursor() {
       if (!brushing()) brushCursor.update(null, space);
-      const next = cursorAt(e);
+      const next = cursorAt();
       if (root.style.cursor !== next) root.style.cursor = next;
     }
 
@@ -244,14 +259,15 @@ export function useFreehand(opts: {
         draft.length = 0;
         for (const p of stroke) draft.push(imageToScreen(p, space));
       }
-      if (brushing()) cursor();
+      if (!drawing && !painting && !drag) updateHover();
+      cursor();
       redraw();
       latest.current.onViewChange?.(space);
     }
 
     function onWheel(e: WheelEvent) {
       e.preventDefault();
-      brushCursor.move(e);
+      pointer = e;
       if (e.ctrlKey || e.metaKey) {
         const r = root.getBoundingClientRect();
         const z2 = Math.min(8, Math.max(1, view.z * Math.exp(-e.deltaY * 0.002)));
@@ -264,27 +280,35 @@ export function useFreehand(opts: {
       } else if (view.z > 1) {
         view.x -= e.deltaX;
         view.y -= e.deltaY;
-      } else return;
+      } else {
+        cursor();
+        return;
+      }
       applyView();
     }
 
-    function hit(e: PointerEvent) {
+    function hit(e: PointerPosition) {
       if (!space) return null;
       return hitMark(marksRef.current, imagePoint(e, space), space.scale, latest.current.jobId);
     }
 
-    function sample(e: PointerEvent) {
+    function updateHover() {
+      hover = pointer && !brushing() ? hit(pointer) : null;
+      insertAt = pointer && !brushing() ? (edgeInsert(pointer, selected)?.point ?? null) : null;
+    }
+
+    function sample(e: PointerEvent, final = false) {
       if (!space) return;
-      const img = imagePoint(e, space);
-      const screen = screenPoint(e, space);
+      const raw = imagePoint(e, space);
+      const img = painting ? raw : clampToImage(raw, space);
       const last = stroke[stroke.length - 1];
-      const min = painting ? 0 : 2 / space.scale;
+      const min = painting || final ? 0 : 2 / space.scale;
       const distance = last ? Math.hypot(img[0] - last[0], img[1] - last[1]) : Infinity;
       if (distance > 0 && distance >= min) {
         stroke.push(img);
-        draft.push(screen);
-      } else {
-        draft[draft.length - 1] = screen;
+        if (!painting) draft.push(imageToScreen(img, space));
+      } else if (!painting) {
+        draft[draft.length - 1] = imageToScreen(img, space);
       }
     }
 
@@ -316,10 +340,14 @@ export function useFreehand(opts: {
     }
 
     function onDown(e: PointerEvent) {
-      brushCursor.move(e);
+      pointer = e;
       if (brushing()) {
         if (e.button !== 0 && e.button !== 2) return;
         if (!primed(e) || !space) return;
+        if (!brushTouchesImage(imagePoint(e, space), latest.current.radius, space)) {
+          cursor();
+          return;
+        }
         selected = null;
         hover = null;
         painting = true;
@@ -330,7 +358,7 @@ export function useFreehand(opts: {
         stroke.push(imagePoint(e, space));
         stampLive();
         root.setPointerCapture(e.pointerId);
-        cursor(e);
+        cursor();
         redraw();
         return;
       }
@@ -352,15 +380,19 @@ export function useFreehand(opts: {
         } else if (v) drag = { kind: "vertex", id, ring: v.ring, index: v.index };
         else drag = { kind: "move", id, last: pt };
         root.setPointerCapture(e.pointerId);
-        cursor(e);
+        cursor();
         redraw();
         return;
       }
       selected = null;
       hover = null;
+      insertAt = null;
+      if (!canStartAt(pt)) {
+        cursor();
+        redraw();
+        return;
+      }
       if (latest.current.tool === "point" && latest.current.onAiPoint) {
-        if (pt[0] < 0 || pt[1] < 0 || pt[0] >= space.imageWidth || pt[1] >= space.imageHeight)
-          return;
         if (
           latest.current.pending?.some(
             (t) =>
@@ -378,13 +410,13 @@ export function useFreehand(opts: {
           {
             id: crypto.randomUUID(),
             type: "point",
-            points: [imagePoint(e, space)],
+            points: [pt],
             jobId: latest.current.jobId,
           },
         ];
         selected = marksRef.current.at(-1)?.id ?? null;
         draft.length = 0;
-        cursor(e);
+        cursor();
         redraw();
         changed();
         return;
@@ -392,17 +424,17 @@ export function useFreehand(opts: {
       drawing = true;
       stroke.length = 0;
       draft.length = 0;
-      stroke.push(imagePoint(e, space));
-      draft.push(screenPoint(e, space));
+      stroke.push(pt);
+      draft.push(imageToScreen(pt, space));
       root.setPointerCapture(e.pointerId);
-      cursor(e);
+      cursor();
       redraw();
     }
 
     function onMove(e: PointerEvent) {
-      brushCursor.move(e);
+      pointer = e;
       if (brushing() && !painting) {
-        cursor(e);
+        cursor();
         return;
       }
       if (!drag && !painting && !drawing) space = measureSpace(root);
@@ -412,12 +444,15 @@ export function useFreehand(opts: {
         const m = marksRef.current.find((x) => x.id === active.id);
         if (m && active.kind === "vertex") {
           const ring = ringOf(m, active.ring);
-          if (ring) ring[active.index] = now;
+          if (ring) ring[active.index] = clampToImage(now, space);
           dirty = true;
         } else if (m && active.kind === "move") {
-          shiftMark(m, now[0] - active.last[0], now[1] - active.last[1]);
-          active.last = now;
-          dirty = true;
+          const delta = moveWithinImage(m, now[0] - active.last[0], now[1] - active.last[1], space);
+          if (delta) {
+            active.last[0] += delta[0];
+            active.last[1] += delta[1];
+            dirty = true;
+          }
         }
         redraw();
         return;
@@ -426,15 +461,14 @@ export function useFreehand(opts: {
         const events = e.getCoalescedEvents?.();
         for (const ev of events?.length ? events : [e]) sample(ev);
         if (painting) stampLive();
+        cursor();
         redraw();
         return;
       }
       const previousHover = hover;
       const previousInsert = insertAt;
-      hover = hit(e);
-      const add = edgeInsert(e, selected);
-      insertAt = add?.point ?? null;
-      cursor(e);
+      updateHover();
+      cursor();
       if (
         hover !== previousHover ||
         insertAt?.[0] !== previousInsert?.[0] ||
@@ -482,8 +516,9 @@ export function useFreehand(opts: {
     function finishGesture(e: PointerEvent) {
       if (drag) {
         drag = null;
+        updateHover();
         release(e);
-        cursor(e);
+        cursor();
         redraw();
         if (dirty) changed();
         dirty = false;
@@ -496,18 +531,17 @@ export function useFreehand(opts: {
         }
         endPaint();
         release(e);
-        cursor(e);
+        cursor();
         redraw();
         return;
       }
       if (!drawing) return;
       drawing = false;
-      sample(e);
-      if (space) stroke[stroke.length - 1] = imagePoint(e, space);
+      sample(e, true);
       const points = simplifyPolygon(stroke.slice());
       stroke.length = 0;
       draft.length = 0;
-      if (points.length >= 3) {
+      if (hasPolygonArea(points)) {
         const id = crypto.randomUUID();
         marksRef.current = [
           ...marksRef.current,
@@ -517,19 +551,21 @@ export function useFreehand(opts: {
         changed();
       }
       release(e);
-      hover = selected;
-      cursor(e);
+      updateHover();
+      cursor();
       redraw();
     }
 
     function onUp(e: PointerEvent) {
+      pointer = e;
       finishGesture(e);
       drain();
     }
 
     function onLeave() {
       if (drawing || painting || drag) return;
-      brushCursor.leave();
+      pointer = null;
+      brushCursor.update(null, space);
       const clearHover = !brushing() && (hover !== null || insertAt !== null);
       hover = null;
       insertAt = null;

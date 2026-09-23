@@ -51,12 +51,10 @@ export function measureSpace(root: HTMLElement): Space | null {
   };
 }
 
-export function imagePoint(e: PointerEvent, s: Space): [number, number] {
-  return [(e.clientX - s.imgLeft - s.ox) / s.scale, (e.clientY - s.imgTop - s.oy) / s.scale];
-}
+export type PointerPosition = Pick<PointerEvent, "clientX" | "clientY">;
 
-export function screenPoint(e: PointerEvent, s: Space): [number, number] {
-  return [e.clientX - s.rootLeft, e.clientY - s.rootTop];
+export function imagePoint(e: PointerPosition, s: Space): [number, number] {
+  return [(e.clientX - s.imgLeft - s.ox) / s.scale, (e.clientY - s.imgTop - s.oy) / s.scale];
 }
 
 export function imageToScreen(p: [number, number], s: Space): [number, number] {
@@ -64,6 +62,11 @@ export function imageToScreen(p: [number, number], s: Space): [number, number] {
     p[0] * s.scale + s.ox + (s.imgLeft - s.rootLeft),
     p[1] * s.scale + s.oy + (s.imgTop - s.rootTop),
   ];
+}
+
+export function imageScreenRect(s: Space) {
+  const [left, top] = imageToScreen([0, 0], s);
+  return { left, top, right: left + s.imageWidth * s.scale, bottom: top + s.imageHeight * s.scale };
 }
 
 export function setupCanvas(canvas: HTMLCanvasElement, root: HTMLElement) {
@@ -171,6 +174,10 @@ function brushStroke(
 ) {
   if (!pts.length) return;
   ctx.save();
+  const { left, top, right, bottom } = imageScreenRect(s);
+  ctx.beginPath();
+  ctx.rect(left, top, right - left, bottom - top);
+  ctx.clip();
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
   ctx.lineWidth = r * 2 * s.scale;

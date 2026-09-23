@@ -7,7 +7,8 @@ function closestOnSegment(p: [number, number], a: [number, number], b: [number, 
   const dx = b[0] - a[0];
   const dy = b[1] - a[1];
   const len2 = dx * dx + dy * dy;
-  const t = len2 === 0 ? 0 : Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / len2));
+  const t =
+    len2 === 0 ? 0 : Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / len2));
   const point: [number, number] = [a[0] + t * dx, a[1] + t * dy];
   return { t, point, dist: Math.hypot(p[0] - point[0], p[1] - point[1]) };
 }
@@ -57,6 +58,12 @@ export function simplifyPolygon(points: [number, number][], epsilon?: number): [
   if (points.length < 3) return points;
   const out = simplifyLine(points, epsilon ?? autoEpsilon(points));
   return out.length >= 3 ? out : points;
+}
+
+export function hasPolygonArea(points: [number, number][]) {
+  if (points.length < 3) return false;
+  const [a, b] = points;
+  return points.some((p) => (b[0] - a[0]) * (p[1] - a[1]) !== (b[1] - a[1]) * (p[0] - a[0]));
 }
 
 export function pointInPoly(pt: [number, number], poly: [number, number][]) {
@@ -131,7 +138,10 @@ export function hitMark(marks: Mark[], pt: [number, number], scale: number, jobI
     if (m.type === "point") {
       const p = m.points[0];
       if (p && Math.hypot(pt[0] - p[0], pt[1] - p[1]) <= r) return m.id;
-    } else if (m.points.length > 2 && (inMark(pt, m) || polyRings(m).some((ring) => hitEdge(ring, pt, r)))) {
+    } else if (
+      m.points.length > 2 &&
+      (inMark(pt, m) || polyRings(m).some((ring) => hitEdge(ring, pt, r)))
+    ) {
       return m.id;
     }
   }

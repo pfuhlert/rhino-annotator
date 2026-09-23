@@ -35,6 +35,23 @@ export default async function (page, state) {
     el.cursorRing = el.cursorHost.querySelector("svg");
     el.boundsReads = 0;
     el.pointerMoves = 0;
+    el.cursorTransforms = 0;
+    el.cursorVisibilityChanges = 0;
+    new MutationObserver((records) => {
+      for (const record of records) {
+        if (record.target === el.cursorRing && record.attributeName === "style")
+          el.cursorTransforms++;
+        if (
+          record.target === el.cursorHost &&
+          record.attributeName === "hidden"
+        )
+          el.cursorVisibilityChanges++;
+      }
+    }).observe(el.cursorHost, {
+      attributes: true,
+      subtree: true,
+      attributeFilter: ["style", "hidden"],
+    });
     el.getBoundingClientRect = () => {
       el.boundsReads++;
       return measure();
@@ -80,6 +97,8 @@ export default async function (page, state) {
         redraws: el.redrawCount,
         boundsReads: el.boundsReads,
         pointerMoves: el.pointerMoves,
+        cursorTransforms: el.cursorTransforms,
+        cursorVisibilityChanges: el.cursorVisibilityChanges,
       };
     });
   const near = (a, b) => assert.ok(Math.abs(a - b) < 0.1, `${a} != ${b}`);
@@ -127,6 +146,16 @@ export default async function (page, state) {
     );
     const moves = after.pointerMoves - before.pointerMoves;
     assert.ok(moves > 0);
+    assert.equal(
+      after.cursorTransforms - before.cursorTransforms,
+      oversized ? moves : 0,
+      "at most one outline transform per pointer movement",
+    );
+    assert.equal(
+      after.cursorVisibilityChanges,
+      before.cursorVisibilityChanges,
+      "idle motion must not toggle outline visibility",
+    );
     assert.equal(
       after.boundsReads,
       before.boundsReads,
@@ -318,6 +347,12 @@ export default async function (page, state) {
   await check("restore brush size");
   await page.mouse.click(x, y);
   await page.keyboard.press("l");
+  assert.equal(
+    (await read()).css,
+    "grab",
+    "switching tools refreshes hover without moving the pointer",
+  );
+  await page.mouse.move(-10, -10);
   const unhovered = await root.evaluate((el) =>
     el.querySelector("canvas").toDataURL(),
   );
