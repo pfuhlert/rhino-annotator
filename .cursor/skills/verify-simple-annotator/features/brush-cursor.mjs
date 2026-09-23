@@ -122,11 +122,11 @@ export default async function (page, state) {
     results.push({ label, ...current });
     return current;
   }
-  async function wheel(dx, dy, zoom = false) {
+  async function wheel(dx, dy, modifier = null) {
     const before = (await read()).redraws;
-    if (zoom) await page.keyboard.down("Control");
+    if (modifier) await page.keyboard.down(modifier);
     await page.mouse.wheel(dx, dy);
-    if (zoom) await page.keyboard.up("Control");
+    if (modifier) await page.keyboard.up(modifier);
     await page.waitForFunction(
       (count) =>
         document.querySelector('[data-testid="patch-canvas"]').redrawCount >
@@ -234,10 +234,29 @@ export default async function (page, state) {
   }
 
   await check("native brush");
+  const beforeResizeWheel = (await read()).transform;
+  await wheel(0, -100, "Shift");
+  await check("Shift wheel up grows brush", false, 18);
+  await wheel(0, 100, "Shift");
+  await check("Shift wheel down shrinks brush");
+  await wheel(-100, 0, "Shift");
+  await check("Shift horizontal wheel grows brush", false, 18);
+  await wheel(100, 0, "Shift");
+  await check("Shift horizontal wheel shrinks brush");
+  assert.equal((await read()).transform, beforeResizeWheel);
+  for (let i = 0; i < 7; i++) await page.keyboard.press("[");
+  await root.dispatchEvent("wheel", { clientX: x, clientY: y, deltaY: 100, shiftKey: true });
+  await check("Shift wheel clamps at minimum", false, 2);
+  for (let i = 0; i < 7; i++) await page.keyboard.press("]");
   await moveWithoutRedraw();
   await leaveAndReenter();
-  await wheel(0, -400, true);
+  await wheel(0, -400, "Control");
   await check("native zoom");
+  const beforeZoomedResize = (await read()).transform;
+  await wheel(0, -100, "Shift");
+  await check("Shift wheel resizes while zoomed", false, 18);
+  assert.equal((await read()).transform, beforeZoomedResize, "resizing must not pan or zoom");
+  await wheel(0, 100, "Shift");
   const beforePan = (await read()).transform;
   await wheel(40, 60);
   assert.notEqual((await read()).transform, beforePan);
@@ -247,6 +266,8 @@ export default async function (page, state) {
 
   for (let i = 0; i < 32; i++) await page.keyboard.press("]");
   await check("large brush", true, 80);
+  await root.dispatchEvent("wheel", { clientX: x, clientY: y, deltaY: -100, shiftKey: true });
+  await check("Shift wheel clamps at maximum", true, 80);
   await moveWithoutRedraw(true, 80);
   await wheel(30, 50);
   await check("large brush pan", true, 80);
@@ -282,7 +303,7 @@ export default async function (page, state) {
   results.push({ label: "toolbar above outline", toolbarAboveOutline });
   await page.screenshot({ path: artifacts + "/brush-cursor-toolbar.png" });
   await page.mouse.move(x, y);
-  await wheel(0, -500, true);
+  await wheel(0, -500, "Control");
   await check("large brush zoom", true, 80);
   await wheel(0, 100000);
   await check("clamped pan", true, 80);
@@ -340,7 +361,7 @@ export default async function (page, state) {
   await page.keyboard.press("r");
   await check("switch back", true, 80);
   await page.screenshot({ path: `${artifacts}/brush-cursor-large.png` });
-  await wheel(0, 5000, true);
+  await wheel(0, 5000, "Control");
   await check("zoom out", true, 80);
 
   for (let i = 0; i < 32; i++) await page.keyboard.press("[");

@@ -277,6 +277,13 @@ export function useFreehand(opts: {
         view.x = cx - (cx - view.x) * k;
         view.y = cy - (cy - view.y) * k;
         view.z = z2;
+      } else if (e.shiftKey && brushing()) {
+        const delta = e.deltaY || e.deltaX;
+        latest.current.onRadiusChange(
+          Math.min(80, Math.max(2, latest.current.radius - Math.sign(delta) * 2)),
+        );
+        cursor();
+        return;
       } else if (view.z > 1) {
         view.x -= e.deltaX;
         view.y -= e.deltaY;
