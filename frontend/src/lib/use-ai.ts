@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { aiTaskId, api, type AiTask, type AiWorkerState, type Element } from "./api";
+import { aiTaskId, api, type AiPrompt, type AiTask, type AiWorkerState, type Element } from "./api";
 
 export function useAi(
   patchId: number | undefined,
@@ -81,20 +81,19 @@ export function useAi(
     };
   }, [patchId]);
 
-  const submit = useCallback((patch: number, job: number, x: number, y: number) => {
+  const submit = useCallback((patch: number, job: number, prompt: AiPrompt) => {
     const task: AiTask = {
       id: crypto.randomUUID(),
       patch_id: patch,
       job_id: job,
-      x,
-      y,
+      ...prompt,
       status: "queued",
       error: null,
     };
     local.current.set(task.id, task);
     setTasks((previous) => [...previous, task]);
     const request = api
-      .aiSubmit(patch, { id: task.id, job_id: job, x, y })
+      .aiSubmit(patch, { id: task.id, job_id: job, ...prompt })
       .then((saved) => {
         if (local.current.has(task.id)) local.current.set(task.id, saved);
         wake.current();

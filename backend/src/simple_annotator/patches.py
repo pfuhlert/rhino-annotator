@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from simple_annotator.annotations import Changes, apply_changes, elements, lock, require_patch
 from simple_annotator.auth import current_user
 from simple_annotator.db import get_db
+from simple_annotator.embeddings import queue_image
 from simple_annotator.girder import PLACEHOLDER_FOLDER, fetch_image, image_nm_per_px, pick_region
 from simple_annotator.models import Patch, PatchVisit, User
 
@@ -33,12 +34,14 @@ def _dump(db: Session, user: User, patch: Patch, visit: PatchVisit) -> dict:
     }
 
 
-def _open(db: Session, user: User, visit: PatchVisit) -> dict:
+def _open(db: Session, user: User, visit: PatchVisit, background: BackgroundTasks) -> dict:
     user.current_visit_id = visit.id
-    db.commit()
     patch = db.get(Patch, visit.patch_id)
     assert patch
-    return _dump(db, user, patch, visit)
+    db.commit()
+    result = _dump(db, user, patch, visit)
+    background.add_task(queue_image, patch.id, result["nm_per_px"])
+    return result
 
 
 def _folder_id(user: User) -> str:
@@ -47,7 +50,7 @@ def _folder_id(user: User) -> str:
     return user.last_folder_id
 
 
-def _new_visit(db: Session, user: User) -> dict:
+def _new_visit(db: Session, user: User, background: BackgroundTasks) -> dict:
     folder_id = _folder_id(user)
     try:
         patch = Patch(**pick_region(folder_id))
@@ -58,7 +61,7 @@ def _new_visit(db: Session, user: User) -> dict:
     visit = PatchVisit(user_id=user.id, patch_id=patch.id, folder_id=folder_id)
     db.add(visit)
     db.flush()
-    return _open(db, user, visit)
+    return _open(db, user, visit, background)
 
 
 def _cursor_visit(db: Session, user: User) -> PatchVisit | None:
@@ -78,13 +81,17 @@ def _last_in_folder(db: Session, user: User) -> PatchVisit | None:
 
 
 @router.get("/current")
-def current_patch(user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
+def current_patch(
+    background: BackgroundTasks, user: User = Depends(current_user), db: Session = Depends(get_db)
+) -> dict:
     visit = _cursor_visit(db, user) or _last_in_folder(db, user)
-    return _open(db, user, visit) if visit else _new_visit(db, user)
+    return _open(db, user, visit, background) if visit else _new_visit(db, user, background)
 
 
 @router.get("/next")
-def next_patch(user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
+def next_patch(
+    background: BackgroundTasks, user: User = Depends(current_user), db: Session = Depends(get_db)
+) -> dict:
     cur = _cursor_visit(db, user)
     if cur:
         later = db.scalar(
@@ -98,12 +105,14 @@ def next_patch(user: User = Depends(current_user), db: Session = Depends(get_db)
             .limit(1)
         )
         if later:
-            return _open(db, user, later)
-    return _new_visit(db, user)
+            return _open(db, user, later, background)
+    return _new_visit(db, user, background)
 
 
 @router.get("/prev")
-def prev_patch(user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
+def prev_patch(
+    background: BackgroundTasks, user: User = Depends(current_user), db: Session = Depends(get_db)
+) -> dict:
     cur = _cursor_visit(db, user)
     if cur:
         earlier = db.scalar(
@@ -117,7 +126,7 @@ def prev_patch(user: User = Depends(current_user), db: Session = Depends(get_db)
             .limit(1)
         )
         if earlier:
-            return _open(db, user, earlier)
+            return _open(db, user, earlier, background)
     raise HTTPException(404, "no previous patch")
 
 

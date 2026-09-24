@@ -1,3 +1,4 @@
+import type { Box } from "./api";
 import { polyRings, shiftMark, type Mark, type Space } from "./draw";
 
 type Point = [number, number];
@@ -5,6 +6,13 @@ type Size = Pick<Space, "imageWidth" | "imageHeight">;
 
 export function clampToImage([x, y]: Point, size: Size): Point {
   return [Math.max(0, Math.min(size.imageWidth, x)), Math.max(0, Math.min(size.imageHeight, y))];
+}
+
+export function imageBox(a: Point, b: Point, size: Size): Box | null {
+  const [ax, ay] = clampToImage(a, size).map(Math.round);
+  const [bx, by] = clampToImage(b, size).map(Math.round);
+  const box: Box = [Math.min(ax, bx), Math.min(ay, by), Math.max(ax, bx), Math.max(ay, by)];
+  return box[2] - box[0] >= 2 && box[3] - box[1] >= 2 ? box : null;
 }
 
 export function insideImageBounds([x, y]: Point, size: Size) {

@@ -1,6 +1,6 @@
-import type { AiTask, Element, Job } from "@/lib/api";
+import type { AiTask, Box, Element, Job } from "@/lib/api";
 
-export type Tool = "point" | "polygon" | "brush";
+export type Tool = "point" | "polygon" | "brush" | "ai-box";
 export type Mark = Element;
 
 export function polyRings(m: Mark): [number, number][][] {
@@ -150,6 +150,7 @@ function draftStroke(ctx: CanvasRenderingContext2D, pts: [number, number][], col
 
 export type SceneOpts = {
   pending?: AiTask[];
+  box?: Box | null;
   draft?: [number, number][];
   draftColor?: string;
   hoverId?: string | null;
@@ -163,6 +164,16 @@ export type SceneOpts = {
     erase?: boolean;
   } | null;
 };
+
+function boxOutline(ctx: CanvasRenderingContext2D, box: Box, s: Space, color: string) {
+  const [x0, y0] = imageToScreen([box[0], box[1]], s);
+  const [x1, y1] = imageToScreen([box[2], box[3]], s);
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([4, 4]);
+  ctx.strokeRect(x0, y0, x1 - x0, y1 - y0);
+  ctx.setLineDash([]);
+}
 
 function brushStroke(
   ctx: CanvasRenderingContext2D,
@@ -248,13 +259,18 @@ export function paintScene(
     }
   }
   for (const task of opts.pending ?? []) {
-    const [x, y] = imageToScreen([task.x, task.y], s);
-    ctx.beginPath();
-    ctx.arc(x, y, 9, 0, Math.PI * 2);
-    ctx.strokeStyle =
+    const color =
       task.status === "failed"
         ? "#f87171"
         : (jobs.find((j) => j.id === task.job_id)?.color ?? "#fff");
+    if (task.box) {
+      boxOutline(ctx, task.box, s, color);
+      continue;
+    }
+    const [x, y] = imageToScreen([task.x, task.y], s);
+    ctx.beginPath();
+    ctx.arc(x, y, 9, 0, Math.PI * 2);
+    ctx.strokeStyle = color;
     ctx.lineWidth = 2;
     ctx.setLineDash([3, 3]);
     ctx.stroke();
@@ -274,5 +290,6 @@ export function paintScene(
     ctx.lineWidth = 1.5;
     ctx.stroke();
   }
+  if (opts.box) boxOutline(ctx, opts.box, s, opts.draftColor || "#fafafa");
   if (draft.length > 1) draftStroke(ctx, draft, opts.draftColor || "#fafafa");
 }

@@ -4,7 +4,7 @@ import time
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, StrictInt
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -17,8 +17,9 @@ from simple_annotator.annotations import (
     require_patch,
 )
 from simple_annotator.auth import current_user
-from simple_annotator.config import AI_PROFILES
+from simple_annotator.config import AI_MODEL
 from simple_annotator.db import get_db
+from simple_annotator.embeddings import prompt_regions
 from simple_annotator.girder import image_nm_per_px
 from simple_annotator.models import AiTask, AiWorker, Job, Patch, User
 
@@ -26,20 +27,28 @@ router = APIRouter(prefix="/patches")
 
 
 class Prompt(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     id: UUID
     job_id: int
+
+
+class PointPrompt(Prompt):
     x: float
     y: float
 
 
+class BoxPrompt(Prompt):
+    box: tuple[StrictInt, StrictInt, StrictInt, StrictInt]
+
+
 def task_json(task: AiTask) -> dict:
-    point = json.loads(task.input)
+    prompt = json.loads(task.input)
     return {
         "id": task.id,
         "patch_id": task.patch_id,
         "job_id": task.job_id,
-        "x": point["x"],
-        "y": point["y"],
+        **{key: prompt[key] for key in ("x", "y", "box") if key in prompt},
         "status": task.status,
         "error": task.error,
         "elapsed_ms": task.elapsed_ms,
@@ -83,14 +92,15 @@ def status(
 @router.post("/{patch_id}/ai", status_code=202)
 def enqueue(
     patch_id: int,
-    body: Prompt,
+    body: PointPrompt | BoxPrompt,
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
 ) -> dict:
     require_patch(db, user.id, patch_id)
     task_id = str(body.id)
     patch = db.get(Patch, patch_id)
-    scale = image_nm_per_px(patch.girder_item_id)
+    prompt = body.model_dump(mode="json", exclude={"id", "job_id"})
+    nm_per_px = image_nm_per_px(patch.girder_item_id)
     lock(db)
     old = db.get(AiTask, task_id)
     if old:
@@ -99,22 +109,41 @@ def enqueue(
             old.user_id != user.id
             or old.patch_id != patch_id
             or old.job_id != body.job_id
-            or saved["x"] != body.x
-            or saved["y"] != body.y
+            or any(saved.get(key) != prompt.get(key) for key in ("x", "y", "box"))
         ):
             raise HTTPException(409, "request ID already used")
         return saved
     job = db.get(Job, body.job_id)
-    profile = AI_PROFILES.get(job.name) if job else None
-    if not profile:
-        raise HTTPException(400, "AI is not configured for this job")
-    if not (
-        math.isfinite(body.x)
-        and math.isfinite(body.y)
-        and 0 <= body.x < patch.width
-        and 0 <= body.y < patch.height
-    ):
-        raise HTTPException(400, "click must be inside the image")
+    if not job:
+        raise HTTPException(400, "unknown job")
+    request = {
+        "model": AI_MODEL,
+        **prompt,
+        "item_id": patch.girder_item_id,
+        "left": patch.left,
+        "top": patch.top,
+        "width": patch.width,
+        "height": patch.height,
+        "nm_per_px": nm_per_px,
+    }
+    if isinstance(body, BoxPrompt):
+        x0, y0, x1, y1 = body.box
+        if not (0 <= x0 < x1 <= patch.width and 0 <= y0 < y1 <= patch.height):
+            raise HTTPException(400, "box must be inside the image")
+        if x1 - x0 < 2 or y1 - y0 < 2:
+            raise HTTPException(400, "box must be at least 2 pixels wide and high")
+        try:
+            prompt_regions(request)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+    else:
+        if not (
+            math.isfinite(body.x)
+            and math.isfinite(body.y)
+            and 0 <= body.x < patch.width
+            and 0 <= body.y < patch.height
+        ):
+            raise HTTPException(400, "click must be inside the image")
     worker = db.get(AiWorker, 1)
     if not worker or time.time() - worker.updated >= 15:
         raise HTTPException(503, "AI worker is offline")
@@ -132,19 +161,7 @@ def enqueue(
         job_id=body.job_id,
         status="queued",
         created=time.time(),
-        input=json.dumps(
-            {
-                **profile,
-                "x": body.x,
-                "y": body.y,
-                "nm_per_px": scale,
-                "item_id": patch.girder_item_id,
-                "left": patch.left,
-                "top": patch.top,
-                "width": patch.width,
-                "height": patch.height,
-            }
-        ),
+        input=json.dumps(request),
     )
     db.add(task)
     db.commit()

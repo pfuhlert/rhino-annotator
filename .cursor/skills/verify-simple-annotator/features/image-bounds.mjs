@@ -138,14 +138,19 @@ export default async function (page, state) {
   );
   results.push({ label: "outside cursors and gestures are inactive" });
 
-  await page.keyboard.press("p");
-  const point = await saved("point inside image", async () => {
-    await move(500, 350);
-    await page.mouse.click(
-      image.left + 500 * image.scale,
-      image.top + 350 * image.scale,
-    );
+  // New Point gestures invoke AI; seed a legacy point to exercise its editing boundaries.
+  const patch = await readPatch();
+  const seeded = await page.request.patch(`${state.webUrl}/patches/${patch.id}/annotations`, {
+    data: { upsert: [{ id: "legacy-point-fixture", jobId: patch.job_id, type: "point", points: [[500, 350]] }] },
   });
+  assert.ok(seeded.ok());
+  await page.reload();
+  await ready();
+  await page.getByTestId("sidebar-trigger").click();
+  await page.keyboard.press("p");
+  image = await bounds();
+  const point = (await readPatch()).elements;
+  results.push({ label: "legacy point fixture for editing", point });
   assert.equal(point.length, 1);
   assert.equal(point[0].type, "point");
   await move(501, 350);

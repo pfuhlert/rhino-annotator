@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from simple_annotator.config import AI_PROFILES, COOKIE_NAME
+from simple_annotator.config import COOKIE_NAME
 from simple_annotator.db import ELMI_JOBS, SEED_JOBS, get_db
 from simple_annotator.girder import is_elmi_folder, list_folders
 from simple_annotator.models import Annotation, Job, User
@@ -145,6 +145,4 @@ def folders(parent_id: str | None = None, _user: User = Depends(current_user)) -
 def list_jobs(user: User = Depends(current_user), db: Session = Depends(get_db)) -> list[dict]:
     names = {n for n, _ in (ELMI_JOBS if is_elmi_folder(user.last_folder_id) else SEED_JOBS)}
     jobs = [j for j in db.scalars(select(Job).order_by(Job.id)).all() if j.name in names]
-    return [
-        {"id": j.id, "name": j.name, "color": j.color, "ai": j.name in AI_PROFILES} for j in jobs
-    ]
+    return [{"id": j.id, "name": j.name, "color": j.color} for j in jobs]

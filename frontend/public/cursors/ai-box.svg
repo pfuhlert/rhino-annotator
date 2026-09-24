@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
+  <defs><path id="box" d="M4 8h8M8 4v8M15 15h12v12H15z"/></defs>
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <use href="#box" stroke="#111" stroke-width="3.5"/>
+    <use href="#box" stroke="#fff" stroke-width="1.5"/>
+  </g>
+</svg>

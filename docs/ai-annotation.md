@@ -2,28 +2,25 @@
 
 Start the app and its separate GPU worker with `npm run dev`. The launcher installs the `ai` Python dependencies automatically; the published μSAM EM organelle checkpoint is downloaded on first use. The worker stays loaded and queued requests survive browser closure or worker restarts.
 
-Select **Mitochondria**, choose the normal **Point (P)** tool, and click inside a structure. Points automatically start AI inference for jobs with a configured model. A temporary dot appears immediately and is replaced by the predicted outline; no separate point annotation is saved. Continue clicking, draw with **R**, or navigate away while inference runs. Results become ordinary editable polygons on the original image and job. Jobs without a model retain normal point annotations. **Escape** cancels the latest pending click on the current image. The AI queue exposes cancellation, retry, and errors. Undo removes a completed annotation through normal history; Ctrl+Z cancels a pending click first.
+Choose any job, select **Point (P)**, and click inside a structure. Every job uses the same AI model. A temporary dot appears immediately and is replaced by the predicted outline; no separate point annotation is saved. Continue clicking, draw with **R**, or navigate away while inference runs. Results become ordinary editable polygons on the original image and job. **Escape** cancels the latest pending click on the current image. The AI queue exposes cancellation, retry, and errors. Undo removes a completed annotation through normal history; Ctrl+Z cancels a pending click first.
 
-The default crop is 3 µm across, using the same `nm_per_px` metadata as the scale bar. With no calibration it uses 512 pixels. Crops overlap so nearby clicks can reuse embeddings; crops expand if the selected structure touches an artificial boundary. The initial crop is bounded to 128–2048 pixels and up to 16 crop embeddings are cached. These are starting settings to tune on representative images.
+Opening an image queues embedding preparation in the separate GPU worker. The API records the work after sending the image response; image display and manual annotation do not wait for queue insertion or the encoder. Calibrated images target a 3 µm square core with 0.5 µm of context on each side: pixel sizes are `round(3000 / nm_per_px)` and `round(500 / nm_per_px)`. Small images use their full rectangular extent. Missing or invalid calibration uses `tile_shape=(384, 384)` and `halo=(64, 64)` without displaying a scale bar. Both Point and AI Box reuse these embeddings. A prompt submitted before preparation finishes takes priority over the remaining background tiles and prepares its required tile first.
+
+Context is clipped to image edges. At extreme calibrations, cores are at least 64 pixels and inputs including context are at most 4096 pixels per side; regions larger than that cap use cores up to 3072 pixels. These bounds limit tile count and encoding memory independently of the configurable `FULL_IMAGE_MAX` display threshold. The physical sizes are an application default, not a μSAM recommendation.
+
+The tile containing a point supplies its embedding. Boxes use the tile at their center when it contains the entire box; on this regular grid, searching other tiles cannot find a better fit. A whole-image embedding is also prepared for images up to 4096 pixels per side, providing a fallback for larger boxes and point predictions that touch an artificial tile boundary. Larger regions stay tiled; oversized boxes receive HTTP 400 before a prediction task is created. Tiling and the scale bar share the same calibration lookup.
+
+**AI Box (A)** is available for every job and uses the same μSAM EM organelle model. Draw a tight rectangle around one object and release to start inference. The square cursor follows the Polygon tool's crosshair design. The rectangle is rounded to pixel boundaries and clamped to the image. The decoder receives the box as a spatial prompt on the cached embedding, including its surrounding image context. The mask is clipped to the drawn box, then its largest connected object becomes one editable polygon with holes preserved. The selected job supplies the annotation label; it is not a semantic prompt to the model. Model quality may vary for structures beyond the organelles it was trained on.
+
+The pending rectangle uses the existing AI queue, including retry and cancellation. Escape or Ctrl+Z cancels an unfinished box before affecting pending predictions. Changing tools, jobs, or images also discards an unfinished box. Completed predictions remain on their original image and job.
 
 ## Configuration
 
 - `SIMPLE_ANNOTATOR_AI=0`: explicitly disable the worker and skip installing AI dependencies (for development without a GPU). AI is enabled by default.
 - `SIMPLE_ANNOTATOR_AI_DEVICE`: defaults to `cuda`; `cpu` is useful for debugging.
 - `SIMPLE_ANNOTATOR_MODEL_DIR`: checkpoint cache, default `~/.cache/simple-annotator`.
-- `SIMPLE_ANNOTATOR_AI_PROFILES`: optional JSON file mapping job names to profiles, replacing the defaults:
 
-```json
-{
-  "Mitochondria": {
-    "model": "microsam-em-1.2",
-    "crop_nm": 3000,
-    "crop_px": 512
-  }
-}
-```
-
-A model adapter implements `predict(request)` and returns `points` and optional `holes` in patch-local pixel coordinates. Register it in `ai_worker.py` and select its model key in a profile. Prompts capture the model, scale, source region, and job when enqueued. The frontend has no model-specific geometry handling.
+The previous `SIMPLE_ANNOTATOR_AI_PROFILES` setting and per-job crop sizes are no longer used. A model adapter implements `prepare(request)` to persist embeddings and `predict(request)` to return `points` and optional `holes` in image-local pixel coordinates. Prompts capture the model, source region, calibration, and job when enqueued. The frontend has no model-specific geometry handling.
 
 To attach a worker to an already-running app, run from `backend/`, using the repository's Python environment rules. On Ceph/NFS:
 
@@ -33,10 +30,20 @@ UV_CACHE_DIR=/tmp/uv-cache VIRTUAL_ENV="$HOME/.uv-local/venvs/simple-annotator" 
 
 The worker and API must share `SIMPLE_ANNOTATOR_SQLITE` and image-source settings. One worker owns each database. Its failure leaves manual annotation available. A restarted worker resumes unfinished tasks; cancellation prevents a late result from being committed.
 
+Restart the AI worker after changing inference code. The API's development reload does not reload a separately started worker; an older worker can report generic segmentation failures for newly added prompt types.
+
 ## Persistence and performance
 
-SQLite stores the queue and annotation geometry. Both manual edits and completed predictions use one atomic add/update/delete operation, so saving a canvas cannot erase an unseen background result. Stable element IDs also preserve editing and undo across inference completion.
+SQLite stores the queues, annotation geometry, and embedding tensors in `ai_embeddings`. Each embedding is an uncompressed NumPy archive containing float32 features and the predictor's original/input dimensions; loading disables pickle. The cache key includes the image-source URL, image ID, absolute pixel region, model, and preprocessing/checkpoint version. Visits, users, jobs, and prompt types share embeddings for identical pixels. Source image IDs are assumed to identify immutable pixels; replacing pixels under the same ID requires invalidating its cached embeddings.
 
-The browser polls every 200 ms while work is pending and every 1.5 seconds when idle. Completed geometry is transferred once per view using a completion cursor. The worker polls the queue every 80 ms. Model loading and image encoding happen entirely outside the API process. A click only runs the decoder when its crop is cached.
+The worker persists each completed tile in a short transaction, without holding a database lock during network fetching or GPU encoding. Up to 16 embeddings stay in GPU memory; evicted embeddings load from SQLite. Restarting the worker resumes unfinished preparation while retaining completed tensors. Failed preparation retries when the image is reopened or a prompt needs that tile. One float32 SAM embedding takes about 4 MiB, plus a small amount of metadata. Without calibration, a 1024 × 1024 image has nine tiles and one whole-image fallback, about 40 MiB in total; at 5 nm/pixel it uses four tiles and one fallback, about 20 MiB.
+
+Reopening an image reads its cache entries and queues only missing or failed embeddings. Ready or already-pending tiles require no queue write. Worker database operations retry SQLite busy/locked errors after rolling back and closing the affected session; saving a computed embedding or prediction does not repeat inference while waiting for the lock. Other errors retain the normal failure behavior. This handles temporary contention, not stale filesystem locks.
+
+Background queue insertion uses its own session and tries up to three times on database contention. If it still fails, it logs the error and leaves the saved visit intact. Reopening the image can queue preparation again; prompts can also prepare their required embeddings on demand. Tensors and their ready status commit together before entering the worker's memory cache, so a cache hit needs no completion write.
+
+Both manual edits and completed predictions use one atomic add/update/delete operation, so saving a canvas cannot erase an unseen background result. Stable element IDs also preserve editing and undo across inference completion.
+
+The browser polls every 200 ms while work is pending and every 1.5 seconds when idle. Completed geometry is transferred once per view using a completion cursor. The worker polls the queues every 80 ms and checks for requested predictions between background tiles. Model loading and image encoding happen entirely outside the API process. Once its embedding is available, either a point or box only runs prompt decoding and polygon extraction.
 
 The checkpoint is μSAM's [EM organelle ViT-B model, model-zoo version 1.2](https://uk1s3.embassy.ebi.ac.uk/public-datasets/bioimage.io/noisy-ox/1.2/files/vit_b.pt), verified against the checksum published in the [μSAM model registry](https://github.com/computational-cell-analytics/micro-sam/blob/main/micro_sam/util.py). The small SAM inference package loads the checkpoint directly; the desktop annotation/training dependencies are unnecessary for this worker.

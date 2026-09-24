@@ -1,4 +1,4 @@
-export type Job = { id: number; name: string; color: string; ai?: boolean };
+export type Job = { id: number; name: string; color: string };
 export type Me = {
   id: number;
   username: string;
@@ -25,12 +25,12 @@ export function aiTaskId(elementId: string): string | null {
 }
 
 export type AiWorkerState = "offline" | "loading" | "ready";
-export type AiTask = {
+export type Box = [number, number, number, number];
+export type AiPrompt = { x: number; y: number; box?: never } | { box: Box; x?: never; y?: never };
+export type AiTask = AiPrompt & {
   id: string;
   patch_id: number;
   job_id: number;
-  x: number;
-  y: number;
   status: string;
   error: string | null;
 };
@@ -92,7 +92,7 @@ export const api = {
       tasks: AiTask[];
       elements: Element[];
     }>(`/patches/ai?patch_id=${patchId}&after=${after}`, { signal }),
-  aiSubmit: (patchId: number, prompt: { id: string; job_id: number; x: number; y: number }) =>
+  aiSubmit: (patchId: number, prompt: AiPrompt & { id: string; job_id: number }) =>
     req<AiTask>(`/patches/${patchId}/ai`, { method: "POST", body: JSON.stringify(prompt) }),
   aiCancel: (id: string) => req(`/patches/ai/${id}`, { method: "DELETE" }),
   edit: (patchId: number, changes: { upsert: Element[]; delete: string[] }) =>

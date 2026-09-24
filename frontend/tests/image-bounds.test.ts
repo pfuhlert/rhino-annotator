@@ -4,12 +4,27 @@ import { imagePoint, imageScreenRect, imageToScreen, type Mark, type Space } fro
 import {
   brushTouchesImage,
   clampToImage,
+  imageBox,
   insideImageBounds,
   insidePixelBounds,
   moveWithinImage,
 } from "../src/lib/image-bounds";
 
 const size = { imageWidth: 400, imageHeight: 200 };
+
+test("AI boxes use pixel-aligned bounds in either drag direction", () => {
+  assert.deepEqual(imageBox([20.2, 30.8], [150.6, 100.1], size), [20, 31, 151, 100]);
+  assert.deepEqual(imageBox([150.6, 100.1], [20.2, 30.8], size), [20, 31, 151, 100]);
+  assert.deepEqual(imageBox([150.6, 30.8], [20.2, 100.1], size), [20, 31, 151, 100]);
+});
+
+test("AI boxes stop at image edges and reject clicks or degenerate drags", () => {
+  assert.deepEqual(imageBox([50, 60], [800, 400], size), [50, 60, 400, 200]);
+  assert.deepEqual(imageBox([50, 60], [-30, -40], size), [0, 0, 50, 60]);
+  assert.equal(imageBox([20, 20], [20, 20], size), null);
+  assert.equal(imageBox([20, 20], [21, 80], size), null);
+  assert.equal(imageBox([20, 20], [80, 21], size), null);
+});
 
 test("drawing slides along all four image edges and clamps corners", () => {
   assert.deepEqual(

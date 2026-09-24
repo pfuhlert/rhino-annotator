@@ -85,3 +85,14 @@ class AiWorker(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     updated: Mapped[float]
     status: Mapped[str]
+
+
+class AiEmbedding(Base):
+    __tablename__ = "ai_embeddings"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    input: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(16), index=True)
+    created: Mapped[float]
+    error: Mapped[str | None]
+    data: Mapped[bytes | None] = mapped_column(deferred=True)

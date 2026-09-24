@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { AiTask, Element, Job } from "@/lib/api";
+import type { AiPrompt, AiTask, Element, Job } from "@/lib/api";
 import { type Mark, type Tool } from "@/lib/draw";
 import { useFreehand } from "@/lib/freehand";
 import { createHistory } from "@/lib/history";
@@ -10,7 +10,7 @@ import { measureScaleBar } from "@/lib/scale-bar";
 type Props = {
   src: string;
   pending?: AiTask[];
-  onAiPoint?: (point: [number, number]) => void;
+  onAiPrompt: (prompt: AiPrompt) => void;
   onRemote?: (elements: Element[]) => void;
   nmPerPixel: number | null;
   jobId: number;
@@ -27,6 +27,7 @@ export type AnnotatorApi = {
   toElements: () => Element[];
   add: (elements: Element[]) => void;
   flush: () => void;
+  cancelDraft: () => boolean;
   undo: () => void;
   redo: () => void;
 };
@@ -34,7 +35,7 @@ export type AnnotatorApi = {
 export default function PatchCanvas({
   src,
   pending,
-  onAiPoint,
+  onAiPrompt,
   onRemote,
   nmPerPixel,
   jobId,
@@ -65,7 +66,7 @@ export default function PatchCanvas({
   const brush = useFreehand({
     rootRef,
     pending,
-    onAiPoint,
+    onAiPrompt,
     onRemote,
     canvasRef,
     cursorRef,
@@ -103,6 +104,7 @@ export default function PatchCanvas({
       add: (elements) => brush.add(elements),
       toElements: () => marksRef.current,
       flush: () => brush.flush(),
+      cancelDraft: () => brush.cancelDraft(),
       undo: () => restore(history.undo()),
       redo: () => restore(history.redo()),
     });

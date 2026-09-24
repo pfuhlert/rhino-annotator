@@ -24,6 +24,7 @@ const TOOLS = [
   ["point", "Point (P)"],
   ["polygon", "Polygon (L)"],
   ["brush", "Brush (R)"],
+  ["ai-box", "AI Box (A)"],
 ] as const;
 const TOOL_IDS = TOOLS.map(([id]) => id);
 
@@ -56,7 +57,6 @@ export default function AnnotatePage() {
     () => ai.tasks.filter((t) => t.patch_id === patch?.id),
     [ai.tasks, patch?.id],
   );
-  const supportsAi = !!jobs.find((j) => j.id === jobId)?.ai;
 
   useEffect(() => {
     patchRef.current = patch;
@@ -125,7 +125,7 @@ export default function AnnotatePage() {
   }
 
   function undo() {
-    if (!cancelLatestPending()) annoRef.current?.undo();
+    if (!annoRef.current?.cancelDraft() && !cancelLatestPending()) annoRef.current?.undo();
   }
 
   function queueSave() {
@@ -185,11 +185,11 @@ export default function AnnotatePage() {
         );
         return;
       }
-      if (k === "escape") cancelLatestPending();
-      if (!e.ctrlKey && !e.metaKey && !e.altKey && ["p", "l", "r"].includes(k)) {
+      if (k === "escape" && !annoRef.current?.cancelDraft()) cancelLatestPending();
+      if (!e.ctrlKey && !e.metaKey && !e.altKey && ["p", "l", "r", "a"].includes(k)) {
         e.preventDefault();
         e.stopPropagation();
-        setTool(k === "p" ? "point" : k === "l" ? "polygon" : "brush");
+        setTool(k === "p" ? "point" : k === "l" ? "polygon" : k === "r" ? "brush" : "ai-box");
         return;
       }
       if ((k === "z" || k === "y") && (e.metaKey || e.ctrlKey)) {
@@ -267,7 +267,7 @@ export default function AnnotatePage() {
           key={patch.id}
           src={patch.image_url}
           pending={pending}
-          onAiPoint={supportsAi ? ([x, y]) => ai.submit(patch.id, jobId, x, y) : undefined}
+          onAiPrompt={(prompt) => ai.submit(patch.id, jobId, prompt)}
           onRemote={(elements) => sync.current?.accept(elements)}
           nmPerPixel={patch.nm_per_px}
           jobId={jobId}
@@ -281,58 +281,63 @@ export default function AnnotatePage() {
           }}
           onChange={queueSave}
         />
-        {(supportsAi || ai.tasks.length > 0) && (
-          <details
-            className="absolute right-4 top-4 z-20 max-w-sm rounded-md border bg-background/95 px-3 py-2 text-sm shadow"
-            data-testid="ai-queue"
-          >
-            <summary className="cursor-pointer" aria-live="polite">
-              {ai.tasks.length
-                ? `AI · ${ai.tasks.filter((t) => t.status !== "failed").length} pending${ai.tasks.some((t) => t.status === "failed") ? " · needs attention" : ""}`
-                : ai.worker === "ready"
-                  ? "AI ready"
-                  : ai.worker === "loading"
-                    ? "AI warming up…"
-                    : "AI offline"}
-            </summary>
-            <div className="max-h-64 space-y-2 overflow-auto pt-2">
-              {ai.tasks.length === 0 && (
-                <p className="text-xs text-muted-foreground">
-                  Click inside a structure with Point (P). AI replaces the dot with its outline. R
-                  switches to the brush.
-                </p>
-              )}
-              {ai.tasks.map((task) => (
-                <div key={task.id} className="flex items-center gap-2 text-xs">
-                  <span className="min-w-0 flex-1">
-                    {task.error ||
-                      `${task.patch_id === patch.id ? "This image" : `Image ${task.patch_id}`} · ${task.status}`}
-                  </span>
-                  {task.status === "failed" && (
-                    <button
-                      className="underline"
-                      onClick={() => {
-                        void ai.cancel(task.id).then((ok) => {
-                          if (ok) ai.submit(task.patch_id, task.job_id, task.x, task.y);
-                        });
-                      }}
-                    >
-                      Retry
-                    </button>
-                  )}
+        <details
+          className="absolute right-4 top-4 z-20 max-w-sm rounded-md border bg-background/95 px-3 py-2 text-sm shadow"
+          data-testid="ai-queue"
+        >
+          <summary className="cursor-pointer" aria-live="polite">
+            {ai.tasks.length
+              ? `AI · ${ai.tasks.filter((t) => t.status !== "failed").length} pending${ai.tasks.some((t) => t.status === "failed") ? " · needs attention" : ""}`
+              : ai.worker === "ready"
+                ? "AI ready"
+                : ai.worker === "loading"
+                  ? "AI warming up…"
+                  : "AI offline"}
+          </summary>
+          <div className="max-h-64 space-y-2 overflow-auto pt-2">
+            {ai.tasks.length === 0 && (
+              <p className="text-xs text-muted-foreground">
+                {tool === "ai-box"
+                  ? "Draw a tight box around one object. AI outlines it within that box."
+                  : "Click inside a structure with Point (P). AI replaces the dot with its outline."}{" "}
+                R switches to the brush.
+              </p>
+            )}
+            {ai.tasks.map((task) => (
+              <div key={task.id} className="flex items-center gap-2 text-xs">
+                <span className="min-w-0 flex-1">
+                  {task.error ||
+                    `${task.patch_id === patch.id ? "This image" : `Image ${task.patch_id}`} · ${task.status}`}
+                </span>
+                {task.status === "failed" && (
                   <button
                     className="underline"
-                    data-testid={`ai-cancel-${task.id}`}
-                    aria-label="Cancel AI annotation"
-                    onClick={() => void ai.cancel(task.id)}
+                    onClick={() => {
+                      void ai.cancel(task.id).then((ok) => {
+                        if (ok)
+                          ai.submit(
+                            task.patch_id,
+                            task.job_id,
+                            task.box ? { box: task.box } : { x: task.x, y: task.y },
+                          );
+                      });
+                    }}
                   >
-                    {task.status === "failed" ? "Dismiss" : "Cancel"}
+                    Retry
                   </button>
-                </div>
-              ))}
-            </div>
-          </details>
-        )}
+                )}
+                <button
+                  className="underline"
+                  data-testid={`ai-cancel-${task.id}`}
+                  aria-label="Cancel AI annotation"
+                  onClick={() => void ai.cancel(task.id)}
+                >
+                  {task.status === "failed" ? "Dismiss" : "Cancel"}
+                </button>
+              </div>
+            ))}
+          </div>
+        </details>
         {saveError && (
           <div
             role="alert"

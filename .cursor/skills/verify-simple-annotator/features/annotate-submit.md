@@ -1,11 +1,11 @@
 # Annotate and next
 
-Annotate and next records point, polygon, and brush marks on the current crop, then loads the next crop.
+Annotate and next records polygons on the current image, then loads the next image. Point and AI Box generate polygons through the GPU worker; Polygon and Brush draw them manually. Existing point annotations remain editable.
 
 ## Sub-features
 
-- `tool-cycle` moves Point → Polygon → Brush with Tab (Shift+Tab reverses).
-- `tool-point` places a point with tool Point (P); its fixed-size dot-and-ring cursor marks the exact click location.
+- `tool-cycle` moves Point → Polygon → Brush → AI Box with Tab (Shift+Tab reverses).
+- `tool-point` prompts AI for every job with Point (P); its fixed-size dot-and-ring cursor marks the exact click location.
 - `tool-polygon` traces a polygon with tool Polygon (L); a lasso cursor identifies the tool and a small crosshair marks the drawing position.
 - `image-boundaries` keeps new points, polygon drawing, vertex edits, and whole-shape movement inside the image. Outside starts are ignored; a partially overlapping brush remains usable. Whole-shape drags retain their grab offset when constrained by an edge.
 - `tool-brush` paints a filled region with tool Brush (R); erase (Shift or right-drag) can cut a hole.
@@ -15,7 +15,7 @@ Annotate and next records point, polygon, and brush marks on the current crop, t
 ## How to get to it (user POV)
 
 - After login, the crop and toolbar are on `/annotate`.
-- Tab cycles tools, or choose Point, Polygon, or Brush, mark the crop, choose Next (N).
+- Tab cycles tools, or choose Point, Polygon, Brush, or AI Box, mark the crop, choose Next (N).
 
 ## Driving it with Playwright
 
@@ -31,8 +31,6 @@ Preconditions:
   wait --testid tool-switcher --text "Brush (R)" \
   press --key Shift+Tab \
   wait --testid tool-switcher --text "Polygon (L)" \
-  select --testid tool-switcher --option tool-point \
-  click --testid patch-canvas --at 640,360 \
   select --testid tool-switcher --option tool-polygon \
   drag --testid patch-canvas --from 500,220 --via 800,240 --to 640,500 \
   select --testid tool-switcher --option tool-brush \
@@ -50,7 +48,7 @@ Image boundary regression: run `./scripts/verify-simple-annotator browser script
 
 Shortcut regression: after selecting a job and closing the menu, press N/F to advance and B/ArrowLeft to return. The selected job must stay unchanged; the selector must not consume navigation keys as typeahead. Repeat P/L/R and Tab/Shift+Tab after job and image changes.
 
-- **Proof.** Screenshot after marks. `sqlite3 $(./scripts/verify-simple-annotator sqlite) 'select elements from annotations;'` includes `point` and `polygon`. Copy that output into `artifacts/` before `down`.
+- **Proof.** Screenshot after marks. `sqlite3 $(./scripts/verify-simple-annotator sqlite) 'select elements from annotations;'` includes `polygon`. Copy that output into `artifacts/` before `down`. Verify Point AI using the real-image fixture in [AI annotation](ai-annotation.md); `image-bounds.mjs` seeds a legacy point through the API solely to verify editing older annotations.
 
 ## Gotchas
 
@@ -58,7 +56,7 @@ Shortcut regression: after selecting a job and closing the menu, press N/F to ad
 - A straight `drag` simplifies to fewer than 3 points and is dropped. Use `--via` so the path has three corners.
 - Tab is handled on `window`; do not Tab while a select is open.
 - `select` waits for the menu to close; a drag right after an option click otherwise loses `pointerdown` to the dismiss layer.
-- Brush on the same job unions into existing polygons, so `elements` may show one `polygon` plus the point, not a second mark.
+- Brush on the same job unions into existing polygons, so multiple strokes may remain one `polygon`.
 - Marks are a canvas overlay on an `img` inside `patch-canvas`; click the crop, not the header.
 - Empty next is allowed and does not increment `done_count`.
 - `down` deletes the verify SQLite; export `elements` first.

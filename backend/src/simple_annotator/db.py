@@ -1,9 +1,13 @@
 import fcntl
 import os
+import sqlite3
+import time
 from collections.abc import Generator
+from functools import wraps
 
 from sqlalchemy import create_engine, event, select, text
 from sqlalchemy.engine import Engine
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 
 from simple_annotator.config import sqlite_path
@@ -53,6 +57,28 @@ def session_factory() -> sessionmaker:
     get_engine()
     assert _SessionLocal is not None
     return _SessionLocal
+
+
+def retry_sqlite_busy(operation=None, *, attempts: int | None = None):
+    if operation is None:
+        return lambda fn: retry_sqlite_busy(fn, attempts=attempts)
+
+    @wraps(operation)
+    def run(*args, **kwargs):
+        failures = 0
+        while True:
+            try:
+                return operation(*args, **kwargs)
+            except OperationalError as exc:
+                code = getattr(exc.orig, "sqlite_errorcode", 0) & 0xFF
+                if code not in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED):
+                    raise
+                failures += 1
+                if attempts is not None and failures >= attempts:
+                    raise
+                time.sleep(0.1)
+
+    return run
 
 
 def reset_engine() -> None:

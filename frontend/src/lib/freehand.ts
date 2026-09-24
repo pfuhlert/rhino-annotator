@@ -1,5 +1,5 @@
 import { useEffect, useRef, type RefObject } from "react";
-import type { AiTask, Job } from "@/lib/api";
+import type { AiPrompt, AiTask, Job } from "@/lib/api";
 import { applyPolys, createBrush, jobPolys, type Brush } from "./brush";
 import { createBrushCursor } from "./brush-cursor";
 import {
@@ -19,6 +19,7 @@ import { hasPolygonArea, hitMark, hitVertex, insertTarget, simplifyPolygon } fro
 import {
   brushTouchesImage,
   clampToImage,
+  imageBox,
   insideImageBounds,
   insidePixelBounds,
   moveWithinImage,
@@ -27,6 +28,7 @@ import { isTypingTarget } from "./keys";
 
 type Ctl = {
   flush: () => void;
+  cancelDraft: () => boolean;
   reset: (clearSelect?: boolean) => void;
   add: (marks: Mark[]) => void;
 };
@@ -44,7 +46,7 @@ export function useFreehand(opts: {
   onRadiusChange: (radius: number) => void;
   onChangeRef: RefObject<(() => void) | undefined>;
   pending?: AiTask[];
-  onAiPoint?: (point: [number, number]) => void;
+  onAiPrompt: (prompt: AiPrompt) => void;
   onRemote?: (marks: Mark[]) => void;
   onViewChange?: (space: Space | null) => void;
 }): Ctl {
@@ -56,6 +58,7 @@ export function useFreehand(opts: {
   });
   const ctl = useRef<Ctl & { redraw: () => void; cursor: () => void }>({
     flush() {},
+    cancelDraft: () => false,
     reset() {},
     redraw() {},
     cursor() {},
@@ -72,6 +75,12 @@ export function useFreehand(opts: {
     const seen = new Set(marksRef.current.map((m) => m.id));
     const incoming: Mark[] = [];
     let drawing = false;
+    let boxDrag: {
+      start: [number, number];
+      end: [number, number];
+      pointerId: number;
+      submit: (prompt: AiPrompt) => void;
+    } | null = null;
     let painting = false;
     let erasing = false;
     let brush: Brush | null = null;
@@ -115,6 +124,9 @@ export function useFreehand(opts: {
     }
 
     function cancelGesture() {
+      const box = boxDrag;
+      boxDrag = null;
+      if (box && root.hasPointerCapture(box.pointerId)) root.releasePointerCapture(box.pointerId);
       drawing = false;
       painting = false;
       drag = null;
@@ -135,7 +147,7 @@ export function useFreehand(opts: {
     }
 
     function drain() {
-      if (drawing || painting || drag || !incoming.length) return;
+      if (drawing || boxDrag || painting || drag || !incoming.length) return;
       while (incoming.length) {
         const mark = incoming.shift()!;
         marksRef.current = [...marksRef.current, mark];
@@ -162,7 +174,16 @@ export function useFreehand(opts: {
       redraw();
     }
 
-    ctl.current = { flush, reset, redraw, cursor, add };
+    function cancelDraft() {
+      if (!boxDrag) return false;
+      cancelGesture();
+      drain();
+      cursor();
+      redraw();
+      return true;
+    }
+
+    ctl.current = { flush, cancelDraft, reset, redraw, cursor, add };
 
     function edgeInsert(e: PointerPosition, id: string | null) {
       if (!space || !id) return null;
@@ -195,11 +216,13 @@ export function useFreehand(opts: {
           return "move";
       }
       if (hover) return "grab";
-      if (!drawing && pointer && (!space || !canStartAt(imagePoint(pointer, space))))
+      if (!drawing && !boxDrag && pointer && (!space || !canStartAt(imagePoint(pointer, space))))
         return "not-allowed";
       return latest.current.tool === "point"
         ? 'url("/cursors/point.svg") 12 12, crosshair'
-        : 'url("/cursors/polygon.svg") 8 8, crosshair';
+        : latest.current.tool === "ai-box"
+          ? 'url("/cursors/ai-box.svg") 8 8, crosshair'
+          : 'url("/cursors/polygon.svg") 8 8, crosshair';
     }
 
     function cursor() {
@@ -213,6 +236,7 @@ export function useFreehand(opts: {
       const job = latest.current.jobs.find((j) => j.id === latest.current.jobId);
       paintScene(ctx, root, marksRef.current, latest.current.jobs, {
         pending: latest.current.pending,
+        box: boxDrag && space ? imageBox(boxDrag.start, boxDrag.end, space) : null,
         draft: drawing ? draft : [],
         draftColor: job?.color,
         hoverId: hover,
@@ -259,7 +283,7 @@ export function useFreehand(opts: {
         draft.length = 0;
         for (const p of stroke) draft.push(imageToScreen(p, space));
       }
-      if (!drawing && !painting && !drag) updateHover();
+      if (!drawing && !boxDrag && !painting && !drag) updateHover();
       cursor();
       redraw();
       latest.current.onViewChange?.(space);
@@ -347,6 +371,7 @@ export function useFreehand(opts: {
     }
 
     function onDown(e: PointerEvent) {
+      if (boxDrag) return;
       pointer = e;
       if (brushing()) {
         if (e.button !== 0 && e.button !== 2) return;
@@ -399,33 +424,25 @@ export function useFreehand(opts: {
         redraw();
         return;
       }
-      if (latest.current.tool === "point" && latest.current.onAiPoint) {
+      if (latest.current.tool === "point") {
         if (
           latest.current.pending?.some(
             (t) =>
+              !t.box &&
               t.job_id === latest.current.jobId &&
               Math.hypot(t.x - pt[0], t.y - pt[1]) * space!.scale < 12,
           )
         )
           return;
-        latest.current.onAiPoint?.(pt);
+        latest.current.onAiPrompt({ x: pt[0], y: pt[1] });
         return;
       }
-      if (latest.current.tool === "point") {
-        marksRef.current = [
-          ...marksRef.current,
-          {
-            id: crypto.randomUUID(),
-            type: "point",
-            points: [pt],
-            jobId: latest.current.jobId,
-          },
-        ];
-        selected = marksRef.current.at(-1)?.id ?? null;
-        draft.length = 0;
+      if (latest.current.tool === "ai-box") {
+        const submit = latest.current.onAiPrompt;
+        boxDrag = { start: pt, end: pt, pointerId: e.pointerId, submit };
+        root.setPointerCapture(e.pointerId);
         cursor();
         redraw();
-        changed();
         return;
       }
       drawing = true;
@@ -440,6 +457,13 @@ export function useFreehand(opts: {
 
     function onMove(e: PointerEvent) {
       pointer = e;
+      if (boxDrag && space) {
+        if (e.pointerId !== boxDrag.pointerId) return;
+        boxDrag.end = clampToImage(imagePoint(e, space), space);
+        cursor();
+        redraw();
+        return;
+      }
       if (brushing() && !painting) {
         cursor();
         return;
@@ -501,7 +525,7 @@ export function useFreehand(opts: {
         return;
       }
       if (e.key !== "Delete" && e.key !== "Backspace") return;
-      if (!selected || drawing || drag || painting) return;
+      if (!selected || drawing || boxDrag || drag || painting) return;
       e.preventDefault();
       marksRef.current = marksRef.current.filter((m) => m.id !== selected);
       selected = null;
@@ -521,6 +545,22 @@ export function useFreehand(opts: {
     }
 
     function finishGesture(e: PointerEvent) {
+      if (boxDrag) {
+        if (e.pointerId !== boxDrag.pointerId) return;
+        const gesture = boxDrag;
+        boxDrag = null;
+        if (space && e.type !== "pointercancel") {
+          const end = clampToImage(imagePoint(e, space), space);
+          const box = imageBox(gesture.start, end, space);
+          if (box && (box[2] - box[0]) * space.scale >= 3 && (box[3] - box[1]) * space.scale >= 3)
+            gesture.submit({ box });
+        }
+        release(e);
+        updateHover();
+        cursor();
+        redraw();
+        return;
+      }
       if (drag) {
         drag = null;
         updateHover();
@@ -570,7 +610,7 @@ export function useFreehand(opts: {
     }
 
     function onLeave() {
-      if (drawing || painting || drag) return;
+      if (drawing || boxDrag || painting || drag) return;
       pointer = null;
       brushCursor.update(null, space);
       const clearHover = !brushing() && (hover !== null || insertAt !== null);
@@ -591,6 +631,7 @@ export function useFreehand(opts: {
     root.addEventListener("pointermove", onMove);
     root.addEventListener("pointerup", onUp);
     root.addEventListener("pointercancel", onUp);
+    root.addEventListener("lostpointercapture", cancelDraft);
     root.addEventListener("pointerleave", onLeave);
     root.addEventListener("contextmenu", onMenu);
     root.addEventListener("wheel", onWheel, { passive: false });
@@ -605,6 +646,7 @@ export function useFreehand(opts: {
       root.removeEventListener("pointermove", onMove);
       root.removeEventListener("pointerup", onUp);
       root.removeEventListener("pointercancel", onUp);
+      root.removeEventListener("lostpointercapture", cancelDraft);
       root.removeEventListener("pointerleave", onLeave);
       root.removeEventListener("contextmenu", onMenu);
       root.removeEventListener("wheel", onWheel);
@@ -632,6 +674,7 @@ export function useFreehand(opts: {
 
   return {
     flush: () => ctl.current.flush(),
+    cancelDraft: () => ctl.current.cancelDraft(),
     reset: () => ctl.current.reset(),
     add: (marks) => ctl.current.add(marks),
   };

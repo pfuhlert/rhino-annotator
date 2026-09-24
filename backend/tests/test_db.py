@@ -1,10 +1,26 @@
 import multiprocessing
 import os
 
+import pytest
 from sqlalchemy import select
+from sqlalchemy.exc import OperationalError
 
 from simple_annotator import db
 from simple_annotator.models import Job
+
+
+def test_busy_retry_does_not_hide_other_database_errors(client):
+    attempts = []
+
+    @db.retry_sqlite_busy
+    def broken_query():
+        attempts.append(1)
+        with db.get_engine().connect() as connection:
+            connection.exec_driver_sql("SELECT * FROM missing_table")
+
+    with pytest.raises(OperationalError, match="no such table"):
+        broken_query()
+    assert len(attempts) == 1
 
 
 def _init_together(path, barrier):
