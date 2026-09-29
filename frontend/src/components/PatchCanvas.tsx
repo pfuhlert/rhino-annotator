@@ -21,6 +21,9 @@ type Props = {
   marks?: Element[];
   onReady?: (api: AnnotatorApi) => void;
   onChange?: () => void;
+  onSelect?: (id: string | null) => void;
+  onImageError?: () => void;
+  onImageLoad?: () => void;
 };
 
 export type AnnotatorApi = {
@@ -30,6 +33,9 @@ export type AnnotatorApi = {
   cancelDraft: () => boolean;
   undo: () => void;
   redo: () => void;
+  highlight: (id: string | null) => void;
+  select: (id: string) => void;
+  remove: (id: string) => void;
 };
 
 export default function PatchCanvas({
@@ -46,6 +52,9 @@ export default function PatchCanvas({
   marks,
   onReady,
   onChange,
+  onSelect,
+  onImageError,
+  onImageLoad,
 }: Props) {
   const [initial] = useState(() => structuredClone(marks ?? []));
   const marksRef = useRef<Mark[]>(initial);
@@ -78,6 +87,7 @@ export default function PatchCanvas({
     radius,
     onRadiusChange,
     onChangeRef: commitRef,
+    onSelect,
     onViewChange: (space) => {
       if (!rootRef.current) return;
       const next = measureScaleBar(rootRef.current, nmPerPixel, space);
@@ -107,6 +117,9 @@ export default function PatchCanvas({
       cancelDraft: () => brush.cancelDraft(),
       undo: () => restore(history.undo()),
       redo: () => restore(history.redo()),
+      highlight: (id) => brush.highlight(id),
+      select: (id) => brush.select(id),
+      remove: (id) => brush.remove(id),
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- bind once; brush/history are ref wrappers
   }, [onReady]);
@@ -124,7 +137,11 @@ export default function PatchCanvas({
         src={src}
         className="h-full w-full origin-top-left object-contain select-none"
         draggable={false}
-        onLoad={() => brush.reset()}
+        onLoad={() => {
+          brush.reset();
+          onImageLoad?.();
+        }}
+        onError={onImageError}
       />
       <canvas ref={canvasRef} className="pointer-events-none absolute inset-0" />
       <div

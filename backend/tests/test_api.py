@@ -282,3 +282,131 @@ def test_legacy_annotations_keep_their_ids_when_edited_and_deleted(auth):
         == 200
     )
     assert auth.get("/patches/current").json()["elements"] == [original[2]]
+
+
+def _save(auth: TestClient, patch_id: int, *elements: dict):
+    r = auth.patch(f"/patches/{patch_id}/annotations", json={"upsert": list(elements)})
+    assert r.status_code == 200
+
+
+def test_visit_history(auth: TestClient, client: TestClient):
+    square = [[0.0, 0.0], [10.0, 0.0], [10.0, 10.0]]
+    a = auth.get("/patches/current").json()
+    _save(
+        auth,
+        a["id"],
+        {"id": "p1", "jobId": 1, "type": "polygon", "points": square},
+        {"id": "p2", "jobId": 2, "type": "polygon", "points": square},
+        {"id": "dot", "jobId": 1, "type": "point", "points": [[1.0, 1.0]]},
+    )
+    b = auth.get("/patches/next").json()
+    c = auth.get("/patches/next").json()
+    listed = auth.get("/patches/visits").json()
+    assert [v["patch_id"] for v in listed] == [c["id"], b["id"], a["id"]]
+    assert [v["n_annotations"] for v in listed] == [0, 0, 2]
+
+    opened = auth.get(f"/patches/visits/{listed[1]['id']}").json()
+    assert opened["id"] == b["id"]
+    assert auth.get("/patches/current").json()["id"] == b["id"]
+    assert auth.get("/patches/prev").json()["id"] == a["id"]
+
+    auth.patch("/me", json={"last_folder_id": "other"})
+    assert auth.get("/patches/visits").json() == []
+    assert auth.get(f"/patches/visits/{listed[0]['id']}").status_code == 404
+
+    auth.post("/auth/logout")
+    client.post("/auth/register", json={"username": "eve", "password": "secret"})
+    assert client.get(f"/patches/visits/{listed[0]['id']}").status_code == 404
+
+
+def test_image_server_failure_returns_clear_error(auth: TestClient, monkeypatch):
+    from simple_annotator import patches
+
+    patch_id = auth.get("/patches/current").json()["id"]
+    request = httpx.Request("GET", "https://girder.test/item/x/tiles/region")
+
+    def down(*_args):
+        raise httpx.HTTPStatusError("404", request=request, response=httpx.Response(404))
+
+    monkeypatch.setattr(patches, "fetch_image", down)
+    r = auth.get(f"/patches/{patch_id}/image")
+    assert r.status_code == 502
+    assert r.json()["detail"] == (
+        "The image server (Girder) returned an error (404). Please try again later."
+    )
+
+    def unreachable(*_args):
+        raise httpx.ConnectError("refused", request=request)
+
+    monkeypatch.setattr(patches, "fetch_image", unreachable)
+    r = auth.get(f"/patches/{patch_id}/image")
+    assert r.status_code == 502
+    assert "could not be reached" in r.json()["detail"]
+
+
+def test_folder_rows_count_own_images_next_to_subfolders(auth, monkeypatch):
+    from simple_annotator import girder
+
+    monkeypatch.setenv("GIRDER_TOKEN", "test")
+    monkeypatch.setattr(girder, "_kids_cache", {})
+    monkeypatch.setattr(girder, "_images_cache", {})
+    kids = {"top": ["mixed", "nested", "empty"], "mixed": ["sub"], "nested": ["leaf"]}
+    images = {"mixed": 3, "leaf": 2}
+
+    def respond(request):
+        path, params = request.url.path, request.url.params
+        if path == "/folder/top":
+            return httpx.Response(200, json={"_id": "top", "name": "Top", "parentId": None})
+        if path == "/folder":
+            ids = kids.get(params["parentId"], [])
+            return httpx.Response(200, json=[{"_id": i, "name": i} for i in ids])
+        if path.endswith("/details"):
+            return httpx.Response(200, json={"nFolders": len(kids.get(path.split("/")[2], []))})
+        if path == "/item":
+            n = images.get(params["folderId"], 0) if params["offset"] == "0" else 0
+            return httpx.Response(
+                200, json=[{"_id": f"i{k}", "name": f"{k}.tif"} for k in range(n)]
+            )
+        pytest.fail(f"Unexpected request: {request.url}")
+
+    with httpx.Client(base_url="https://girder.test", transport=httpx.MockTransport(respond)) as gc:
+        monkeypatch.setattr(girder, "_gc", gc)
+        rows = auth.get("/folders", params={"parent_id": "top"}).json()["children"]
+    assert [(r["id"], r["n_items"], r["n_folders"]) for r in rows] == [
+        ("mixed", 3, 1),
+        ("nested", 0, 1),
+    ]
+
+
+def test_unreadable_dataset_explains_why(auth, monkeypatch):
+    from simple_annotator import girder
+
+    monkeypatch.setenv("GIRDER_TOKEN", "test")
+    monkeypatch.setattr(girder, "_kids_cache", {})
+    monkeypatch.setattr(girder, "_images_cache", {})
+    missing = {"message": "This assetstore does not expose file paths."}
+
+    def respond(request):
+        path = request.url.path
+        if path == "/folder/broken":
+            return httpx.Response(200, json={"_id": "broken", "name": "Lupus", "parentId": "em"})
+        if path == "/folder":
+            return httpx.Response(200, json=[])
+        if path == "/item":
+            items = [{"_id": "a", "name": "a.tif"}, {"_id": "b", "name": "b.tif"}]
+            return httpx.Response(200, json=items if request.url.params["offset"] == "0" else [])
+        if path.endswith("/tiles"):
+            return httpx.Response(500, json=missing)
+        if path.startswith("/collection/") or path.startswith("/folder/"):
+            return httpx.Response(404, json={})
+        pytest.fail(f"Unexpected request: {request.url}")
+
+    with httpx.Client(base_url="https://girder.test", transport=httpx.MockTransport(respond)) as gc:
+        monkeypatch.setattr(girder, "_gc", gc)
+        auth.patch("/me", json={"last_folder_id": "broken"})
+        r = auth.get("/patches/current")
+    assert r.status_code == 400
+    assert r.json()["detail"] == (
+        "None of the 2 images in this dataset can be read by the image server. "
+        "Girder says: This assetstore does not expose file paths."
+    )

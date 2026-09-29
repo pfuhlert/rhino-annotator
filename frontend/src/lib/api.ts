@@ -51,6 +51,8 @@ export type Patch = {
   elements: Element[];
 };
 
+export type Visit = { id: number; patch_id: number; n_annotations: number };
+
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
     ...init,
@@ -85,6 +87,8 @@ export const api = {
   currentPatch: () => req<Patch>("/patches/current"),
   nextPatch: () => req<Patch>("/patches/next"),
   prevPatch: () => req<Patch>("/patches/prev"),
+  visits: () => req<Visit[]>("/patches/visits"),
+  openVisit: (id: number) => req<Patch>(`/patches/visits/${id}`),
   aiStatus: (patchId: number, after = 0, signal?: AbortSignal) =>
     req<{
       cursor: number;

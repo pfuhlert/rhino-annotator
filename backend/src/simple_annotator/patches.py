@@ -3,12 +3,19 @@ from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from simple_annotator.annotations import Changes, apply_changes, elements, lock, require_patch
+from simple_annotator.annotations import (
+    Changes,
+    apply_changes,
+    elements,
+    lock,
+    require_patch,
+    row_elements,
+)
 from simple_annotator.auth import current_user
 from simple_annotator.db import get_db
 from simple_annotator.embeddings import queue_image
 from simple_annotator.girder import PLACEHOLDER_FOLDER, fetch_image, image_nm_per_px, pick_region
-from simple_annotator.models import Patch, PatchVisit, User
+from simple_annotator.models import Annotation, Patch, PatchVisit, User
 
 router = APIRouter(prefix="/patches")
 
@@ -128,6 +135,40 @@ def prev_patch(
         if earlier:
             return _open(db, user, earlier, background)
     raise HTTPException(404, "no previous patch")
+
+
+@router.get("/visits")
+def visits(user: User = Depends(current_user), db: Session = Depends(get_db)) -> list[dict]:
+    rows = db.scalars(
+        select(PatchVisit)
+        .where(PatchVisit.user_id == user.id, PatchVisit.folder_id == _folder_id(user))
+        .order_by(PatchVisit.id.desc())
+    ).all()
+    counts: dict[int, int] = {}
+    for ann in db.scalars(
+        select(Annotation).where(
+            Annotation.user_id == user.id, Annotation.patch_id.in_([v.patch_id for v in rows])
+        )
+    ):
+        n = sum(el.get("type") == "polygon" for el in row_elements(ann))
+        counts[ann.patch_id] = counts.get(ann.patch_id, 0) + n
+    return [
+        {"id": v.id, "patch_id": v.patch_id, "n_annotations": counts.get(v.patch_id, 0)}
+        for v in rows
+    ]
+
+
+@router.get("/visits/{visit_id}")
+def open_visit(
+    visit_id: int,
+    background: BackgroundTasks,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    visit = db.get(PatchVisit, visit_id)
+    if not visit or visit.user_id != user.id or visit.folder_id != _folder_id(user):
+        raise HTTPException(404, "visit not found")
+    return _open(db, user, visit, background)
 
 
 @router.get("/{patch_id}/image")

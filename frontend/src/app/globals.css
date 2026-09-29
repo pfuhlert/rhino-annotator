@@ -129,6 +129,10 @@ body {
     mask-size 200ms ease-in-out,
     mask-position 200ms ease-in-out;
 }
+[data-slot="overlay"][data-pinned] > main {
+  width: auto;
+  margin-left: var(--overlay-width);
+}
 [data-slot="overlay"][data-state="collapsed"] [data-slot="overlay-panel"] {
   mask-size: var(--overlay-trigger-size) var(--overlay-trigger-size);
   mask-position: var(--overlay-trigger-left) var(--overlay-trigger-top);

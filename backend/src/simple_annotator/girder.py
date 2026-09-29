@@ -111,13 +111,11 @@ def _child_folders(parent_type: str, parent_id: str) -> list[dict]:
     for f in _kids(parent_type, parent_id):
         d = _client().get(f"/folder/{f['_id']}/details").json()
         n_folders = int(d.get("nFolders") or 0)
-        if n_folders:
-            out.append({"id": f["_id"], "name": f["name"], "n_items": 0, "n_folders": n_folders})
-            continue
         n_items = len(_images(f["_id"]))
-        if n_items == 0:
-            continue
-        out.append({"id": f["_id"], "name": f["name"], "n_items": n_items, "n_folders": 0})
+        if n_items or n_folders:
+            out.append(
+                {"id": f["_id"], "name": f["name"], "n_items": n_items, "n_folders": n_folders}
+            )
     return out
 
 
@@ -198,16 +196,27 @@ def pick_region(folder_id: str | None) -> dict:
         return _region(PLACEHOLDER_FOLDER, CROP_SIZE, CROP_SIZE)
     parent_type, _ = _resource(folder_id)
     images = _collect_images(folder_id, parent_type)
+    if not images:
+        raise RuntimeError("This dataset contains no images.")
     random.shuffle(images)
+    reason = ""
     for item in images:
         info = _client().get(f"/item/{item['_id']}/tiles")
+        data = (
+            info.json()
+            if info.headers.get("content-type", "").startswith("application/json")
+            else {}
+        )
         if info.status_code != 200:
+            reason = reason or str(data.get("message") or f"HTTP {info.status_code}")
             continue
-        data = info.json()
         if "sizeX" not in data or "sizeY" not in data:
             continue
         return _region(item["_id"], int(data["sizeX"]), int(data["sizeY"]))
-    raise RuntimeError("no girder items in folder")
+    detail = f" Girder says: {reason}" if reason else ""
+    raise RuntimeError(
+        f"None of the {len(images)} images in this dataset can be read by the image server.{detail}"
+    )
 
 
 def image_nm_per_px(item_id: str) -> float | None:

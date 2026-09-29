@@ -251,8 +251,9 @@ export function paintScene(
       ctx.stroke();
     } else if (m.points.length > 1) {
       const rings = polyRings(m).map((ring) => ring.map((p) => imageToScreen(p, s)));
-      const halo = !fillOnly && m.id === opts.hoverId && m.id !== opts.selectedId;
-      poly(ctx, rings, color, halo, fillOnly);
+      // Brush mode only fills, except for the mark hovered in the sidebar.
+      const halo = m.id === opts.hoverId && m.id !== opts.selectedId;
+      poly(ctx, rings, color, halo, fillOnly && m.id !== opts.hoverId);
       if (!fillOnly && m.id === opts.selectedId) {
         for (const ring of rings) handles(ctx, ring, color);
       }

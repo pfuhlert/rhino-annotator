@@ -1,3 +1,4 @@
+import { normalize } from "./clipping";
 import { polyRings, type Mark } from "./draw";
 
 const SIMPLIFY_MIN_PX = 1.5;
@@ -64,6 +65,22 @@ export function hasPolygonArea(points: [number, number][]) {
   if (points.length < 3) return false;
   const [a, b] = points;
   return points.some((p) => (b[0] - a[0]) * (p[1] - a[1]) !== (b[1] - a[1]) * (p[0] - a[0]));
+}
+
+function ringArea(ring: [number, number][]) {
+  let sum = 0;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++)
+    sum += (ring[j][0] - ring[i][0]) * (ring[j][1] + ring[i][1]);
+  return Math.abs(sum) / 2;
+}
+
+// Normalize first: marks are filled even-odd, and self-crossing lobes would cancel in a raw sum.
+export function polygonArea(m: Mark) {
+  return normalize(m).reduce(
+    (sum, p) =>
+      sum + ringArea(p.points) - (p.holes ?? []).reduce((h, hole) => h + ringArea(hole), 0),
+    0,
+  );
 }
 
 export function pointInPoly(pt: [number, number], poly: [number, number][]) {

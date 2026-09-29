@@ -38,7 +38,7 @@ def ai_element_id(task_id: str) -> str:
     return f"ai-{task_id}"
 
 
-def _row_elements(row: Annotation) -> list[dict]:
+def row_elements(row: Annotation) -> list[dict]:
     marks = json.loads(row.elements)
     for i, el in enumerate(marks):
         el.setdefault("id", f"legacy-{row.id}-{i}")
@@ -51,7 +51,7 @@ def elements(db: Session, user_id: int, patch_id: int) -> list[dict]:
         for row in db.scalars(
             select(Annotation).where(Annotation.patch_id == patch_id, Annotation.user_id == user_id)
         )
-        for el in _row_elements(row)
+        for el in row_elements(row)
     ]
 
 
@@ -63,7 +63,7 @@ def apply_changes(db: Session, user_id: int, patch_id: int, changes: Changes) ->
             select(Annotation).where(Annotation.patch_id == patch_id, Annotation.user_id == user_id)
         )
     }
-    by_job = {job_id: {el["id"]: el for el in _row_elements(row)} for job_id, row in rows.items()}
+    by_job = {job_id: {el["id"]: el for el in row_elements(row)} for job_id, row in rows.items()}
     removed = set(changes.delete) | {el.id for el in changes.upsert}
     touched = set()
     for job_id, marks in by_job.items():

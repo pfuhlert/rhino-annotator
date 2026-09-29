@@ -31,6 +31,9 @@ type Ctl = {
   cancelDraft: () => boolean;
   reset: (clearSelect?: boolean) => void;
   add: (marks: Mark[]) => void;
+  highlight: (id: string | null) => void;
+  select: (id: string) => void;
+  remove: (id: string) => void;
 };
 
 export function useFreehand(opts: {
@@ -49,6 +52,7 @@ export function useFreehand(opts: {
   onAiPrompt: (prompt: AiPrompt) => void;
   onRemote?: (marks: Mark[]) => void;
   onViewChange?: (space: Space | null) => void;
+  onSelect?: (id: string | null) => void;
 }): Ctl {
   const { rootRef, canvasRef, cursorRef, imgRef, tool, jobId, marksRef, onChangeRef, radius } =
     opts;
@@ -63,6 +67,9 @@ export function useFreehand(opts: {
     redraw() {},
     cursor() {},
     add() {},
+    highlight() {},
+    select() {},
+    remove() {},
   });
 
   useEffect(() => {
@@ -89,7 +96,10 @@ export function useFreehand(opts: {
     let space = measureSpace(root);
     let ctx = setupCanvas(canvas, root);
     let selected: string | null = null;
+    let reportedSelected: string | null = null;
     let hover: string | null = null;
+    // Set from the sidebar. Kept apart from `hover` so canvas pointer events cannot clobber it.
+    let listHover: string | null = null;
     let pointer: PointerPosition | null = null;
     let drag:
       | { kind: "move"; id: string; last: [number, number] }
@@ -183,7 +193,41 @@ export function useFreehand(opts: {
       return true;
     }
 
-    ctl.current = { flush, cancelDraft, reset, redraw, cursor, add };
+    function busy() {
+      return drawing || !!boxDrag || painting || !!drag;
+    }
+
+    function highlight(id: string | null) {
+      if (listHover === id) return;
+      listHover = id;
+      redraw();
+    }
+
+    // Brush mode has no selection; sidebar hover still highlights through highlight().
+    function select(id: string) {
+      if (busy() || brushing() || !marksRef.current.some((m) => m.id === id)) return;
+      selected = id;
+      cursor();
+      redraw();
+    }
+
+    function remove(id: string) {
+      if (busy()) return;
+      marksRef.current = marksRef.current.filter((m) => m.id !== id);
+      if (selected === id) selected = null;
+      if (listHover === id) listHover = null;
+      hover = null;
+      insertAt = null;
+      if (brushing()) {
+        brush = null;
+        ensureBrush();
+      }
+      cursor();
+      redraw();
+      changed();
+    }
+
+    ctl.current = { flush, cancelDraft, reset, redraw, cursor, add, highlight, select, remove };
 
     function edgeInsert(e: PointerPosition, id: string | null) {
       if (!space || !id) return null;
@@ -232,6 +276,10 @@ export function useFreehand(opts: {
     }
 
     function redraw() {
+      if (selected !== reportedSelected) {
+        reportedSelected = selected;
+        latest.current.onSelect?.(selected);
+      }
       if (!ctx) return;
       const job = latest.current.jobs.find((j) => j.id === latest.current.jobId);
       paintScene(ctx, root, marksRef.current, latest.current.jobs, {
@@ -239,7 +287,7 @@ export function useFreehand(opts: {
         box: boxDrag && space ? imageBox(boxDrag.start, boxDrag.end, space) : null,
         draft: drawing ? draft : [],
         draftColor: job?.color,
-        hoverId: hover,
+        hoverId: hover ?? listHover,
         selectedId: selected,
         insertAt,
         tool: latest.current.tool,
@@ -525,19 +573,9 @@ export function useFreehand(opts: {
         return;
       }
       if (e.key !== "Delete" && e.key !== "Backspace") return;
-      if (!selected || drawing || boxDrag || drag || painting) return;
+      if (!selected || busy()) return;
       e.preventDefault();
-      marksRef.current = marksRef.current.filter((m) => m.id !== selected);
-      selected = null;
-      hover = null;
-      insertAt = null;
-      if (brushing()) {
-        brush = null;
-        ensureBrush();
-      }
-      cursor();
-      redraw();
-      changed();
+      remove(selected);
     }
 
     function release(e: PointerEvent) {
@@ -669,7 +707,7 @@ export function useFreehand(opts: {
     prev.current = { tool, jobId };
     if (!last) return;
     if (last.tool === "brush" && (tool !== "brush" || last.jobId !== jobId)) ctl.current.flush();
-    ctl.current.reset(last.jobId !== jobId);
+    ctl.current.reset(last.jobId !== jobId || tool === "brush");
   }, [tool, jobId]);
 
   return {
@@ -677,5 +715,8 @@ export function useFreehand(opts: {
     cancelDraft: () => ctl.current.cancelDraft(),
     reset: () => ctl.current.reset(),
     add: (marks) => ctl.current.add(marks),
+    highlight: (id) => ctl.current.highlight(id),
+    select: (id) => ctl.current.select(id),
+    remove: (id) => ctl.current.remove(id),
   };
 }

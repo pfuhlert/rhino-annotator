@@ -1,142 +1,168 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { CheckIcon, ChevronLeftIcon, ChevronRightIcon, FolderIcon } from "lucide-react";
 import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 import { api, type FolderChild, type FolderLevel } from "@/lib/api";
 
 function FolderRow({
-  id,
-  name,
-  nItems,
+  child,
   active,
   onOpen,
   onUse,
 }: {
-  id: string;
-  name: string;
-  nItems: number;
+  child: FolderChild;
   active: boolean;
   onOpen: () => void;
-  onUse?: () => void;
+  onUse: () => void;
 }) {
+  const drill = child.n_folders > 0;
   return (
-    <div className={cn("flex items-center gap-1 rounded-md", active && "bg-sidebar-accent")}>
+    <div
+      className={cn(
+        "group relative flex items-center rounded-md hover:bg-sidebar-accent",
+        active && "bg-sidebar-accent",
+      )}
+    >
+      {active && (
+        <span className="absolute inset-y-1.5 left-0 w-0.5 rounded-full bg-sidebar-primary" />
+      )}
       <button
         type="button"
-        data-testid={`folder-${id}`}
-        className={cn(
-          "min-w-0 flex-1 truncate rounded-md px-2 py-1 text-left text-sm hover:bg-sidebar-accent",
-          active && "font-medium",
-        )}
-        onClick={onOpen}
+        data-testid={`folder-${child.id}`}
+        className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-left text-sm"
+        onClick={drill ? onOpen : onUse}
       >
-        {name}
-        {nItems > 0 ? <span className="ml-1 text-xs text-muted-foreground">{nItems}</span> : null}
+        <FolderIcon className="size-4 shrink-0 text-muted-foreground" />
+        <span className={cn("min-w-0 flex-1 truncate", active && "font-medium")}>{child.name}</span>
+        {child.n_items > 0 && (
+          <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+            {child.n_items}
+          </span>
+        )}
+        {active && <CheckIcon className="size-3.5 shrink-0" />}
+        {drill && <ChevronRightIcon className="size-3.5 shrink-0 text-muted-foreground" />}
       </button>
-      {onUse && (
-        <Button
-          data-testid={`use-folder-${id}`}
-          type="button"
-          size="xs"
-          variant={active ? "default" : "outline"}
+      {drill && !active && (
+        <UseButton
+          testId={`use-folder-${child.id}`}
+          className="mr-1 hidden group-focus-within:inline-flex group-hover:inline-flex"
           onClick={onUse}
-        >
-          {active ? "Used" : "Use"}
-        </Button>
+        />
       )}
     </div>
   );
 }
 
-async function chainTo(selectedId: string | null): Promise<FolderLevel[]> {
-  const root = await api.folders(null);
-  if (!selectedId) return [root];
-  const here = await api.folders(selectedId);
-  const upward: FolderLevel[] = here.id && here.children.length ? [here] : [];
-  let pid = here.parent_id;
-  while (pid) {
-    const parent = await api.folders(pid);
-    upward.unshift(parent);
-    pid = parent.parent_id;
-  }
-  return [root, ...upward];
+function UseButton({
+  testId,
+  className,
+  onClick,
+}: {
+  testId: string;
+  className?: string;
+  onClick: () => void;
+}) {
+  return (
+    <Button
+      data-testid={testId}
+      type="button"
+      size="xs"
+      variant="outline"
+      title="Use all images in this folder and its subfolders"
+      className={className}
+      onClick={onClick}
+    >
+      Use
+    </Button>
+  );
 }
 
 export default function FolderPicker({
   selectedId,
+  initialLevel,
   onUse,
 }: {
   selectedId: string | null;
+  initialLevel: FolderLevel | null;
   onUse: (id: string) => void;
 }) {
-  const [chain, setChain] = useState<FolderLevel[] | null>(null);
+  const [level, setLevel] = useState(initialLevel);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (level) return;
     let live = true;
-    chainTo(selectedId)
-      .then((next) => {
-        if (live) setChain(next);
-      })
-      .catch(() => {
-        if (live) setChain(null);
-      });
+    api
+      .folders(null)
+      .then((root) => live && setLevel(root))
+      .catch((e: Error) => live && setError(e.message));
     return () => {
       live = false;
     };
-  }, [selectedId]);
+  }, [level]);
 
-  async function openFolder(child: FolderChild) {
-    if (!child.n_folders) return;
-    const next = await api.folders(child.id);
-    if (!next.children.length) return;
-    setChain((prev) => {
-      if (!prev) return prev;
-      if (prev.some((level) => level.id === child.id)) return prev;
-      const i = prev.findIndex((level) => level.children.some((c) => c.id === child.id));
-      const base = i >= 0 ? prev.slice(0, i + 1) : prev;
-      return [...base, next];
-    });
-  }
+  if (!level)
+    return (
+      <p className="px-2 text-xs text-muted-foreground">
+        {error ? `Could not load folders. ${error}` : "Loading folders"}
+      </p>
+    );
 
-  function handleUseFolder(child: FolderChild) {
-    onUse(child.id);
-    void openFolder(child);
-  }
-
-  if (!chain) {
-    return <p className="px-2 text-xs text-muted-foreground">Loading folders</p>;
-  }
-
-  function rows(level: FolderLevel, depth: number) {
-    const deeper = chain?.[depth + 1];
-    return level.children.map((child) => {
-      const open = deeper?.id === child.id;
-      return (
-        <div key={child.id} className={depth ? "pl-3" : undefined}>
-          <FolderRow
-            id={child.id}
-            name={child.name}
-            nItems={child.n_items}
-            active={selectedId === child.id}
-            onOpen={() =>
-              open ? setChain((c) => c?.slice(0, depth + 1) ?? c) : void openFolder(child)
-            }
-            onUse={
-              open || (child.n_items === 0 && child.n_folders === 0)
-                ? undefined
-                : () => handleUseFolder(child)
-            }
-          />
-          {open ? rows(deeper, depth + 1) : null}
-        </div>
-      );
-    });
-  }
+  const go = (id: string | null) =>
+    void api.folders(id).then(
+      (next) => {
+        setError(null);
+        setLevel(next);
+      },
+      (e: Error) => setError(e.message),
+    );
+  const levelId = level.id;
 
   return (
-    <div data-testid="folder-switcher" className="flex flex-col gap-1 px-1">
-      {rows(chain[0], 0)}
+    <div data-testid="folder-switcher" className="flex flex-col gap-0.5">
+      <div className="flex h-8 items-center gap-1 px-1 text-xs font-medium text-sidebar-foreground/70">
+        {level.id && (
+          <Button
+            data-testid="folder-back"
+            variant="ghost"
+            size="icon-xs"
+            aria-label="Back"
+            onClick={() => go(level.parent_id)}
+          >
+            <ChevronLeftIcon />
+          </Button>
+        )}
+        <span className={cn("min-w-0 flex-1 truncate", !level.id && "px-1")}>
+          {level.id ? level.name : "Datasets"}
+        </span>
+        {levelId &&
+          (levelId === selectedId ? (
+            <CheckIcon className="mr-1 size-3.5 shrink-0" />
+          ) : (
+            <UseButton testId="use-current-folder" onClick={() => onUse(levelId)} />
+          ))}
+      </div>
+      {error && (
+        <p role="alert" className="px-2 py-1 text-xs text-destructive">
+          Could not load this folder. {error}
+        </p>
+      )}
+      {level.children.length === 0 && (
+        <p className="px-2 py-1 text-xs text-muted-foreground">
+          {level.n_items} image{level.n_items === 1 ? "" : "s"}, no subfolders with images.
+        </p>
+      )}
+      {level.children.map((child) => (
+        <FolderRow
+          key={child.id}
+          child={child}
+          active={child.id === selectedId}
+          onOpen={() => go(child.id)}
+          onUse={() => onUse(child.id)}
+        />
+      ))}
     </div>
   );
 }
