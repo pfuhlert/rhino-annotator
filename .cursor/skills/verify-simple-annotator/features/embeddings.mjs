@@ -58,11 +58,13 @@ export default async function (page, state) {
   await ready();
   assert.equal((await json("/patches/current")).nm_per_px, null);
   await page.getByTestId("scale-bar").waitFor({ state: "hidden" });
+  await page.getByTestId("tab-datasets").click();
   await page.getByTestId("folder-fixtures").click();
   const started = Date.now();
-  await page.getByTestId("use-folder-elmi").click();
+  await page.getByTestId("folder-elmi").click();
   await ready();
   const loadMs = Date.now() - started;
+  await page.getByTestId("sidebar-trigger").click();
   const initial = await json("/patches/current");
   assert.equal(initial.nm_per_px, 5);
   await page.getByTestId("scale-bar").waitFor();

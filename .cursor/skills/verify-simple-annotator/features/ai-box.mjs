@@ -61,10 +61,12 @@ export default async function (page, state) {
   await page.goto("/annotate");
   await root.waitFor();
   await ready();
+  await page.getByTestId("tab-datasets").click();
   await page.getByTestId("folder-fixtures").click();
-  await page.getByTestId("use-folder-elmi").click();
+  await page.getByTestId("folder-elmi").click();
   await until(() => json("/patches/current"), (p) => p.folder_id === "elmi");
   await ready();
+  await page.getByTestId("sidebar-trigger").click();
   await select("job-switcher", "job-Nucleus");
   const jobs = await json("/jobs");
   const job = jobs.find((j) => j.name === "Nucleus");
