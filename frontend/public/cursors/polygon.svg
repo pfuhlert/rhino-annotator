@@ -1,7 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
-  <defs><path id="lasso" d="M4 8h8M8 4v8M27 18a7 5 0 1 1-14 0a7 5 0 1 1 14 0M15 22q4 5-2 6"/></defs>
-  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
-    <use href="#lasso" stroke="#111" stroke-width="3.5"/>
-    <use href="#lasso" stroke="#fff" stroke-width="1.5"/>
-  </g>
-</svg>

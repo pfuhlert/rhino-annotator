@@ -1,5 +1,6 @@
 import { imagePoint, imageScreenRect, type PointerPosition, type Space } from "./draw";
 import { brushTouchesImage } from "./image-bounds";
+import { svgCursor } from "./tool-cursors";
 
 export function createBrushCursor(outline: HTMLElement) {
   outline.hidden = true;
@@ -29,10 +30,7 @@ export function createBrushCursor(outline: HTMLElement) {
         ring.innerHTML = circles;
         // Chromium and Firefox reject native cursor images larger than 128px.
         const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}">${circles}</svg>`;
-        native =
-          size > 128
-            ? "none"
-            : `url("data:image/svg+xml,${encodeURIComponent(svg)}") ${center} ${center}, crosshair`;
+        native = size > 128 ? "none" : svgCursor(svg, center, center);
       }
       const point = imagePoint(pointer, space);
       if (!brushTouchesImage(point, radius / space.scale, space)) return hide("not-allowed");

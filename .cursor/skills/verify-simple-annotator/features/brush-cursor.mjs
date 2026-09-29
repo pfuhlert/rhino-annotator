@@ -349,13 +349,14 @@ export default async function (page, state) {
   await check("scale bar remount", true, 80);
   await moveWithoutRedraw(true, 80);
   await leaveAndReenter(true, 80);
-  for (const [key, asset] of [
-    ["p", "point.svg"],
-    ["l", "polygon.svg"],
+  for (const [key, shape] of [
+    ["p", 'r="1.5"'],
+    ["l", "M27 18"],
   ]) {
     await page.keyboard.press(key);
     const current = await read();
-    assert.ok(current.css.includes(asset));
+    assert.ok(current.css.startsWith('url("data:image/svg+xml,'), current.css);
+    assert.ok(current.css.includes(encodeURIComponent(shape)), current.css);
     assert.equal(current.outline, false);
   }
   await page.keyboard.press("r");

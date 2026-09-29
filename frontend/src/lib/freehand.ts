@@ -2,6 +2,7 @@ import { useEffect, useRef, type RefObject } from "react";
 import type { AiPrompt, AiTask, Job } from "@/lib/api";
 import { applyPolys, createBrush, jobPolys, type Brush } from "./brush";
 import { createBrushCursor } from "./brush-cursor";
+import { TOOL_CURSORS } from "./tool-cursors";
 import {
   imagePoint,
   imageToScreen,
@@ -245,7 +246,8 @@ export function useFreehand(opts: {
     }
 
     function cursorAt() {
-      if (brushing())
+      const tool = latest.current.tool;
+      if (tool === "brush")
         return brushCursor.update(
           pointer,
           space,
@@ -262,11 +264,7 @@ export function useFreehand(opts: {
       if (hover) return "grab";
       if (!drawing && !boxDrag && pointer && (!space || !canStartAt(imagePoint(pointer, space))))
         return "not-allowed";
-      return latest.current.tool === "point"
-        ? 'url("/cursors/point.svg") 12 12, crosshair'
-        : latest.current.tool === "ai-box"
-          ? 'url("/cursors/ai-box.svg") 8 8, crosshair'
-          : 'url("/cursors/polygon.svg") 8 8, crosshair';
+      return TOOL_CURSORS[tool];
     }
 
     function cursor() {

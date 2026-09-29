@@ -74,12 +74,13 @@ export default async function (page, state) {
   assert.equal(await page.getByTestId("tool-switcher").innerText(), "AI Box (A)");
   await move(250, 500);
   const cursor = await root.evaluate((el) => getComputedStyle(el).cursor);
-  assert.match(cursor, /\/cursors\/ai-box\.svg.*8 8, crosshair/);
-  assert.ok((await page.request.get(`${state.webUrl}/cursors/ai-box.svg`)).ok());
+  assert.match(cursor, /^url\("data:image\/svg\+xml,.*"\) 8 8, crosshair$/);
+  assert.ok(cursor.includes(encodeURIComponent("M15 15h12v12H15z")), cursor);
   await page.keyboard.press("l");
-  assert.match(await root.evaluate((el) => getComputedStyle(el).cursor), /polygon\.svg/);
+  const lasso = await root.evaluate((el) => getComputedStyle(el).cursor);
+  assert.ok(lasso.includes(encodeURIComponent("M27 18")), lasso);
   await page.keyboard.press("a");
-  assert.match(await root.evaluate((el) => getComputedStyle(el).cursor), /ai-box\.svg/);
+  assert.equal(await root.evaluate((el) => getComputedStyle(el).cursor), cursor);
   results.push({ check: "global tool, menu, shortcut, square cursor", cursor, job });
 
   const patch = await json("/patches/current");
