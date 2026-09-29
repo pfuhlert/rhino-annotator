@@ -9,7 +9,7 @@ description: Prove Simple annotator UI with ./scripts/verify-simple-annotator on
 
 Run the helper on this host. It runs `npm run dev`, including the AI worker by default, in a second stack (ports from 3100/8100, `/tmp` SQLite, `frontend/.next-verify`). Cursor browser tools hit the laptop, not the pod.
 
-Keep all verification build output under `frontend/.next-verify/`, which ESLint excludes. Cleanup must target only the current run’s build directory; the helper records each run’s build directory and `down` deletes only that run’s directory.
+Keep all verification build output under `frontend/.next-verify/`, which ESLint excludes. Cleanup must target only the current run’s build directory; the helper records each run’s build directory and `down` deletes only that run’s directory. Each run also points Next at its own `frontend/.next-verify/<run>.tsconfig.json` (via `typescript.tsconfigPath`), so `frontend/tsconfig.json` never changes.
 
 ## Run
 

@@ -24,6 +24,10 @@ function nextVerifyDir(state) {
   return path.join(root, "frontend", state.distDir || ".next-verify");
 }
 
+function runTsconfig(state) {
+  return `${nextVerifyDir(state)}.tsconfig.json`;
+}
+
 function defaultPath() {
   return existsSync(storagePath()) ? "/annotate" : "/";
 }
@@ -74,9 +78,14 @@ function tailLog(file) {
 function alive(pid) {
   try {
     process.kill(pid, 0);
-    return true;
   } catch {
     return false;
+  }
+  // The pod's PID 1 does not reap orphans, so exited processes linger as zombies ("Z").
+  try {
+    return readFileSync(`/proc/${pid}/stat`, "utf8").split(") ").at(-1)[0] !== "Z";
+  } catch {
+    return true;
   }
 }
 
@@ -93,15 +102,23 @@ function stopPid(pid) {
   }
 }
 
+function waitGone(pids, timeoutMs = 10_000) {
+  const tick = new Int32Array(new SharedArrayBuffer(4));
+  const deadline = Date.now() + timeoutMs;
+  while (pids.some(alive) && Date.now() < deadline) Atomics.wait(tick, 0, 0, 100);
+}
+
+// Waits for exit so next dev's shutdown writes cannot recreate the build directory after `down`.
 function stopVerifyTree(state) {
-  stopPid(state.pid);
+  const pids = [state.pid];
   const lock = path.join(nextVerifyDir(state), "dev", "lock");
-  if (!existsSync(lock)) return;
   try {
-    stopPid(JSON.parse(readFileSync(lock, "utf8")).pid);
+    if (existsSync(lock)) pids.push(JSON.parse(readFileSync(lock, "utf8")).pid);
   } catch {
     /* ignore */
   }
+  pids.forEach(stopPid);
+  waitGone(pids.filter(Boolean));
 }
 
 async function cmdUp() {
@@ -128,6 +145,7 @@ async function cmdUp() {
     WEB_PORT: String(webPort),
     NEXT_PUBLIC_API_URL: apiUrl,
     NEXT_DIST_DIR: distDir,
+    NEXT_TSCONFIG_PATH: `${distDir}.tsconfig.json`,
     SIMPLE_ANNOTATOR_SQLITE: sqlite,
     UV_CACHE_DIR: process.env.UV_CACHE_DIR || "/tmp/uv-cache",
   };
@@ -140,6 +158,10 @@ async function cmdUp() {
   }
   mkdirSync(path.dirname(sqlite), { recursive: true });
   mkdirSync(artifacts, { recursive: true });
+  // next dev adds `${distDir}/types` globs to its tsconfig. Give it a per-run file next to the
+  // build directory (Turbopack cannot read inside it), so frontend/tsconfig.json stays untouched.
+  mkdirSync(path.dirname(runTsconfig({ distDir })), { recursive: true });
+  writeFileSync(runTsconfig({ distDir }), JSON.stringify({ extends: "../tsconfig.json" }));
   writeFileSync(log, "");
   const fd = openSync(log, "a");
   const child = spawn("npm", ["run", "dev"], {
@@ -209,6 +231,7 @@ function cmdDown() {
   if (state.sqlite && existsSync(state.sqlite)) rmSync(state.sqlite, { force: true });
   const nextDir = nextVerifyDir(state);
   if (existsSync(nextDir)) rmSync(nextDir, { recursive: true, force: true });
+  rmSync(runTsconfig(state), { force: true });
   rmSync(statePath(), { force: true });
   const storage = storagePath();
   if (existsSync(storage)) rmSync(storage, { force: true });
