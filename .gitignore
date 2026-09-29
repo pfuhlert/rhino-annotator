@@ -33,3 +33,4 @@ backend/data/
 .cursor/skills/verify-simple-annotator/artifacts/*
 !.cursor/skills/verify-simple-annotator/artifacts/.gitkeep
 /tmp/
+plans/
