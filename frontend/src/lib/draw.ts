@@ -260,10 +260,7 @@ export function paintScene(
     }
   }
   for (const task of opts.pending ?? []) {
-    const color =
-      task.status === "failed"
-        ? "#f87171"
-        : (jobs.find((j) => j.id === task.job_id)?.color ?? "#fff");
+    const color = jobs.find((j) => j.id === task.job_id)?.color ?? "#fff";
     if (task.box) {
       boxOutline(ctx, task.box, s, color);
       continue;

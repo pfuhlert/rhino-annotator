@@ -12,10 +12,11 @@ from simple_annotator.annotations import (
     row_elements,
 )
 from simple_annotator.auth import current_user
+from simple_annotator.config import DEFAULT_AI_MODEL, job_ai_model
 from simple_annotator.db import get_db
 from simple_annotator.embeddings import queue_image
 from simple_annotator.girder import PLACEHOLDER_FOLDER, fetch_image, image_nm_per_px, pick_region
-from simple_annotator.models import Annotation, Patch, PatchVisit, User
+from simple_annotator.models import Annotation, Job, Patch, PatchVisit, User
 
 router = APIRouter(prefix="/patches")
 
@@ -47,7 +48,9 @@ def _open(db: Session, user: User, visit: PatchVisit, background: BackgroundTask
     assert patch
     db.commit()
     result = _dump(db, user, patch, visit)
-    background.add_task(queue_image, patch.id, result["nm_per_px"])
+    job = db.get(Job, user.last_job_id) if user.last_job_id else None
+    models = list(dict.fromkeys([DEFAULT_AI_MODEL, job_ai_model(job and job.name)]))
+    background.add_task(queue_image, patch.id, result["nm_per_px"], models)
     return result
 
 

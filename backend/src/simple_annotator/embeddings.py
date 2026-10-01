@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.exc import OperationalError
 
-from simple_annotator.config import AI_MODEL, AI_MODEL_HASH, GIRDER_API_URL
+from simple_annotator.config import AI_MODELS, GIRDER_API_URL, AiModel
 from simple_annotator.db import retry_sqlite_busy, session_factory
 from simple_annotator.models import AiEmbedding, Patch
 
@@ -19,8 +19,8 @@ HALO_NM = 500
 # Inference memory limits are independent of the configurable image display threshold.
 FULL_EMBEDDING_MAX = 4096
 MAX_TILE_CORE = 3072
-# Change this when pixel preprocessing, weights, or embedding serialization change.
-RECIPE = f"{AI_MODEL_HASH}:rgb-u8:npz-f32-v1"
+# Change this when pixel preprocessing or embedding serialization change.
+RECIPE = "rgb-u8:npz-f32-v1"
 log = logging.getLogger(__name__)
 
 
@@ -48,8 +48,10 @@ def tile_at(
 
 
 def regions(
-    width: int, height: int, nm_per_px: float | None = None
+    width: int, height: int, nm_per_px: float | None = None, whole_image: bool = False
 ) -> list[tuple[int, int, int, int]]:
+    if whole_image and max(width, height) <= FULL_EMBEDDING_MAX:
+        return [(0, 0, width, height)]
     size, _ = tile_shape(nm_per_px, max(width, height))
     tiles = [
         tile_at(x, y, width, height, nm_per_px)
@@ -72,16 +74,18 @@ def tile_request(request: dict, region: tuple[int, int, int, int]) -> dict:
         "width": width,
         "height": height,
         "source": GIRDER_API_URL.rstrip("/"),
-        "recipe": RECIPE,
+        "recipe": f"{AI_MODELS[request['model']].xxh128}:{RECIPE}",
     }
 
 
 def prompt_regions(request: dict) -> list[tuple[int, int, int, int]]:
     width, height = request["width"], request["height"]
     box = request.get("box")
+    full = (0, 0, width, height)
+    if AI_MODELS[request["model"]].whole_image and max(width, height) <= FULL_EMBEDDING_MAX:
+        return [full]
     center = ((box[0] + box[2]) / 2, (box[1] + box[3]) / 2) if box else (request["x"], request["y"])
     first = tile_at(*center, width, height, request.get("nm_per_px"))
-    full = (0, 0, width, height)
     candidates = (
         [first, full] if first != full and max(width, height) <= FULL_EMBEDDING_MAX else [first]
     )
@@ -100,27 +104,28 @@ def embedding_id(request: dict) -> str:
     return hashlib.sha256(json.dumps(request, sort_keys=True).encode()).hexdigest()
 
 
-def queue_image(patch_id: int, nm_per_px: float | None = None) -> None:
+def queue_image(patch_id: int, nm_per_px: float | None, models: list[AiModel]) -> None:
     try:
-        _queue_image(patch_id, nm_per_px)
+        _queue_image(patch_id, nm_per_px, models)
     except OperationalError:
         log.exception("Could not queue embeddings for patch %s; preparation deferred", patch_id)
 
 
 @retry_sqlite_busy(attempts=3)
-def _queue_image(patch_id: int, nm_per_px: float | None) -> None:
+def _queue_image(patch_id: int, nm_per_px: float | None, models: list[AiModel]) -> None:
     with session_factory()() as db:
         patch = db.get(Patch, patch_id)
-        source = {
-            "model": AI_MODEL,
-            "item_id": patch.girder_item_id,
-            "left": patch.left,
-            "top": patch.top,
-        }
         requests = {}
-        for region in regions(patch.width, patch.height, nm_per_px):
-            request = tile_request(source, region)
-            requests[embedding_id(request)] = request
+        for model in models:
+            source = {
+                "model": model.name,
+                "item_id": patch.girder_item_id,
+                "left": patch.left,
+                "top": patch.top,
+            }
+            for region in regions(patch.width, patch.height, nm_per_px, model.whole_image):
+                request = tile_request(source, region)
+                requests[embedding_id(request)] = request
         existing = set(
             db.scalars(
                 select(AiEmbedding.id).where(

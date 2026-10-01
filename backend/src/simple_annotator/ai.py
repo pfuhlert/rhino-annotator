@@ -17,7 +17,7 @@ from simple_annotator.annotations import (
     require_patch,
 )
 from simple_annotator.auth import current_user
-from simple_annotator.config import AI_MODEL
+from simple_annotator.config import job_ai_model
 from simple_annotator.db import get_db
 from simple_annotator.embeddings import prompt_regions
 from simple_annotator.girder import image_nm_per_px
@@ -117,7 +117,7 @@ def enqueue(
     if not job:
         raise HTTPException(400, "unknown job")
     request = {
-        "model": AI_MODEL,
+        "model": job_ai_model(job.name).name,
         **prompt,
         "item_id": patch.girder_item_id,
         "left": patch.left,

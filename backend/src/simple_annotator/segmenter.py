@@ -1,4 +1,5 @@
 import io
+import logging
 import os
 from collections import OrderedDict
 from pathlib import Path
@@ -11,7 +12,7 @@ import xxhash
 from PIL import Image
 from segment_anything import SamPredictor, sam_model_registry
 
-from simple_annotator.config import AI_MODEL, AI_MODEL_HASH
+from simple_annotator.config import AiModel
 from simple_annotator.embeddings import (
     embedding_id,
     load_embedding,
@@ -21,41 +22,63 @@ from simple_annotator.embeddings import (
 )
 from simple_annotator.girder import fetch_image
 
-MODEL_URL = (
-    "https://uk1s3.embassy.ebi.ac.uk/public-datasets/bioimage.io/noisy-ox/1.2/files/vit_b.pt"
-)
+log = logging.getLogger(__name__)
 
 
-def checkpoint() -> Path:
+class ModelUnavailable(Exception):
+    pass
+
+
+def _matches(model: AiModel, path: Path) -> bool:
+    digest = xxhash.xxh128()
+    with path.open("rb") as f:
+        while block := f.read(1 << 24):
+            digest.update(block)
+    return digest.hexdigest() == model.xxh128
+
+
+def checkpoint(model: AiModel) -> Path:
+    if not model.source.startswith("https://"):
+        path = Path(model.source)
+        if not path.is_file():
+            raise ModelUnavailable(f"{model.name} checkpoint not found at {path}")
+        if not _matches(model, path):
+            raise ModelUnavailable(f"{model.name} checkpoint at {path} has changed")
+        return path
     folder = Path(
         os.environ.get("SIMPLE_ANNOTATOR_MODEL_DIR", str(Path.home() / ".cache/simple-annotator"))
     )
     folder.mkdir(parents=True, exist_ok=True)
-    path = folder / f"{AI_MODEL}.pt"
+    path = folder / f"{model.name}.pt"
     if path.exists():
-        return path
+        if _matches(model, path):
+            return path
+        log.warning("Cached %s checkpoint is corrupt; downloading it again", model.name)
+        path.unlink()
     temporary = path.with_suffix(".download")
-    digest = xxhash.xxh128()
-    with httpx.stream("GET", MODEL_URL, follow_redirects=True, timeout=120) as response:
-        response.raise_for_status()
-        with temporary.open("wb") as f:
-            for block in response.iter_bytes():
-                f.write(block)
-                digest.update(block)
-    if digest.hexdigest() != AI_MODEL_HASH:
+    try:
+        with httpx.stream("GET", model.source, follow_redirects=True, timeout=120) as response:
+            response.raise_for_status()
+            with temporary.open("wb") as f:
+                for block in response.iter_bytes():
+                    f.write(block)
+    except httpx.HTTPError as exc:
+        raise ModelUnavailable(f"{model.name} checkpoint download failed: {exc}") from exc
+    if not _matches(model, temporary):
         temporary.unlink()
-        raise ValueError("Model checkpoint checksum mismatch")
+        raise ModelUnavailable(f"{model.name} checkpoint download has the wrong checksum")
     temporary.replace(path)
     return path
 
 
 class MicroSam:
-    def __init__(self):
+    def __init__(self, model: AiModel):
         torch.set_num_threads(2)
         device = os.environ.get("SIMPLE_ANNOTATOR_AI_DEVICE", "cuda")
         if device == "cuda" and not torch.cuda.is_available():
             raise RuntimeError("CUDA is unavailable; check GPU access")
-        self.model = sam_model_registry["vit_b"](checkpoint=str(checkpoint())).to(device).eval()
+        path = checkpoint(model)
+        self.model = sam_model_registry[model.arch](checkpoint=str(path)).to(device).eval()
         self.predictor = SamPredictor(self.model)
         self.cache = OrderedDict()
         with torch.inference_mode():

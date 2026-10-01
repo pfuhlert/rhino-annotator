@@ -16,13 +16,13 @@ import torch
 
 from simple_annotator import segmenter
 from simple_annotator.ai_worker import process_next
-from simple_annotator.config import AI_MODEL
+from simple_annotator.config import DEFAULT_AI_MODEL, AiModel
 from simple_annotator.db import reset_engine, session_factory
 from simple_annotator.embeddings import embedding_id, prompt_regions, regions, tile_request
 from simple_annotator.models import AiEmbedding, AiTask, AiWorker
 
 REQUEST = {
-    "model": AI_MODEL,
+    "model": DEFAULT_AI_MODEL.name,
     "item_id": "image",
     "left": 100,
     "top": 200,
@@ -156,8 +156,8 @@ def test_calibrated_prompts_reuse_automatically_prepared_embeddings(
     create, fetched, encoded, _ = fake_model
     model = create()
     for _ in range(count):
-        assert process_next({AI_MODEL: model})
-    assert process_next({AI_MODEL: model}) is False
+        assert process_next({DEFAULT_AI_MODEL.name: model})
+    assert process_next({DEFAULT_AI_MODEL.name: model}) is False
     assert len(encoded) == count
     with session_factory()() as db:
         db.add(AiWorker(id=1, updated=time.time(), status="ready"))
@@ -172,7 +172,7 @@ def test_calibrated_prompts_reuse_automatically_prepared_embeddings(
         assert response.status_code == 202
         with session_factory()() as db:
             assert json.loads(db.get(AiTask, task_id).input)["nm_per_px"] == calibration
-        assert process_next({AI_MODEL: model})
+        assert process_next({DEFAULT_AI_MODEL.name: model})
         with session_factory()() as db:
             assert db.get(AiTask, task_id).status == "done"
         assert len(fetched) == len(encoded) == count
@@ -346,13 +346,13 @@ def test_worker_prepares_each_tile_once_and_prioritizes_prompts(auth, fake_model
         )
         db.commit()
     model = create()
-    assert process_next({AI_MODEL: model})
+    assert process_next({DEFAULT_AI_MODEL.name: model})
     with session_factory()() as db:
         assert db.get(AiTask, "priority").status == "done"
         assert "queued" in set(db.scalars(select(AiEmbedding.status)))
     assert len(auth.get("/patches/current").json()["elements"]) == 1
     for _ in range(20):
-        if not process_next({AI_MODEL: model}):
+        if not process_next({DEFAULT_AI_MODEL.name: model}):
             break
     else:
         pytest.fail("Embedding preparation did not finish")
@@ -360,4 +360,52 @@ def test_worker_prepares_each_tile_once_and_prioritizes_prompts(auth, fake_model
         rows = db.scalars(select(AiEmbedding)).all()
         assert all(row.status == "ready" and row.data for row in rows)
     assert len(fetched) == len(regions(1024, 1024))
-    assert process_next({AI_MODEL: create()}) is False
+    assert process_next({DEFAULT_AI_MODEL.name: create()}) is False
+
+
+def test_local_checkpoint_must_exist_and_match_its_hash(tmp_path):
+    import xxhash
+
+    path = tmp_path / "weights.pt"
+    model = AiModel("local", "vit_l", str(path), xxhash.xxh128(b"weights").hexdigest())
+    with pytest.raises(segmenter.ModelUnavailable, match="not found"):
+        segmenter.checkpoint(model)
+    path.write_bytes(b"weights")
+    assert segmenter.checkpoint(model) == path
+    path.write_bytes(b"retrained")
+    with pytest.raises(segmenter.ModelUnavailable, match="changed"):
+        segmenter.checkpoint(model)
+
+
+def test_bad_download_leaves_no_cached_checkpoint(tmp_path, monkeypatch):
+    from contextlib import contextmanager
+    from types import SimpleNamespace
+
+    @contextmanager
+    def stream(*_, **__):
+        yield SimpleNamespace(raise_for_status=lambda: None, iter_bytes=lambda: [b"corrupt"])
+
+    monkeypatch.setenv("SIMPLE_ANNOTATOR_MODEL_DIR", str(tmp_path))
+    monkeypatch.setattr(segmenter.httpx, "stream", stream)
+    model = AiModel("remote", "vit_l", "https://example.invalid/w.pt", "0" * 32)
+    with pytest.raises(segmenter.ModelUnavailable, match="wrong checksum"):
+        segmenter.checkpoint(model)
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_corrupt_cached_checkpoint_is_downloaded_again(tmp_path, monkeypatch):
+    from contextlib import contextmanager
+    from types import SimpleNamespace
+
+    import xxhash
+
+    @contextmanager
+    def stream(*_, **__):
+        yield SimpleNamespace(raise_for_status=lambda: None, iter_bytes=lambda: [b"weights"])
+
+    monkeypatch.setenv("SIMPLE_ANNOTATOR_MODEL_DIR", str(tmp_path))
+    monkeypatch.setattr(segmenter.httpx, "stream", stream)
+    digest = xxhash.xxh128(b"weights").hexdigest()
+    model = AiModel("remote", "vit_l", "https://example.invalid/w.pt", digest)
+    (tmp_path / "remote.pt").write_bytes(b"trunc")
+    assert segmenter.checkpoint(model).read_bytes() == b"weights"

@@ -27,6 +27,7 @@ const TOOLS = [
   ["ai-box", "AI Box (A)"],
 ] as const;
 const TOOL_IDS = TOOLS.map(([id]) => id);
+const FAILURE_MESSAGE_MS = 5000;
 
 type Menu = "job" | "tool" | "size";
 
@@ -74,9 +75,27 @@ export default function AnnotatePage() {
     if (patchRef.current?.id === sourcePatchId) annoRef.current?.add(elements);
   });
   const pending = useMemo(
-    () => ai.tasks.filter((t) => t.patch_id === patch?.id),
+    () => ai.tasks.filter((t) => t.patch_id === patch?.id && t.status !== "failed"),
     [ai.tasks, patch?.id],
   );
+  const failed = ai.tasks.filter((t) => t.status === "failed");
+  const failedIds = failed.map((t) => t.id).join(",");
+  const aiQueue = useRef<HTMLDetailsElement>(null);
+  const openedForFailure = useRef(false);
+  const cancelAi = ai.cancel;
+  useEffect(() => {
+    const queue = aiQueue.current;
+    if (!failedIds) {
+      if (openedForFailure.current && queue) queue.open = openedForFailure.current = false;
+      return;
+    }
+    if (queue && !queue.open) queue.open = openedForFailure.current = true;
+    // Any change to the failed set clears this timer, so it only dismisses tasks that are still failed.
+    const timer = setTimeout(() => {
+      for (const id of failedIds.split(",")) void cancelAi(id);
+    }, FAILURE_MESSAGE_MS);
+    return () => clearTimeout(timer);
+  }, [failedIds, cancelAi]);
 
   useEffect(() => {
     patchRef.current = patch;
@@ -145,7 +164,7 @@ export default function AnnotatePage() {
   }
 
   function cancelLatestPending() {
-    const task = pending.findLast((t) => t.status !== "failed");
+    const task = pending.at(-1);
     if (task) void ai.cancel(task.id);
     return !!task;
   }
@@ -348,12 +367,19 @@ export default function AnnotatePage() {
             onImageLoad={() => setBrokenImage(null)}
           />
           <details
+            ref={aiQueue}
             className="absolute right-4 top-4 z-20 max-w-sm rounded-md border bg-background/95 px-3 py-2 text-sm shadow"
             data-testid="ai-queue"
           >
             <summary className="cursor-pointer" aria-live="polite">
               {ai.tasks.length
-                ? `AI · ${ai.tasks.filter((t) => t.status !== "failed").length} pending${ai.tasks.some((t) => t.status === "failed") ? " · needs attention" : ""}`
+                ? [
+                    "AI",
+                    ai.tasks.length > failed.length && `${ai.tasks.length - failed.length} pending`,
+                    failed.length && `${failed.length} failed`,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")
                 : ai.worker === "ready"
                   ? "AI ready"
                   : ai.worker === "loading"
@@ -371,35 +397,24 @@ export default function AnnotatePage() {
               )}
               {ai.tasks.map((task) => (
                 <div key={task.id} className="flex items-center gap-2 text-xs">
-                  <span className="min-w-0 flex-1">
-                    {task.error ||
-                      `${task.patch_id === patch.id ? "This image" : `Image ${task.patch_id}`} · ${task.status}`}
+                  <span
+                    className="min-w-0 flex-1"
+                    role={task.status === "failed" ? "alert" : undefined}
+                  >
+                    {task.status === "failed"
+                      ? `${task.box ? "AI Box" : "AI point"} failed: ${task.error || "Segmentation failed."}`
+                      : `${task.patch_id === patch.id ? "This image" : `Image ${task.patch_id}`} · ${task.status}`}
                   </span>
-                  {task.status === "failed" && (
+                  {task.status !== "failed" && (
                     <button
                       className="underline"
-                      onClick={() => {
-                        void ai.cancel(task.id).then((ok) => {
-                          if (ok)
-                            ai.submit(
-                              task.patch_id,
-                              task.job_id,
-                              task.box ? { box: task.box } : { x: task.x, y: task.y },
-                            );
-                        });
-                      }}
+                      data-testid={`ai-cancel-${task.id}`}
+                      aria-label="Cancel AI annotation"
+                      onClick={() => void ai.cancel(task.id)}
                     >
-                      Retry
+                      Cancel
                     </button>
                   )}
-                  <button
-                    className="underline"
-                    data-testid={`ai-cancel-${task.id}`}
-                    aria-label="Cancel AI annotation"
-                    onClick={() => void ai.cancel(task.id)}
-                  >
-                    {task.status === "failed" ? "Dismiss" : "Cancel"}
-                  </button>
                 </div>
               ))}
             </div>

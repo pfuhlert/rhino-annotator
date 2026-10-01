@@ -8,10 +8,10 @@ import pytest
 from sqlalchemy import select
 
 from simple_annotator.ai_worker import claim, fail, resume
-from simple_annotator.config import AI_MODEL
+from simple_annotator.config import DEFAULT_AI_MODEL, GBM_AI_MODEL
 from simple_annotator.db import session_factory
-from simple_annotator.embeddings import embedding_id, regions, tile_request
-from simple_annotator.models import AiEmbedding, PatchVisit
+from simple_annotator.embeddings import embedding_id, prompt_regions, regions, tile_request
+from simple_annotator.models import AiEmbedding, Job, PatchVisit
 
 
 def test_open_queues_embeddings_once_across_visits_users_and_jobs(auth, monkeypatch):
@@ -138,7 +138,7 @@ def test_failed_embeddings_do_not_retry_until_image_is_reopened(auth):
 
 
 def test_cache_identity_uses_pixels_source_model_and_preprocessing():
-    request = {"model": AI_MODEL, "item_id": "a", "left": 0, "top": 0}
+    request = {"model": DEFAULT_AI_MODEL.name, "item_id": "a", "left": 0, "top": 0}
     tile = tile_request(request, (0, 0, 384, 300))
     key = embedding_id(tile)
     assert key == embedding_id(tile_request({**request, "job_id": 7, "x": 10}, (0, 0, 384, 300)))
@@ -182,3 +182,48 @@ def test_physical_tiles_scale_with_magnification_and_preserve_small_rectangular_
     # Extreme but finite calibration must not create oversized inputs or per-pixel tiles.
     assert len(regions(1024, 768, 1e300)) <= 193
     assert all(w <= 4096 and h <= 4096 for _, _, w, h in regions(5000, 3000, 1e-300))
+
+
+def test_open_prepares_the_selected_jobs_model_beside_the_default(auth):
+    def queued_models():
+        with session_factory()() as db:
+            return [json.loads(row)["model"] for row in db.scalars(select(AiEmbedding.input))]
+
+    auth.get("/patches/current")
+    assert set(queued_models()) == {DEFAULT_AI_MODEL.name}
+    with session_factory()() as db:
+        gbm = db.scalar(select(Job.id).where(Job.name == "GBM"))
+    auth.patch("/me", json={"last_job_id": gbm})
+    auth.get("/patches/current")
+    models = queued_models()
+    assert models.count(DEFAULT_AI_MODEL.name) == len(regions(1024, 1024))
+    assert models.count(GBM_AI_MODEL.name) == 1
+
+
+def test_models_never_share_cached_embeddings():
+    region = (0, 0, 1024, 1024)
+    tiles = [
+        tile_request({"model": model.name, "item_id": "a", "left": 0, "top": 0}, region)
+        for model in (DEFAULT_AI_MODEL, GBM_AI_MODEL)
+    ]
+    assert tiles[0]["recipe"] != tiles[1]["recipe"]
+    assert embedding_id(tiles[0]) != embedding_id(tiles[1])
+
+
+@pytest.mark.parametrize("width, height, scale", [(1024, 768, None), (2048, 2048, 5)])
+def test_gbm_prompts_see_the_whole_image_where_default_tiles(width, height, scale):
+    full = (0, 0, width, height)
+    assert len(regions(width, height, scale)) > 1
+    assert regions(width, height, scale, whole_image=True) == [full]
+    request = {"model": GBM_AI_MODEL.name, "width": width, "height": height, "nm_per_px": scale}
+    assert prompt_regions({**request, "x": 10, "y": 10}) == [full]
+    assert prompt_regions({**request, "box": [0, 0, 20, 20]}) == [full]
+
+
+def test_gbm_stays_tiled_beyond_one_embeddings_size_limit():
+    assert regions(5000, 3000, whole_image=True) == regions(5000, 3000)
+
+
+def test_small_calibrated_images_keep_their_calibrated_tile_for_the_default_model():
+    request = {"model": DEFAULT_AI_MODEL.name, "width": 300, "height": 300, "nm_per_px": 40}
+    assert prompt_regions({**request, "x": 150, "y": 150}) == [(138, 138, 99, 99), (0, 0, 300, 300)]

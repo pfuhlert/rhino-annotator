@@ -7,7 +7,7 @@ import time
 from sqlalchemy import select, update
 
 from simple_annotator.annotations import Changes, Edit, ai_element_id, apply_changes, lock
-from simple_annotator.config import AI_MODEL, sqlite_path
+from simple_annotator.config import AI_MODELS, sqlite_path
 from simple_annotator.db import init_db, retry_sqlite_busy, session_factory
 from simple_annotator.models import AiEmbedding, AiTask, AiWorker
 
@@ -77,7 +77,9 @@ def process_next(segmenters: dict) -> bool:
     task_id, request = item
     start = time.perf_counter()
     try:
-        segmenter = segmenters[request["model"]]
+        segmenter = segmenters.get(request["model"])
+        if segmenter is None:
+            raise ValueError("This job's AI model is unavailable on the worker. Use the brush.")
         if table is AiEmbedding:
             # prepare persists the tensor and marks this row ready before returning.
             segmenter.prepare(request)
@@ -96,7 +98,7 @@ def process_next(segmenters: dict) -> bool:
             task_id,
             str(exc)
             if isinstance(exc, ValueError)
-            else "Segmentation failed. Retry or use the brush.",
+            else "Segmentation failed. Try another point or box, or use the brush.",
             table,
         )
     return True
@@ -132,9 +134,14 @@ def main() -> None:
         thread = threading.Thread(target=heartbeat, daemon=True)
         thread.start()
         try:
-            from simple_annotator.segmenter import MicroSam
+            from simple_annotator.segmenter import MicroSam, ModelUnavailable
 
-            segmenters = {AI_MODEL: MicroSam()}
+            segmenters = {}
+            for model in AI_MODELS.values():
+                try:
+                    segmenters[model.name] = MicroSam(model)
+                except ModelUnavailable:
+                    log.exception("Jobs using %s cannot use AI", model.name)
             ready.set()
             resume()
             log.info("AI worker ready")

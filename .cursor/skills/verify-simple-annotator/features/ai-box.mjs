@@ -132,7 +132,7 @@ export default async function (page, state) {
     mocked.push(body);
     if (failNext) {
       failNext = false;
-      await route.fulfill({ status: 503, json: { detail: "Verification retry" } });
+      await route.fulfill({ status: 503, json: { detail: "Verification failure" } });
     } else {
       await route.fulfill({ status: 202, json: { ...body, patch_id: patch.id, status: "queued", error: null } });
     }
@@ -168,22 +168,30 @@ export default async function (page, state) {
   const s = await bounds();
   await root.dispatchEvent("wheel", { clientX: s.left + 600 * s.scale, clientY: s.top + 500 * s.scale, deltaY: -300, ctrlKey: true });
   await root.dispatchEvent("wheel", { deltaX: 50, deltaY: 20 });
+  const canvasPixels = () => root.evaluate((el) => [...el.querySelectorAll("canvas")].map((c) => c.toDataURL()).join());
+  await move(600, 450);
+  const before = await canvasPixels();
   failNext = true;
   await startBox([750, 600], [600, 450]);
   await page.mouse.up();
-  await page.getByTestId("ai-queue").locator("summary").click();
-  await page.getByRole("button", { name: "Retry", exact: true }).waitFor();
+  const alert = page.getByTestId("ai-queue").getByRole("alert");
+  await alert.waitFor();
+  const shown = Date.now();
   assert.deepEqual(mocked.at(-1).box, [600, 450, 750, 600]);
   const failed = mocked.at(-1);
-  await select("job-switcher", "job-GBM");
-  await page.getByRole("button", { name: "Retry", exact: true }).click();
-  await until(async () => mocked.length, (n) => n === 3);
-  const retry = mocked.at(-1);
-  assert.deepEqual(retry.box, failed.box);
-  assert.equal(retry.job_id, failed.job_id);
-  assert.notEqual(retry.id, failed.id);
-  await page.getByTestId(`ai-cancel-${retry.id}`).click();
-  results.push({ check: "zoom/pan, reverse drag, failed box retry retains crop and job", failed, retry });
+  assert.ok(await page.getByTestId("ai-queue").evaluate((el) => el.open), "queue opens on failure");
+  assert.match(await alert.innerText(), /AI Box failed: .*Verification failure/);
+  assert.equal(await page.getByRole("button", { name: "Retry" }).count(), 0);
+  await page.waitForTimeout(100);
+  assert.equal(await canvasPixels(), before, "canvas returns to its state before the failed box");
+  assert.equal(await page.getByTestId(`ai-cancel-${failed.id}`).count(), 0, "no dismiss button");
+  await shot("failed");
+  await until(() => page.getByTestId("ai-queue").locator("summary").innerText(), (s) => s === "AI ready");
+  const visibleMs = Date.now() - shown;
+  assert.ok(visibleMs >= 3000 && visibleMs < 10000, `failure message visible for ${visibleMs} ms`);
+  assert.equal(await page.getByTestId("ai-queue").evaluate((el) => el.open), false, "queue closes again");
+  assert.equal(mocked.length, 2);
+  results.push({ check: "failed box explains why, then clears itself without retry, dismiss, or marker", failed, visibleMs });
 
   const proof = execFileSync("sqlite3", ["-cmd", ".timeout 5000", "-json", state.sqlite,
     "select id, job_id, status, input, elapsed_ms from ai_tasks;"], { encoding: "utf8" });

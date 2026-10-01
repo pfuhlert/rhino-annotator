@@ -9,9 +9,9 @@ from sqlalchemy import select
 
 from simple_annotator import ai
 from simple_annotator.ai_worker import claim, complete, process_next
-from simple_annotator.config import AI_MODEL
+from simple_annotator.config import DEFAULT_AI_MODEL, GBM_AI_MODEL
 from simple_annotator.db import session_factory
-from simple_annotator.models import AiTask, AiWorker, Patch
+from simple_annotator.models import AiTask, AiWorker, Job, Patch
 
 POLYGON = {"points": [[10, 10], [50, 10], [30, 50]], "holes": []}
 
@@ -41,7 +41,7 @@ def test_queue_is_idempotent_and_captures_image(auth, queued):
         tasks = db.scalars(select(AiTask)).all()
         assert len(tasks) == 1
         payload = json.loads(tasks[0].input)
-        assert payload["model"] == AI_MODEL
+        assert payload["model"] == DEFAULT_AI_MODEL.name
         assert payload["width"] == payload["height"] == 1024
         assert "crop_nm" not in payload
     task_id, _ = claim()
@@ -103,13 +103,28 @@ def test_other_users_cannot_access_tasks_or_edit_patches(auth, queued):
     )
 
 
-def test_point_ai_is_available_for_every_job(auth, queued):
+def test_point_ai_is_available_for_every_job_and_gbm_uses_its_own_model(auth, queued):
     patch, _ = queued
-    for job in auth.get("/jobs").json():
+    with session_factory()() as db:
+        jobs = [{"id": job.id, "name": job.name} for job in db.scalars(select(Job))]
+    assert "GBM" in {job["name"] for job in jobs}
+    for job in jobs:
         prompt = {"id": str(uuid4()), "job_id": job["id"], "x": 30, "y": 20}
         response = auth.post(f"/patches/{patch}/ai", json=prompt)
         assert response.status_code == 202
         assert response.json()["job_id"] == job["id"]
+        with session_factory()() as db:
+            model = json.loads(db.get(AiTask, prompt["id"]).input)["model"]
+        assert model == (GBM_AI_MODEL if job["name"] == "GBM" else DEFAULT_AI_MODEL).name
+
+
+def test_worker_without_the_job_model_fails_the_prompt_clearly(queued):
+    _, prompt = queued
+    assert process_next({})
+    with session_factory()() as db:
+        task = db.get(AiTask, prompt["id"])
+        assert task.status == "failed"
+        assert "model is unavailable" in task.error
 
 
 def test_idle_poll_skips_annotation_geometry(auth, queued, monkeypatch):
@@ -154,7 +169,8 @@ def test_worker_recovers_from_busy_database_without_repeating_prediction(queued,
     if stage == "claim":
         writer.execute("BEGIN IMMEDIATE")
     with ThreadPoolExecutor(1) as pool:
-        future = pool.submit(process_next, {AI_MODEL: SimpleNamespace(predict=predict)})
+        segmenters = {DEFAULT_AI_MODEL.name: SimpleNamespace(predict=predict)}
+        future = pool.submit(process_next, segmenters)
         try:
             assert blocked.wait(3), "Worker did not encounter the held lock"
             assert not future.done()
@@ -210,7 +226,7 @@ def test_box_keeps_prompt_and_job(auth, queued_box):
     point = {"id": prompt["id"], "job_id": 2, "x": 17, "y": 23}
     assert auth.post(f"/patches/{patch}/ai", json=point).status_code == 409
     task_id, payload = claim()
-    assert payload["model"] == AI_MODEL
+    assert payload["model"] == DEFAULT_AI_MODEL.name
     assert payload["box"] == prompt["box"]
     assert "crop_nm" not in payload
     assert "x" not in payload
