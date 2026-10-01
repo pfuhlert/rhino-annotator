@@ -6,6 +6,27 @@ from simple_annotator.config import CROP_SIZE
 from simple_annotator.girder import _region, pick_region
 
 
+def test_girder_client_bypasses_http_proxy(monkeypatch):
+    seen = {}
+    real = httpx.Client
+
+    def respond(request):
+        if request.url.path == "/user/me":
+            return httpx.Response(200, json={"login": "test"})
+        pytest.fail(f"Unexpected request: {request.url}")
+
+    def capture(**kw):
+        seen.update(kw)
+        return real(transport=httpx.MockTransport(respond), **kw)
+
+    monkeypatch.setattr(girder, "_gc", None)
+    monkeypatch.setenv("GIRDER_TOKEN", "test")
+    monkeypatch.setattr(girder, "GIRDER_API_URL", "http://girder.test")
+    monkeypatch.setattr(httpx, "Client", capture)
+    girder._client()
+    assert seen.get("trust_env") is False
+
+
 def test_region_full_for_tem_crop_for_wsi():
     assert _region("a", 2048, 2048) == {
         "girder_item_id": "a",

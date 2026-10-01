@@ -27,7 +27,7 @@ def _client() -> httpx.Client:
     global _gc
     if _gc is None:
         key = os.environ.get("GIRDER_TOKEN", "")
-        _gc = httpx.Client(base_url=GIRDER_API_URL.rstrip("/"), timeout=30)
+        _gc = httpx.Client(base_url=GIRDER_API_URL.rstrip("/"), timeout=30, trust_env=False)
         me = _gc.get("/user/me", headers={"Girder-Token": key})
         token = key
         if not (me.status_code == 200 and me.json()):
