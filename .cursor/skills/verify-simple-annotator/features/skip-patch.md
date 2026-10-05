@@ -1,6 +1,6 @@
 # Next without marks
 
-Next advances to the next unvisited tile of the dataset's fixed grid. With no marks, no annotation row is written. Once every tile has been visited, Next starts another pass, so a one-tile dataset (such as the ELMI fixture) keeps returning the same tile with a new visit.
+Next advances to the next region of the current image, then to the first region of the next image in the [image list](image-list.md) order, and wraps to the first image after the last. Every open writes a new visit. With no marks, no annotation row is written. A one-tile dataset (such as the ELMI fixture) keeps returning the same tile with a new visit.
 
 ## Sub-features
 

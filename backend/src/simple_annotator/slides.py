@@ -1,11 +1,11 @@
 import io
 import logging
 import math
-import random
+from typing import Literal
 
 import numpy as np
 from PIL import Image
-from sqlalchemy import func, select, update
+from sqlalchemy import select, update
 from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.orm import Session
 
@@ -21,7 +21,6 @@ from simple_annotator.config import (
 )
 from simple_annotator.girder import (
     PLACEHOLDER_FOLDER,
-    folder_images,
     get_item,
     girder_enabled,
     image_info,
@@ -29,6 +28,7 @@ from simple_annotator.girder import (
     is_elmi_folder,
     thumbnail,
 )
+from simple_annotator.images import matches, ordered_items
 from simple_annotator.models import Patch, PatchVisit, Slide, User
 from simple_annotator.tiling import grid, is_colored, split, tissue_mask, tissue_regions
 
@@ -148,57 +148,62 @@ def _tiles(db: Session, slide: Slide) -> list[Patch]:
     ).all()
 
 
-def _first_pass(db: Session, items: list[dict], counts: dict[int, int]) -> int:
-    # Once every image has its tiles, skip the passes every tile has already completed.
-    ids = {item["_id"] for item in items}
-    rows = db.execute(
-        select(Patch.girder_item_id, Patch.id)
-        .join(Slide, (Slide.item_id == Patch.girder_item_id) & (Slide.grid == Patch.grid))
-        .where(Patch.girder_item_id.in_(ids))
-    ).all()
-    if {item_id for item_id, _ in rows} != ids:
-        return 1
-    return 1 + min(counts.get(patch_id, 0) for _, patch_id in rows)
-
-
-def next_tile(db: Session, user: User, folder_id: str, current_item: str | None) -> Patch:
-    if not girder_enabled() or folder_id == PLACEHOLDER_FOLDER:
-        items = [get_item(PLACEHOLDER_FOLDER)]
-    else:
-        items = folder_images(folder_id)
-    items = random.sample(items, len(items))
-    items.sort(key=lambda item: item["_id"] != current_item)
-    counts = dict(
-        db.execute(
-            select(PatchVisit.patch_id, func.count())
-            .where(PatchVisit.user_id == user.id)
-            .group_by(PatchVisit.patch_id)
-        ).all()
-    )
-    slides: dict[str, Slide | None] = {}
-    reason = ""
-    n = _first_pass(db, items, counts)
-    while True:
-        for item in items:
-            if item["_id"] not in slides:
-                try:
-                    slides[item["_id"]] = ensure_slide(db, item)
-                except UnreadableImage as e:
-                    slides[item["_id"]] = None
-                    reason = reason or str(e)
-            slide = slides[item["_id"]]
-            if slide is None:
-                continue
-            for tile in _tiles(db, slide):
-                if counts.get(tile.id, 0) < n:
-                    return tile
-        if not any(slides.values()):
-            detail = f" Girder says: {reason}" if reason else ""
-            raise RuntimeError(
-                f"None of the {len(items)} images in this dataset can be read by the image "
-                f"server.{detail}"
+def _visited(db: Session, user: User, tiles: list[Patch]) -> set[int]:
+    return set(
+        db.scalars(
+            select(PatchVisit.patch_id).where(
+                PatchVisit.user_id == user.id, PatchVisit.patch_id.in_([t.id for t in tiles])
             )
-        n += 1
+        )
+    )
+
+
+def step(
+    db: Session,
+    folder_id: str,
+    current: Patch | None,
+    direction: Literal[1, -1],
+    stains: list[str | None],
+) -> Patch:
+    items = ordered_items(folder_id)
+    ids = [item["_id"] for item in items]
+    pos = ids.index(current.girder_item_id) if current and current.girder_item_id in ids else None
+    if pos is not None and matches(items[pos], stains):
+        try:
+            tiles = _tiles(db, ensure_slide(db, items[pos]))
+        except UnreadableImage:
+            tiles = []
+        i = next((k for k, t in enumerate(tiles) if t.id == current.id), None)
+        if tiles and i is None:
+            return tiles[0 if direction > 0 else -1]
+        if i is not None and 0 <= i + direction < len(tiles):
+            return tiles[i + direction]
+    candidates = [item for item in items if matches(item, stains)]
+    if not candidates:
+        raise RuntimeError("No images in this dataset match the stain filter.")
+    start = pos if pos is not None else (-1 if direction > 0 else 0)
+    reason = ""
+    for k in range(1, len(items) + 1):
+        item = items[(start + direction * k) % len(items)]
+        if not matches(item, stains):
+            continue
+        try:
+            tiles = _tiles(db, ensure_slide(db, item))
+        except UnreadableImage as e:
+            reason = reason or str(e)
+            continue
+        return tiles[0 if direction > 0 else -1]
+    detail = f" Girder says: {reason}" if reason else ""
+    raise RuntimeError(
+        f"None of the {len(candidates)} images in this dataset can be read by the image "
+        f"server.{detail}"
+    )
+
+
+def open_item(db: Session, user: User, item: dict) -> Patch:
+    tiles = _tiles(db, ensure_slide(db, item))
+    visited = _visited(db, user, tiles)
+    return next((t for t in tiles if t.id not in visited), tiles[0])
 
 
 def patch_scale(db: Session, patch: Patch) -> tuple[Slide, float | None]:
@@ -215,13 +220,7 @@ def slide_view(db: Session, user: User, patch: Patch) -> dict | None:
     tiles = _tiles(db, slide)
     if len(tiles) == 1 and (patch.width, patch.height) == (slide.width, slide.height):
         return None
-    visited = set(
-        db.scalars(
-            select(PatchVisit.patch_id).where(
-                PatchVisit.user_id == user.id, PatchVisit.patch_id.in_([t.id for t in tiles])
-            )
-        )
-    )
+    visited = _visited(db, user, tiles)
     return {
         "name": slide.name,
         "width": slide.width,

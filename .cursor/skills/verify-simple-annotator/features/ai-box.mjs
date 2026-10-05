@@ -61,7 +61,7 @@ export default async function (page, state) {
   await page.goto("/annotate");
   await root.waitFor();
   await ready();
-  await page.getByTestId("tab-datasets").click();
+  await page.getByTestId("tab-images").click();
   await page.getByTestId("folder-fixtures").click();
   await page.getByTestId("folder-elmi").click();
   await until(() => json("/patches/current"), (p) => p.folder_id === "elmi");

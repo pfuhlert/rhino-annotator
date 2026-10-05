@@ -54,11 +54,9 @@ def test_current_and_prev_patch(auth: TestClient):
     a = auth.get("/patches/next").json()
     b = auth.get("/patches/next").json()
     assert a["id"] != b["id"]
-    assert b["has_prev"] is True
     assert auth.get("/patches/current").json()["id"] == b["id"]
     back = auth.get("/patches/prev").json()
     assert back["id"] == a["id"]
-    assert back["has_prev"] is False
     assert auth.get("/patches/current").json()["id"] == a["id"]
     assert auth.get("/patches/next").json()["id"] == b["id"]
 
@@ -106,30 +104,34 @@ def test_folders_and_per_folder_series(auth: TestClient):
     me = auth.get("/me").json()
     assert me["last_folder_id"] is None
     a = auth.get("/patches/current").json()
-    assert a["has_prev"] is False
     assert auth.get("/me").json()["last_folder_id"] == "placeholder"
     b = auth.get("/patches/next").json()
     assert b["id"] != a["id"]
-    assert b["has_prev"] is True
     switched = auth.patch("/me", json={"last_folder_id": "other"})
     assert switched.json()["last_folder_id"] == "other"
-    c = auth.get("/patches/current").json()
+    assert auth.get("/patches/current").json()["id"] == a["id"]
+    auth.get("/patches/next")
+    c = auth.get("/patches/next").json()
     assert c["id"] not in {a["id"], b["id"]}
-    assert c["has_prev"] is False
-    assert auth.get("/patches/prev").status_code == 404
-    d = auth.get("/patches/next").json()
-    assert d["has_prev"] is True
-    assert d["id"] != c["id"]
     auth.patch("/me", json={"last_folder_id": "placeholder"})
-    back = auth.get("/patches/current").json()
-    assert back["id"] == b["id"]
-    assert back["has_prev"] is True
+    assert auth.get("/patches/current").json()["id"] == b["id"]
     assert auth.get("/patches/prev").json()["id"] == a["id"]
     auth.patch("/me", json={"last_folder_id": "other"})
-    again = auth.get("/patches/current").json()
-    assert again["id"] == d["id"]
-    assert again["has_prev"] is True
-    assert auth.get("/patches/prev").json()["id"] == c["id"]
+    assert auth.get("/patches/current").json()["id"] == c["id"]
+
+
+def test_stain_filter_is_kept_per_folder_choice(auth: TestClient):
+    auth.patch("/me", json={"last_folder_id": "a"})
+    assert auth.patch("/me", json={"stain_filter": ["PAS", None]}).json()["stain_filter"] == [
+        "PAS",
+        None,
+    ]
+    assert auth.patch("/me", json={"last_folder_id": "a"}).json()["stain_filter"] == ["PAS", None]
+    kept = auth.patch("/me", json={"last_job_id": 2}).json()
+    assert (kept["stain_filter"], kept["done_count"]) == (["PAS", None], 0)
+    assert auth.patch("/me", json={"last_folder_id": "b"}).json()["stain_filter"] == []
+    auth.patch("/me", json={"stain_filter": ["HE"]})
+    assert auth.patch("/me", json={"stain_filter": []}).json()["stain_filter"] == []
 
 
 def test_elmi_jobs(auth: TestClient, monkeypatch: pytest.MonkeyPatch):
@@ -187,7 +189,7 @@ def test_folder_migration_preserves_history(auth, monkeypatch, existing_columns,
 
     monkeypatch.setenv("GIRDER_FOLDER_ID", legacy_folder)
     first = auth.get("/patches/current").json()
-    second = auth.get("/patches/next").json()
+    auth.get("/patches/next")
     auth.get("/patches/prev")
     element = {"type": "point", "points": [[10.0, 12.0]]}
 
@@ -219,8 +221,6 @@ def test_folder_migration_preserves_history(auth, monkeypatch, existing_columns,
     assert [{k: v for k, v in e.items() if k != "id"} for e in current["elements"]] == [
         {**element, "jobId": 1}
     ]
-    assert auth.get("/patches/next").json()["id"] == second["id"]
-    assert auth.get("/patches/prev").json()["id"] == first["id"]
 
 
 def test_annotation_saves_preserve_selected_job(auth: TestClient):
@@ -250,8 +250,8 @@ def test_patch_calibration_follows_image_through_history(auth, monkeypatch):
         ]
         db.add_all(tiles)
         db.commit()
-        queue = iter([tile.id for tile in tiles])
-    monkeypatch.setattr(patches, "next_tile", lambda db, *_: db.get(Patch, next(queue)))
+        queue = iter([tile.id for tile in tiles * 2])
+    monkeypatch.setattr(patches, "step", lambda db, *_: db.get(Patch, next(queue)))
     monkeypatch.setattr(
         slides, "image_nm_per_px", lambda item: {"a": 0.48828125, "b": 4.8828125}.get(item)
     )
@@ -289,41 +289,6 @@ def test_legacy_annotations_keep_their_ids_when_edited_and_deleted(auth):
         == 200
     )
     assert auth.get("/patches/current").json()["elements"] == [original[2]]
-
-
-def _save(auth: TestClient, patch_id: int, *elements: dict):
-    r = auth.patch(f"/patches/{patch_id}/annotations", json={"upsert": list(elements)})
-    assert r.status_code == 200
-
-
-def test_visit_history(auth: TestClient, client: TestClient):
-    square = [[0.0, 0.0], [10.0, 0.0], [10.0, 10.0]]
-    a = auth.get("/patches/current").json()
-    _save(
-        auth,
-        a["id"],
-        {"id": "p1", "jobId": 1, "type": "polygon", "points": square},
-        {"id": "p2", "jobId": 2, "type": "polygon", "points": square},
-        {"id": "dot", "jobId": 1, "type": "point", "points": [[1.0, 1.0]]},
-    )
-    b = auth.get("/patches/next").json()
-    c = auth.get("/patches/next").json()
-    listed = auth.get("/patches/visits").json()
-    assert [v["patch_id"] for v in listed] == [c["id"], b["id"], a["id"]]
-    assert [v["n_annotations"] for v in listed] == [0, 0, 2]
-
-    opened = auth.get(f"/patches/visits/{listed[1]['id']}").json()
-    assert opened["id"] == b["id"]
-    assert auth.get("/patches/current").json()["id"] == b["id"]
-    assert auth.get("/patches/prev").json()["id"] == a["id"]
-
-    auth.patch("/me", json={"last_folder_id": "other"})
-    assert auth.get("/patches/visits").json() == []
-    assert auth.get(f"/patches/visits/{listed[0]['id']}").status_code == 404
-
-    auth.post("/auth/logout")
-    client.post("/auth/register", json={"username": "eve", "password": "secret"})
-    assert client.get(f"/patches/visits/{listed[0]['id']}").status_code == 404
 
 
 def test_image_server_failure_returns_clear_error(auth: TestClient, monkeypatch):

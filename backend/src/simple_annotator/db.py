@@ -99,6 +99,8 @@ def _migrate(engine: Engine) -> None:
             conn.execute(text("ALTER TABLE users ADD COLUMN current_visit_id INTEGER"))
         if "last_folder_id" not in user_cols:
             conn.execute(text("ALTER TABLE users ADD COLUMN last_folder_id VARCHAR(64)"))
+        if "stain_filter" not in user_cols:
+            conn.execute(text("ALTER TABLE users ADD COLUMN stain_filter TEXT"))
         tables = {
             row[0]
             for row in conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'"))

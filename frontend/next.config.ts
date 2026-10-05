@@ -10,6 +10,7 @@ const nextConfig: NextConfig = {
       { source: "/auth/:path*", destination: `${api}/auth/:path*` },
       { source: "/me", destination: `${api}/me` },
       { source: "/folders", destination: `${api}/folders` },
+      { source: "/images", destination: `${api}/images` },
       { source: "/jobs", destination: `${api}/jobs` },
       { source: "/jobs/:path*", destination: `${api}/jobs/:path*` },
       { source: "/patches/:path*", destination: `${api}/patches/:path*` },

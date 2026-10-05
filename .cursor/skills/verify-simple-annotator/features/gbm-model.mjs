@@ -58,7 +58,7 @@ export default async function (page, state) {
   await page.goto("/annotate");
   await canvas.waitFor();
   if ((await json("/patches/current")).nm_per_px === null) {
-    await page.getByTestId("tab-datasets").click();
+    await page.getByTestId("tab-images").click();
     await page.getByTestId("folder-fixtures").click();
     await page.getByTestId("folder-elmi").click();
     await page.getByTestId("sidebar-trigger").click();

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { CheckIcon, ChevronLeftIcon, ChevronRightIcon, FolderIcon } from "lucide-react";
 import { cn } from "cn";
 import { Button } from "@/components/ui/button";
@@ -79,14 +79,43 @@ function UseButton({
   );
 }
 
+function Indent({ className, children }: { className?: string; children: ReactNode }) {
+  return (
+    <div className={cn("ml-3 border-l border-sidebar-border pl-1", className)}>{children}</div>
+  );
+}
+
+// The selected folder and its pinned controls stay in view, opaque, while its images scroll by.
+function Pinned({
+  pinned,
+  className,
+  children,
+}: {
+  pinned: ReactNode;
+  className: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className={cn("sticky z-10 flex flex-col bg-sidebar", className)}>
+      {children}
+      <Indent className="pt-0.5 empty:hidden">{pinned}</Indent>
+    </div>
+  );
+}
+
 export default function FolderPicker({
   selectedId,
   initialLevel,
   onUse,
+  pinned,
+  selected,
 }: {
   selectedId: string | null;
   initialLevel: FolderLevel | null;
   onUse: (id: string) => void;
+  // Shown under the selected folder, which may be this level itself or one of its rows.
+  pinned: ReactNode;
+  selected: ReactNode;
 }) {
   const [level, setLevel] = useState(initialLevel);
   const [error, setError] = useState<string | null>(null);
@@ -119,50 +148,79 @@ export default function FolderPicker({
       (e: Error) => setError(e.message),
     );
   const levelId = level.id;
+  const levelSelected = !!levelId && levelId === selectedId;
+  const levelHeader = (
+    // Row spacing is an opaque bottom border, not a flex gap, so pinned rows keep it when stuck.
+    <div className="sticky top-0 z-20 flex h-8.5 items-center gap-1 border-b-2 border-sidebar bg-sidebar px-1 text-xs font-medium text-sidebar-foreground/70">
+      {level.id && (
+        <Button
+          data-testid="folder-back"
+          variant="ghost"
+          size="icon-xs"
+          aria-label="Back"
+          onClick={() => go(level.parent_id)}
+        >
+          <ChevronLeftIcon />
+        </Button>
+      )}
+      <span className={cn("min-w-0 flex-1 truncate", !level.id && "px-1")}>
+        {level.id ? level.name : "Datasets"}
+      </span>
+      {levelId &&
+        (levelSelected ? (
+          <CheckIcon className="mr-1 size-3.5 shrink-0" />
+        ) : (
+          <UseButton testId="use-current-folder" onClick={() => onUse(levelId)} />
+        ))}
+    </div>
+  );
 
   return (
-    <div data-testid="folder-switcher" className="flex flex-col gap-0.5">
-      <div className="flex h-8 items-center gap-1 px-1 text-xs font-medium text-sidebar-foreground/70">
-        {level.id && (
-          <Button
-            data-testid="folder-back"
-            variant="ghost"
-            size="icon-xs"
-            aria-label="Back"
-            onClick={() => go(level.parent_id)}
-          >
-            <ChevronLeftIcon />
-          </Button>
-        )}
-        <span className={cn("min-w-0 flex-1 truncate", !level.id && "px-1")}>
-          {level.id ? level.name : "Datasets"}
-        </span>
-        {levelId &&
-          (levelId === selectedId ? (
-            <CheckIcon className="mr-1 size-3.5 shrink-0" />
-          ) : (
-            <UseButton testId="use-current-folder" onClick={() => onUse(levelId)} />
-          ))}
-      </div>
+    <div data-testid="folder-switcher" className="flex flex-col">
+      {levelSelected ? (
+        <Pinned pinned={pinned} className="top-0">
+          {levelHeader}
+        </Pinned>
+      ) : (
+        levelHeader
+      )}
       {error && (
         <p role="alert" className="px-2 py-1 text-xs text-destructive">
           Could not load this folder. {error}
         </p>
       )}
-      {level.children.length === 0 && (
-        <p className="px-2 py-1 text-xs text-muted-foreground">
-          {level.n_items} image{level.n_items === 1 ? "" : "s"}, no subfolders with images.
-        </p>
+      {levelSelected ? (
+        <Indent className="mb-1">{selected}</Indent>
+      ) : (
+        level.children.length === 0 && (
+          <p className="px-2 py-1 text-xs text-muted-foreground">
+            {level.n_items} image{level.n_items === 1 ? "" : "s"}, no subfolders with images.
+          </p>
+        )
       )}
-      {level.children.map((child) => (
-        <FolderRow
-          key={child.id}
-          child={child}
-          active={child.id === selectedId}
-          onOpen={() => go(child.id)}
-          onUse={() => onUse(child.id)}
-        />
-      ))}
+      {level.children.map((child) => {
+        const row = (
+          <FolderRow
+            child={child}
+            active={child.id === selectedId}
+            onOpen={() => go(child.id)}
+            onUse={() => onUse(child.id)}
+          />
+        );
+        return child.id === selectedId ? (
+          <div key={child.id} className="flex flex-col">
+            {/* Below the pinned level header (h-8.5). */}
+            <Pinned pinned={pinned} className="top-8.5">
+              {row}
+            </Pinned>
+            <Indent className="mb-1">{selected}</Indent>
+          </div>
+        ) : (
+          <div key={child.id} className="pb-0.5">
+            {row}
+          </div>
+        );
+      })}
     </div>
   );
 }

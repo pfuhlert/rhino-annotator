@@ -4,6 +4,8 @@ export type Me = {
   username: string;
   last_job_id: number | null;
   last_folder_id: string | null;
+  // null selects images without a stain.
+  stain_filter: (string | null)[];
   done_count: number;
 };
 export type FolderChild = {
@@ -69,16 +71,29 @@ export type PatchImage = {
 export type ViewRect = { left: number; top: number; width: number; height: number };
 export type Patch = {
   id: number;
+  item_id: string;
   job_id: number | null;
   folder_id: string;
   image: PatchImage;
   nm_per_px: number | null;
-  has_prev: boolean;
   elements: Element[];
   slide: SlideView | null;
 };
 
-export type Visit = { id: number; patch_id: number; n_annotations: number };
+export type ImageRow = {
+  id: string;
+  name: string;
+  group: string;
+  staining: string | null;
+  magnification: number | null;
+  // null until the image has been opened and split into regions.
+  regions: number | null;
+  visited: number;
+};
+export type ImageCatalog = {
+  items: ImageRow[];
+  stains: { name: string | null; count: number }[];
+};
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
@@ -114,8 +129,11 @@ export const api = {
   currentPatch: () => req<Patch>("/patches/current"),
   nextPatch: () => req<Patch>("/patches/next"),
   prevPatch: () => req<Patch>("/patches/prev"),
-  visits: () => req<Visit[]>("/patches/visits"),
-  openVisit: (id: number) => req<Patch>(`/patches/visits/${id}`),
+  openImage: (item_id: string) =>
+    req<Patch>("/patches/open", { method: "POST", body: JSON.stringify({ item_id }) }),
+  images: () => req<ImageCatalog>("/images"),
+  setStains: (stain_filter: (string | null)[]) =>
+    req<Me>("/me", { method: "PATCH", body: JSON.stringify({ stain_filter }) }),
   prepare: (patchId: number, view: ViewRect) =>
     req<{ ok: boolean }>(`/patches/${patchId}/prepare`, {
       method: "POST",

@@ -58,7 +58,7 @@ export default async function (page, state) {
   await ready();
   assert.equal((await json("/patches/current")).nm_per_px, null);
   await page.getByTestId("scale-bar").waitFor({ state: "hidden" });
-  await page.getByTestId("tab-datasets").click();
+  await page.getByTestId("tab-images").click();
   await page.getByTestId("folder-fixtures").click();
   const started = Date.now();
   await page.getByTestId("folder-elmi").click();

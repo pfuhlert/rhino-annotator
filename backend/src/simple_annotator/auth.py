@@ -1,4 +1,5 @@
 import hashlib
+import json
 import secrets
 
 from fastapi import APIRouter, Depends, HTTPException, Response
@@ -26,6 +27,7 @@ class Creds(BaseModel):
 class MePatch(BaseModel):
     last_job_id: int | None = None
     last_folder_id: str | None = None
+    stain_filter: list[str | None] | None = None
 
 
 def _hash(password: str, salt: str | None = None) -> str:
@@ -65,10 +67,15 @@ def _user_json(user: User, done_count: int | None = None) -> dict:
         "username": user.username,
         "last_job_id": user.last_job_id,
         "last_folder_id": user.last_folder_id,
+        "stain_filter": user_stains(user),
     }
     if done_count is not None:
         out["done_count"] = done_count
     return out
+
+
+def user_stains(user: User) -> list[str | None]:
+    return json.loads(user.stain_filter) if user.stain_filter else []
 
 
 def require_job(db: Session, job_id: int) -> None:
@@ -115,12 +122,15 @@ def logout(
     return {"ok": True}
 
 
-@me_router.get("/me")
-def me(user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
-    done = db.scalar(
+def _done_count(db: Session, user: User) -> int:
+    return db.scalar(
         select(func.count()).select_from(Annotation).where(Annotation.user_id == user.id)
     )
-    return _user_json(user, done or 0)
+
+
+@me_router.get("/me")
+def me(user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
+    return _user_json(user, _done_count(db, user))
 
 
 @me_router.patch("/me")
@@ -130,10 +140,13 @@ def patch_me(
     if body.last_job_id is not None:
         require_job(db, body.last_job_id)
         user.last_job_id = body.last_job_id
-    if body.last_folder_id is not None:
+    if body.last_folder_id is not None and body.last_folder_id != user.last_folder_id:
         user.last_folder_id = body.last_folder_id
+        user.stain_filter = None
+    if "stain_filter" in body.model_fields_set:
+        user.stain_filter = json.dumps(body.stain_filter) if body.stain_filter else None
     db.commit()
-    return _user_json(user)
+    return _user_json(user, _done_count(db, user))
 
 
 @me_router.get("/folders")

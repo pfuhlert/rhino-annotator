@@ -33,11 +33,12 @@ def _png(item_id: str) -> bytes:
 
 @pytest.fixture
 def girder(auth: TestClient, monkeypatch):
-    from simple_annotator import patches, slides
+    from simple_annotator import images, patches, slides
 
     items = [{"_id": "histo", "name": "slide.svs"}]
     monkeypatch.setattr(slides, "girder_enabled", lambda: True)
-    monkeypatch.setattr(slides, "folder_images", lambda _: list(items))
+    monkeypatch.setattr(images, "girder_enabled", lambda: True)
+    monkeypatch.setattr(images, "folder_images", lambda _: list(items))
     monkeypatch.setattr(slides, "image_info", lambda item: (IMAGES[item], ""))
     monkeypatch.setattr(slides, "thumbnail", lambda item, _: _png(item))
     monkeypatch.setattr(patches, "thumbnail", lambda item, _: _png(item))
@@ -93,20 +94,91 @@ def test_large_regions_prepare_ai_tiles_around_the_view(auth, girder):
         assert len(db.scalars(select(AiEmbedding)).all()) == 1
 
 
-def test_walks_each_slide_in_random_order_before_the_next_then_repeats(auth, girder):
-    girder.extend([{"_id": "gray", "name": "gray.tif"}, {"_id": "small", "name": "s.png"}])
-    first_pass = _walk(auth, 1 + 36 + 1)
+def _three_images(girder: list[dict]) -> None:
+    girder[:] = [
+        {"_id": "histo", "name": "a.svs", "folder_name": "zz", "meta": {"staining": "PAS"}},
+        {"_id": "gray", "name": "b.tif", "meta": {"case_id": "case-10", "staining": "HE"}},
+        {"_id": "small", "name": "c.png", "meta": {"case_id": "case-2", "staining": "PAS"}},
+    ]
+
+
+def _at(patch: dict) -> tuple[str, int]:
+    return patch["item_id"], patch["slide"]["current"] if patch["slide"] else 0
+
+
+def test_next_walks_regions_then_images_in_case_order_and_wraps(auth, girder):
+    _three_images(girder)
+    walk = [_at(p) for p in [auth.get("/patches/current").json(), *_walk(auth, 39)]]
+    gray = [("gray", i) for i in range(36)]
+    assert walk == [("small", 0), *gray, ("histo", 0), ("small", 0), ("gray", 0)]
+    back = [_at(auth.get("/patches/prev").json()) for _ in range(4)]
+    assert back == [("small", 0), ("histo", 0), ("gray", 35), ("gray", 34)]
+
+
+def test_stain_filter_skips_other_images(auth, girder):
+    _three_images(girder)
+    auth.patch("/me", json={"stain_filter": ["PAS"]})
+    walk = [_at(p) for p in [auth.get("/patches/current").json(), *_walk(auth, 2)]]
+    assert walk == [("small", 0), ("histo", 0), ("small", 0)]
+    auth.patch("/me", json={"stain_filter": ["IgG", None]})
+    response = auth.get("/patches/next")
+    assert response.status_code == 400
+    assert response.json()["detail"] == "No images in this dataset match the stain filter."
+
+
+def test_open_image_starts_at_its_first_unvisited_region(auth, girder):
+    _three_images(girder)
+    opened = auth.post("/patches/open", json={"item_id": "gray"}).json()
+    assert _at(opened) == ("gray", 0)
+    assert _at(auth.get("/patches/next").json()) == ("gray", 1)
+    auth.post("/patches/open", json={"item_id": "small"})
+    assert _at(auth.post("/patches/open", json={"item_id": "gray"}).json()) == ("gray", 2)
+    assert auth.post("/patches/open", json={"item_id": "elsewhere"}).status_code == 404
+
+
+def test_next_skips_a_current_image_that_became_unreadable(auth, girder, monkeypatch):
+    from simple_annotator import slides
+
+    _three_images(girder)
+    assert _at(auth.get("/patches/current").json()) == ("small", 0)
     with session_factory()() as db:
-        items = [db.get(Patch, p["id"]).girder_item_id for p in first_pass]
-    runs = [item for i, item in enumerate(items) if i == 0 or items[i - 1] != item]
-    assert sorted(runs) == ["gray", "histo", "small"]
-    assert len({p["id"] for p in first_pass}) == len(first_pass)
-    gray = next(p for p, item in zip(first_pass, items) if item == "gray")
-    assert gray["nm_per_px"] is None and len(gray["slide"]["tiles"]) == 36
-    small = next(p for p, item in zip(first_pass, items) if item == "small")
-    assert small["slide"] is None
-    second_pass = _walk(auth, 38)
-    assert {p["id"] for p in second_pass} == {p["id"] for p in first_pass}
+        db.delete(db.get(Slide, "small"))
+        db.commit()
+    ok = slides.image_info
+    monkeypatch.setattr(slides, "image_info", lambda i: (None, "gone") if i == "small" else ok(i))
+    assert _at(auth.get("/patches/next").json()) == ("gray", 0)
+
+
+def test_empty_dataset_is_a_clear_400_everywhere(auth, girder, monkeypatch):
+    from simple_annotator import images
+
+    def empty(_):
+        raise RuntimeError("This dataset contains no images.")
+
+    monkeypatch.setattr(images, "folder_images", empty)
+    for response in [auth.get("/images"), auth.post("/patches/open", json={"item_id": "x"})]:
+        assert response.status_code == 400
+        assert response.json()["detail"] == "This dataset contains no images."
+
+
+def test_image_list_groups_by_case_with_stains_and_progress(auth, girder):
+    _three_images(girder)
+    girder[1]["meta"]["image_magnification"] = 412.31209375
+    girder[2]["meta"]["image_magnification"] = 206.156046875
+    auth.get("/patches/current")
+    auth.post("/patches/open", json={"item_id": "gray"})
+    auth.get("/patches/next")
+    listing = auth.get("/images").json()
+    rows = [
+        (r["id"], r["group"], r["staining"], r["magnification"], r["regions"], r["visited"])
+        for r in listing["items"]
+    ]
+    assert rows == [
+        ("small", "case-2", "PAS", 20, 1, 1),
+        ("gray", "case-10", "HE", 40, 36, 2),
+        ("histo", "zz", "PAS", None, None, 0),
+    ]
+    assert listing["stains"] == [{"name": "PAS", "count": 2}, {"name": "HE", "count": 1}]
 
 
 def test_users_walk_shared_tiles_row_by_row_with_own_annotations(auth, client, girder):
@@ -138,27 +210,6 @@ def test_concurrent_first_visits_build_one_grid(girder):
         assert db.get(Slide, "histo").histo
 
 
-def test_repeated_passes_do_not_rescan_finished_ones(auth, girder):
-    from sqlalchemy import event
-
-    from simple_annotator.db import get_engine
-
-    girder[0] = {"_id": "small", "name": "s.png"}
-    tile = auth.get("/patches/current").json()["id"]
-    _walk(auth, 30)
-    statements = []
-
-    def count(*_):
-        statements.append(1)
-
-    event.listen(get_engine(), "before_cursor_execute", count)
-    try:
-        assert auth.get("/patches/next").json()["id"] == tile
-    finally:
-        event.remove(get_engine(), "before_cursor_execute", count)
-    assert len(statements) < 30
-
-
 def test_old_patch_of_an_unreadable_image_reports_why(auth, girder, monkeypatch):
     from simple_annotator import slides
     from simple_annotator.models import PatchVisit, User
@@ -172,9 +223,10 @@ def test_old_patch_of_an_unreadable_image_reports_why(auth, girder, monkeypatch)
         db.flush()
         visit = PatchVisit(user_id=user.id, patch_id=legacy.id, folder_id="dataset")
         db.add(visit)
+        db.flush()
+        user.current_visit_id = visit.id
         db.commit()
-        visit_id = visit.id
-    response = auth.get(f"/patches/visits/{visit_id}")
+    response = auth.get("/patches/current")
     assert response.status_code == 502
     assert response.json()["detail"] == (
         "The image server (Girder) cannot read this image. Girder says: Item not found."

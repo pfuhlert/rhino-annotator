@@ -134,10 +134,13 @@ export default function AnnotatePage() {
     setLoadError(null);
     if (next.job_id) setJobId(next.job_id);
     if (next.folder_id) setFolderId(next.folder_id);
+    // The server picks a folder for users without one; the image list waits for that confirmation.
+    setMe((cur) => cur && { ...cur, last_folder_id: next.folder_id });
   }, []);
 
   // Only the most recent load may show its patch; a folder switch also invalidates older loads.
   const loadSeq = useRef(0);
+  const stainSave = useRef<Promise<unknown>>(Promise.resolve());
   const loadLatest = useCallback(
     async (load: () => Promise<Patch>) => {
       const seq = ++loadSeq.current;
@@ -227,10 +230,12 @@ export default function AnnotatePage() {
     );
   }
 
+  // Without a patch there is nothing to save, e.g. after the folder's first image failed to load.
   async function go(load: () => Promise<Patch>) {
-    if (!patch || jobId == null || busy) return;
+    if (jobId == null || busy) return;
     setBusy(true);
     try {
+      await stainSave.current;
       if (await saveBeforeLeaving()) await loadLatest(load);
     } catch (error) {
       setLoadError(errorMessage(error));
@@ -240,8 +245,19 @@ export default function AnnotatePage() {
   }
 
   function finish(kind: "next" | "prev") {
-    if (kind === "prev" && !patch?.has_prev) return;
     return go(kind === "prev" ? api.prevPatch : api.nextPatch);
+  }
+
+  // Optimistic so quick toggles build on each other; saves are chained so the server keeps the
+  // last choice, and navigation waits for them so Next uses the filter on screen.
+  function setStains(stains: (string | null)[]) {
+    setMe((cur) => cur && { ...cur, stain_filter: stains });
+    stainSave.current = stainSave.current
+      .then(() => api.setStains(stains))
+      .catch((error) => {
+        setLoadError(`Could not change the stain filter. ${errorMessage(error)}`);
+        return api.me().then(setMe, () => {});
+      });
   }
 
   async function switchFolder(id: string) {
@@ -335,7 +351,8 @@ export default function AnnotatePage() {
       marks={marks}
       selectedId={selectedId}
       onUseFolder={(id) => void switchFolder(id)}
-      onOpenVisit={(id) => void go(() => api.openVisit(id))}
+      onOpenImage={(id) => void go(() => api.openImage(id))}
+      onStains={setStains}
       onHoverMark={(id) => annoRef.current?.highlight(id)}
       onSelectMark={selectMark}
       onDeleteMark={(id) => annoRef.current?.remove(id)}
@@ -478,7 +495,7 @@ export default function AnnotatePage() {
               <Button
                 data-testid="prev"
                 variant="outline"
-                disabled={busy || !patch.has_prev}
+                disabled={busy}
                 onClick={() => void finish("prev")}
               >
                 Previous (B)

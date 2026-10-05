@@ -14,6 +14,8 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(String(256))
     last_job_id: Mapped[int | None] = mapped_column(ForeignKey("jobs.id"), nullable=True)
     last_folder_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # JSON list of stain names; null in the list means "no stain".
+    stain_filter: Mapped[str | None] = mapped_column(Text, nullable=True)
     current_visit_id: Mapped[int | None] = mapped_column(
         ForeignKey("patch_visits.id", use_alter=True), nullable=True
     )

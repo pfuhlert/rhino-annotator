@@ -40,8 +40,8 @@ def test_folder_images_from_folder_or_collection(selected_id, monkeypatch):
         if path == "/folder":
             parent = (request.url.params["parentType"], request.url.params["parentId"])
             children = {
-                ("collection", "dataset"): [{"_id": "folder"}],
-                ("folder", "folder"): [{"_id": "nested"}],
+                ("collection", "dataset"): [{"_id": "folder", "name": "Folder"}],
+                ("folder", "folder"): [{"_id": "nested", "name": "N2768-13"}],
                 ("folder", "nested"): [],
             }
             return httpx.Response(200, json=children[parent])
@@ -55,7 +55,22 @@ def test_folder_images_from_folder_or_collection(selected_id, monkeypatch):
     with httpx.Client(base_url="https://girder.test", transport=httpx.MockTransport(respond)) as gc:
         monkeypatch.setattr(girder, "_gc", gc)
         images = girder.folder_images(selected_id)
-    assert [image["_id"] for image in images] == ["image"]
+    assert [(image["_id"], image["folder_name"]) for image in images] == [("image", "N2768-13")]
+
+
+def test_subfolders_are_listed_past_one_page(monkeypatch):
+    monkeypatch.setenv("GIRDER_TOKEN", "test")
+    monkeypatch.setattr(girder, "_kids_cache", {})
+    cases = [{"_id": f"case{i}", "name": f"N{i}"} for i in range(1203)]
+
+    def respond(request):
+        assert request.url.path == "/folder"
+        offset, limit = int(request.url.params["offset"]), int(request.url.params["limit"])
+        return httpx.Response(200, json=cases[offset : offset + limit])
+
+    with httpx.Client(base_url="https://girder.test", transport=httpx.MockTransport(respond)) as gc:
+        monkeypatch.setattr(girder, "_gc", gc)
+        assert girder._kids("folder", "year") == cases
 
 
 def test_item_errors_are_not_cached_as_images(monkeypatch):

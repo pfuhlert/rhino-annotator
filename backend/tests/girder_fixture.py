@@ -52,6 +52,21 @@ def _shapes() -> list[tuple[float, float, float, float, tuple[int, int, int]]]:
 
 
 SHAPES = _shapes()
+# Every histology item renders the same slide; the metadata drives grouping and stain filtering.
+HISTO = {
+    "slide": ("Synthetic H&E.svs", {"case_id": "case-2", "staining": "HE"}),
+    "slide-pas": ("Synthetic PAS.svs", {"case_id": "case-2", "staining": "PAS"}),
+    "slide-b": (
+        "Synthetic PAS B.svs",
+        {"case_id": "case-10", "staining": "PAS", "image_magnification": 206.156},
+    ),
+}
+
+
+def _histo_item(item: str) -> dict:
+    name, meta = HISTO[item]
+    meta = {"image_magnification": 412.312, **meta}
+    return {"_id": item, "name": name, "folderId": "histo", "meta": meta}
 
 
 def _render(item: str, x: float, y: float, w: float, h: float, out_w: int, out_h: int):
@@ -116,15 +131,15 @@ class Handler(BaseHTTPRequestHandler):
             data = {"nFolders": 0}
         elif path == "/item":
             data = (
-                [{"_id": "slide", "name": "Synthetic H&E.svs", "folderId": "histo"}]
+                [_histo_item(item) for item in HISTO]
                 if query.get("folderId") == ["histo"]
                 else [{"_id": "tem", "name": "TEM.png", "folderId": "elmi"}]
             )
         elif path == "/item/tem":
             data = {"folderId": "elmi", "meta": {"nm_per_px": args.nm_per_px}}
-        elif path == "/item/slide":
-            data = {"folderId": "histo", "meta": {}}
-        elif path in {"/item/tem/tiles", "/item/slide/tiles"}:
+        elif path.removeprefix("/item/") in HISTO:
+            data = _histo_item(path.removeprefix("/item/"))
+        elif path.endswith("/tiles") and path.split("/")[2] in {"tem", *HISTO}:
             item = path.split("/")[2]
             width, height = _size(item)
             data = {
@@ -134,7 +149,7 @@ class Handler(BaseHTTPRequestHandler):
                 "tileHeight": TILE,
                 "levels": _levels(item),
             }
-            if item == "slide":
+            if item in HISTO:
                 data |= {"mm_x": 0.00025, "mm_y": 0.00025}
         elif "/tiles/" in path:
             item = path.split("/")[2]

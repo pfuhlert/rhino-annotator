@@ -41,23 +41,22 @@ def _is_image(name: str) -> bool:
     return Path(name).suffix.lower() in _IMAGE_EXT
 
 
-def _items(folder_id: str) -> list[dict]:
-    items: list[dict] = []
-    offset = 0
+def _paged(path: str, params: dict) -> list[dict]:
+    out: list[dict] = []
     while True:
         batch = (
             _client()
-            .get("/item", params={"folderId": folder_id, "limit": 500, "offset": offset})
+            .get(path, params={**params, "limit": 500, "offset": len(out)})
             .raise_for_status()
             .json()
         )
-        if not batch:
-            break
-        items.extend(batch)
+        out.extend(batch)
         if len(batch) < 500:
-            break
-        offset += len(batch)
-    return items
+            return out
+
+
+def _items(folder_id: str) -> list[dict]:
+    return _paged("/item", {"folderId": folder_id})
 
 
 def _images(folder_id: str) -> list[dict]:
@@ -72,20 +71,16 @@ def _kids(parent_type: str, parent_id: str) -> list[dict]:
     key = (parent_type, parent_id)
     cached = _kids_cache.get(key)
     if cached is None:
-        cached = (
-            _client()
-            .get("/folder", params={"parentType": parent_type, "parentId": parent_id, "limit": 500})
-            .raise_for_status()
-            .json()
-        )
+        cached = _paged("/folder", {"parentType": parent_type, "parentId": parent_id})
         _kids_cache[key] = cached
     return cached
 
 
-def _collect_images(folder_id: str, parent_type: str = "folder") -> list[dict]:
-    out = list(_images(folder_id)) if parent_type == "folder" else []
+def _collect_images(folder_id: str, parent_type: str, folder_name: str) -> list[dict]:
+    images = _images(folder_id) if parent_type == "folder" else []
+    out = [{**it, "folder_name": folder_name} for it in images]
     for child in _kids(parent_type, folder_id):
-        out.extend(_collect_images(child["_id"]))
+        out.extend(_collect_images(child["_id"], "folder", child.get("name", "")))
     return out
 
 
@@ -175,8 +170,8 @@ def list_folders(parent_id: str | None = None) -> dict:
 
 
 def folder_images(folder_id: str) -> list[dict]:
-    parent_type, _ = _resource(folder_id)
-    images = _collect_images(folder_id, parent_type)
+    parent_type, info = _resource(folder_id)
+    images = _collect_images(folder_id, parent_type, info.get("name", ""))
     if not images:
         raise RuntimeError("This dataset contains no images.")
     return images
