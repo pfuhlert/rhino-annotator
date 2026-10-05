@@ -7,6 +7,7 @@ import {
   imagePoint,
   imageToScreen,
   measureSpace,
+  planeSize,
   paintScene,
   polyRings,
   ringOf,
@@ -41,7 +42,7 @@ export function useFreehand(opts: {
   rootRef: RefObject<HTMLDivElement | null>;
   canvasRef: RefObject<HTMLCanvasElement | null>;
   cursorRef: RefObject<HTMLDivElement | null>;
-  imgRef: RefObject<HTMLImageElement | null>;
+  planeRef: RefObject<HTMLElement | null>;
   tool: Tool;
   jobId: number;
   marksRef: RefObject<Mark[]>;
@@ -55,7 +56,7 @@ export function useFreehand(opts: {
   onViewChange?: (space: Space | null) => void;
   onSelect?: (id: string | null) => void;
 }): Ctl {
-  const { rootRef, canvasRef, cursorRef, imgRef, tool, jobId, marksRef, onChangeRef, radius } =
+  const { rootRef, canvasRef, cursorRef, planeRef, tool, jobId, marksRef, onChangeRef, radius } =
     opts;
   const latest = useRef(opts);
   useEffect(() => {
@@ -124,10 +125,10 @@ export function useFreehand(opts: {
     }
 
     function ensureBrush() {
-      const img = imgRef.current;
-      if (!img?.naturalWidth) return null;
-      if (!brush || brush.width !== img.naturalWidth || brush.height !== img.naturalHeight) {
-        brush = createBrush(img.naturalWidth, img.naturalHeight);
+      const size = planeSize(planeRef.current);
+      if (!size) return null;
+      if (!brush || brush.width !== size[0] || brush.height !== size[1]) {
+        brush = createBrush(size[0], size[1]);
         brushJobId = latest.current.jobId;
         brush.enter(jobPolys(marksRef.current, brushJobId));
       }
@@ -302,13 +303,13 @@ export function useFreehand(opts: {
     }
 
     function clampView() {
-      const img = imgRef.current;
-      if (!img?.naturalWidth) return;
+      const size = planeSize(planeRef.current);
+      if (!size) return;
       const w = root.clientWidth;
       const h = root.clientHeight;
-      const fit = Math.min(w / img.naturalWidth, h / img.naturalHeight);
-      const cw = img.naturalWidth * fit;
-      const ch = img.naturalHeight * fit;
+      const fit = Math.min(w / size[0], h / size[1]);
+      const cw = size[0] * fit;
+      const ch = size[1] * fit;
       const axis = (p: number, origin: number, size: number, limit: number) => {
         const drawn = size * view.z;
         if (drawn <= limit) return limit / 2 - (origin + size / 2) * view.z;
@@ -318,11 +319,19 @@ export function useFreehand(opts: {
       view.y = axis(view.y, (h - ch) / 2, ch, h);
     }
 
+    // Large tissue regions need more than the default 8x to reach full resolution.
+    function maxZoom() {
+      const size = planeSize(planeRef.current);
+      if (!size) return 8;
+      const fit = Math.min(root.clientWidth / size[0], root.clientHeight / size[1]);
+      return Math.max(8, 2 / fit);
+    }
+
     function applyView() {
-      const img = imgRef.current;
-      if (!img) return;
+      const plane = planeRef.current;
+      if (!plane) return;
       clampView();
-      img.style.transform = `translate(${view.x}px, ${view.y}px) scale(${view.z})`;
+      plane.style.transform = `translate(${view.x}px, ${view.y}px) scale(${view.z})`;
       space = measureSpace(root);
       ctx = setupCanvas(canvas, root);
       if (drawing && space) {
@@ -340,7 +349,7 @@ export function useFreehand(opts: {
       pointer = e;
       if (e.ctrlKey || e.metaKey) {
         const r = root.getBoundingClientRect();
-        const z2 = Math.min(8, Math.max(1, view.z * Math.exp(-e.deltaY * 0.002)));
+        const z2 = Math.min(maxZoom(), Math.max(1, view.z * Math.exp(-e.deltaY * 0.002)));
         const k = z2 / view.z;
         const cx = e.clientX - r.left;
         const cy = e.clientY - r.top;
@@ -688,7 +697,7 @@ export function useFreehand(opts: {
       root.removeEventListener("wheel", onWheel);
       window.removeEventListener("keydown", onKey);
     };
-  }, [rootRef, canvasRef, cursorRef, imgRef, marksRef, onChangeRef]);
+  }, [rootRef, canvasRef, cursorRef, planeRef, marksRef, onChangeRef]);
 
   useEffect(() => {
     ctl.current.redraw();

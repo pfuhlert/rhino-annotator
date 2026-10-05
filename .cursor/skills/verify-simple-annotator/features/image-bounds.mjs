@@ -10,8 +10,8 @@ export default async function (page, state) {
   await root.waitFor();
   const ready = () =>
     page.waitForFunction(() => {
-      const img = document.querySelector('[data-testid="patch-canvas"] > img');
-      return img?.complete && img.naturalWidth > 0;
+      const img = document.querySelector('[data-testid="patch-canvas"] [data-image-plane]');
+      return img?.dataset.loaded === 'true';
     });
   await ready();
   await page.getByTestId("sidebar-trigger").click();
@@ -43,17 +43,17 @@ export default async function (page, state) {
   }
   async function bounds() {
     return root.evaluate((el) => {
-      const img = el.querySelector("img"),
+      const img = el.querySelector("[data-image-plane]"),
         r = img.getBoundingClientRect();
       const scale = Math.min(
-        r.width / img.naturalWidth,
-        r.height / img.naturalHeight,
+        r.width / Number(img.dataset.width),
+        r.height / Number(img.dataset.height),
       );
       return {
-        left: r.left + (r.width - img.naturalWidth * scale) / 2,
-        top: r.top + (r.height - img.naturalHeight * scale) / 2,
-        width: img.naturalWidth,
-        height: img.naturalHeight,
+        left: r.left + (r.width - Number(img.dataset.width) * scale) / 2,
+        top: r.top + (r.height - Number(img.dataset.height) * scale) / 2,
+        width: Number(img.dataset.width),
+        height: Number(img.dataset.height),
         scale,
       };
     });
@@ -82,7 +82,7 @@ export default async function (page, state) {
     image = await bounds();
   }
   const canvasImage = () =>
-    root.evaluate((el) => el.querySelector("canvas").toDataURL());
+    root.evaluate((el) => el.querySelector('[data-testid="patch-marks"]').toDataURL());
   const cursor = () => root.evaluate((el) => getComputedStyle(el).cursor);
   const bounded = (elements) => {
     for (const mark of elements)
@@ -96,7 +96,7 @@ export default async function (page, state) {
   const alpha = (x, y) =>
     root.evaluate(
       (el, p) => {
-        const canvas = el.querySelector("canvas"),
+        const canvas = el.querySelector('[data-testid="patch-marks"]'),
           rect = canvas.getBoundingClientRect();
         return canvas
           .getContext("2d")

@@ -7,6 +7,7 @@ import httpx
 import pytest
 from sqlalchemy import select
 
+from simple_annotator import slides
 from simple_annotator.ai_worker import claim, fail, resume
 from simple_annotator.config import DEFAULT_AI_MODEL, GBM_AI_MODEL
 from simple_annotator.db import session_factory
@@ -17,7 +18,7 @@ from simple_annotator.models import AiEmbedding, Job, PatchVisit
 def test_open_queues_embeddings_once_across_visits_users_and_jobs(auth, monkeypatch):
     from simple_annotator import patches
 
-    monkeypatch.setattr(patches, "fetch_image", lambda *_: (_ for _ in ()).throw(AssertionError()))
+    monkeypatch.setattr(patches, "tile", lambda *_: (_ for _ in ()).throw(AssertionError()))
     first = auth.get("/patches/current").json()
     with session_factory()() as db:
         ids = set(db.scalars(select(AiEmbedding.id)))
@@ -25,12 +26,19 @@ def test_open_queues_embeddings_once_across_visits_users_and_jobs(auth, monkeypa
         assert set(db.scalars(select(AiEmbedding.status))) == {"queued"}
         assert all(data is None for data in db.scalars(select(AiEmbedding.data)))
     auth.patch("/me", json={"last_job_id": 2})
-    assert auth.get("/patches/next").json()["id"] != first["id"]
+    second = auth.get("/patches/next").json()
+    assert second["id"] != first["id"]
     auth.get("/patches/prev")
-    auth.post("/auth/register", json={"username": "second", "password": "secret"})
-    auth.get("/patches/current")
     with session_factory()() as db:
-        assert set(db.scalars(select(AiEmbedding.id))) == ids
+        ids = set(db.scalars(select(AiEmbedding.id)))
+        assert len(ids) == 2 * len(regions(1024, 1024))
+    # Tiles are shared, so another user visiting known tiles queues nothing new.
+    auth.post("/auth/register", json={"username": "second", "password": "secret"})
+    seen = {first["id"], second["id"]}
+    while (tile := auth.get("/patches/next").json()["id"]) not in seen:
+        seen.add(tile)
+    with session_factory()() as db:
+        assert len(set(db.scalars(select(AiEmbedding.id)))) == len(seen) * len(regions(1024, 1024))
 
 
 @pytest.mark.parametrize("status", ["queued", "running", "ready"])
@@ -55,7 +63,6 @@ def test_reopening_prepared_or_pending_image_needs_no_write_lock(auth, busy_db, 
 def test_first_open_responds_before_embedding_queue_retries(
     auth, busy_db, monkeypatch, caplog, release_lock
 ):
-    from simple_annotator import patches
 
     writer, blocked = busy_db
     sent = Event()
@@ -65,7 +72,7 @@ def test_first_open_responds_before_embedding_queue_retries(
         writer.execute("BEGIN IMMEDIATE")
         return None
 
-    monkeypatch.setattr(patches, "image_nm_per_px", metadata)
+    monkeypatch.setattr(slides, "image_nm_per_px", metadata)
 
     async def app(scope, receive, send):
         async def observe(message):
@@ -99,7 +106,7 @@ def test_first_open_responds_before_embedding_queue_retries(
         )
     if not release_lock:
         assert "preparation deferred" in caplog.text
-    monkeypatch.setattr(patches, "image_nm_per_px", lambda _: None)
+    monkeypatch.setattr(slides, "image_nm_per_px", lambda _: None)
     assert auth.get("/patches/current").json()["id"] == response.json()["id"]
     with session_factory()() as db:
         assert len(db.scalars(select(PatchVisit)).all()) == 1

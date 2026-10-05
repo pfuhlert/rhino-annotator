@@ -328,8 +328,8 @@ async function applyStep(page, state, step) {
     }
     if (f.image !== undefined) {
       return page.waitForFunction((id) => {
-        const img = document.querySelector(`[data-testid="${id}"] img`);
-        return img?.complete && img.naturalWidth > 0;
+        const img = document.querySelector(`[data-testid="${id}"] [data-image-plane]`);
+        return img?.dataset.loaded === 'true';
       }, f.testid);
     }
     let loc = page.getByTestId(f.testid);
@@ -398,7 +398,7 @@ async function cmdLoginProof() {
       "click", "--testid", "register-submit",
       "wait", "--testid", "annotate-app", "--timeout", "60000",
     ]);
-    await page.getByTestId("patch-canvas").locator("img").waitFor({ timeout: 15000 });
+    await page.getByTestId("patch-canvas").locator("[data-image-plane][data-loaded]").waitFor({ state: "attached", timeout: 15000 });
     await runSteps(page, state, [
       "screenshot", "--out", afterShot,
       "snapshot", "--out", afterAria,

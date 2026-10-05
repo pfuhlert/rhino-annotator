@@ -2,8 +2,6 @@ import httpx
 import pytest
 
 from simple_annotator import girder
-from simple_annotator.config import CROP_SIZE
-from simple_annotator.girder import _region, pick_region
 
 
 def test_girder_client_bypasses_http_proxy(monkeypatch):
@@ -27,35 +25,8 @@ def test_girder_client_bypasses_http_proxy(monkeypatch):
     assert seen.get("trust_env") is False
 
 
-def test_region_full_for_tem_crop_for_wsi():
-    assert _region("a", 2048, 2048) == {
-        "girder_item_id": "a",
-        "left": 0,
-        "top": 0,
-        "width": 2048,
-        "height": 2048,
-    }
-    crop = _region("a", 50000, 40000)
-    assert crop["girder_item_id"] == "a"
-    assert crop["width"] == CROP_SIZE
-    assert crop["height"] == CROP_SIZE
-    assert 0 <= crop["left"] <= 50000 - CROP_SIZE
-    assert 0 <= crop["top"] <= 40000 - CROP_SIZE
-
-
-def test_pick_region_placeholder_is_full_crop():
-    out = pick_region("placeholder")
-    assert out == {
-        "girder_item_id": "placeholder",
-        "left": 0,
-        "top": 0,
-        "width": CROP_SIZE,
-        "height": CROP_SIZE,
-    }
-
-
 @pytest.mark.parametrize("selected_id", ["dataset", "folder"])
-def test_pick_region_from_folder_or_collection(selected_id, monkeypatch):
+def test_folder_images_from_folder_or_collection(selected_id, monkeypatch):
     monkeypatch.setenv("GIRDER_TOKEN", "test")
     monkeypatch.setattr(girder, "_images_cache", {})
     monkeypatch.setattr(girder, "_kids_cache", {})
@@ -79,15 +50,12 @@ def test_pick_region_from_folder_or_collection(selected_id, monkeypatch):
             assert folder_id in {"folder", "nested"}
             items = [{"_id": "image", "name": "sample.tif"}] if folder_id == "nested" else []
             return httpx.Response(200, json=items)
-        if path == "/item/image/tiles":
-            return httpx.Response(200, json={"sizeX": 256, "sizeY": 128})
         pytest.fail(f"Unexpected request: {request.url}")
 
     with httpx.Client(base_url="https://girder.test", transport=httpx.MockTransport(respond)) as gc:
         monkeypatch.setattr(girder, "_gc", gc)
-        region = pick_region(selected_id)
-    assert region["girder_item_id"] == "image"
-    assert (region["width"], region["height"]) == (256, 128)
+        images = girder.folder_images(selected_id)
+    assert [image["_id"] for image in images] == ["image"]
 
 
 def test_item_errors_are_not_cached_as_images(monkeypatch):

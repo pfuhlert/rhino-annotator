@@ -22,8 +22,8 @@ export default async function (page, state) {
     throw new Error("Timed out waiting for expected state");
   };
   const ready = () => page.waitForFunction(() => {
-    const img = document.querySelector('[data-testid="patch-canvas"] > img');
-    return img?.complete && img.naturalWidth > 0;
+    const img = document.querySelector('[data-testid="patch-canvas"] [data-image-plane]');
+    return img?.dataset.loaded === 'true';
   });
   async function select(id, option) {
     await page.getByTestId(id).click();
@@ -32,12 +32,12 @@ export default async function (page, state) {
   }
   async function bounds() {
     return root.evaluate((el) => {
-      const img = el.querySelector("img");
+      const img = el.querySelector("[data-image-plane]");
       const r = img.getBoundingClientRect();
-      const scale = Math.min(r.width / img.naturalWidth, r.height / img.naturalHeight);
+      const scale = Math.min(r.width / Number(img.dataset.width), r.height / Number(img.dataset.height));
       return {
-        left: r.left + (r.width - img.naturalWidth * scale) / 2,
-        top: r.top + (r.height - img.naturalHeight * scale) / 2,
+        left: r.left + (r.width - Number(img.dataset.width) * scale) / 2,
+        top: r.top + (r.height - Number(img.dataset.height) * scale) / 2,
         scale,
       };
     });

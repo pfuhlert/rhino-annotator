@@ -1,14 +1,13 @@
 import io
 import math
 import os
-import random
 from functools import lru_cache
 from pathlib import Path
 
 import httpx
 from PIL import Image, ImageDraw
 
-from simple_annotator.config import CROP_SIZE, FULL_IMAGE_MAX, GIRDER_API_URL
+from simple_annotator.config import GIRDER_API_URL
 
 PLACEHOLDER_FOLDER = "placeholder"
 _IMAGE_EXT = {".png", ".tif", ".tiff", ".svs", ".jpg", ".jpeg", ".bmp"}
@@ -36,22 +35,6 @@ def _client() -> httpx.Client:
             token = r.json()["authToken"]["token"]
         _gc.headers["Girder-Token"] = token
     return _gc
-
-
-def _region(item_id: str, w: int, h: int) -> dict:
-    if max(w, h) <= FULL_IMAGE_MAX:
-        left, top, width, height = 0, 0, w, h
-    else:
-        width, height = min(CROP_SIZE, w), min(CROP_SIZE, h)
-        left = random.randint(0, max(0, w - width))
-        top = random.randint(0, max(0, h - height))
-    return {
-        "girder_item_id": item_id,
-        "left": left,
-        "top": top,
-        "width": width,
-        "height": height,
-    }
 
 
 def _is_image(name: str) -> bool:
@@ -191,32 +174,47 @@ def list_folders(parent_id: str | None = None) -> dict:
     }
 
 
-def pick_region(folder_id: str | None) -> dict:
-    if not girder_enabled() or not folder_id or folder_id == PLACEHOLDER_FOLDER:
-        return _region(PLACEHOLDER_FOLDER, CROP_SIZE, CROP_SIZE)
+def folder_images(folder_id: str) -> list[dict]:
     parent_type, _ = _resource(folder_id)
     images = _collect_images(folder_id, parent_type)
     if not images:
         raise RuntimeError("This dataset contains no images.")
-    random.shuffle(images)
-    reason = ""
-    for item in images:
-        info = _client().get(f"/item/{item['_id']}/tiles")
-        data = (
-            info.json()
-            if info.headers.get("content-type", "").startswith("application/json")
-            else {}
-        )
-        if info.status_code != 200:
-            reason = reason or str(data.get("message") or f"HTTP {info.status_code}")
-            continue
-        if "sizeX" not in data or "sizeY" not in data:
-            continue
-        return _region(item["_id"], int(data["sizeX"]), int(data["sizeY"]))
-    detail = f" Girder says: {reason}" if reason else ""
-    raise RuntimeError(
-        f"None of the {len(images)} images in this dataset can be read by the image server.{detail}"
+    return images
+
+
+def image_info(item_id: str) -> tuple[dict | None, str]:
+    info = _client().get(f"/item/{item_id}/tiles")
+    data = (
+        info.json() if info.headers.get("content-type", "").startswith("application/json") else {}
     )
+    if info.status_code != 200:
+        return None, str(data.get("message") or f"HTTP {info.status_code}")
+    if "sizeX" not in data or "sizeY" not in data:
+        return None, ""
+    return data, ""
+
+
+def get_item(item_id: str) -> dict:
+    if not girder_enabled() or item_id == PLACEHOLDER_FOLDER:
+        return {"_id": item_id, "name": "Placeholder"}
+    return _client().get(f"/item/{item_id}").raise_for_status().json()
+
+
+def tile(item_id: str, z: int, x: int, y: int) -> tuple[bytes, str]:
+    if not girder_enabled() or item_id == PLACEHOLDER_FOLDER:
+        return _placeholder(256, 256), "image/png"
+    resp = _client().get(f"/item/{item_id}/tiles/zxy/{z}/{x}/{y}").raise_for_status()
+    return resp.content, resp.headers.get("content-type", "image/jpeg")
+
+
+def thumbnail(item_id: str, max_side: int) -> bytes:
+    if not girder_enabled() or item_id == PLACEHOLDER_FOLDER:
+        return _placeholder(max_side, max_side)
+    resp = _client().get(
+        f"/item/{item_id}/tiles/thumbnail",
+        params={"width": max_side, "height": max_side, "encoding": "PNG"},
+    )
+    return resp.raise_for_status().content
 
 
 def image_nm_per_px(item_id: str) -> float | None:

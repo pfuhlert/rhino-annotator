@@ -14,12 +14,12 @@ pytest.importorskip("torch")
 import numpy as np
 import torch
 
-from simple_annotator import segmenter
+from simple_annotator import segmenter, slides
 from simple_annotator.ai_worker import process_next
 from simple_annotator.config import DEFAULT_AI_MODEL, AiModel
 from simple_annotator.db import reset_engine, session_factory
 from simple_annotator.embeddings import embedding_id, prompt_regions, regions, tile_request
-from simple_annotator.models import AiEmbedding, AiTask, AiWorker
+from simple_annotator.models import AiEmbedding, AiTask, AiWorker, Patch
 
 REQUEST = {
     "model": DEFAULT_AI_MODEL.name,
@@ -139,7 +139,6 @@ def test_prepare_only_caches_embeddings_after_successful_persistence(
 def test_calibrated_prompts_reuse_automatically_prepared_embeddings(
     auth, fake_model, monkeypatch, calibration, count
 ):
-    from simple_annotator import ai, patches
     from simple_annotator.annotations import lock
 
     def lookup(_):
@@ -149,8 +148,7 @@ def test_calibrated_prompts_reuse_automatically_prepared_embeddings(
             db.commit()
         return calibration
 
-    monkeypatch.setattr(patches, "image_nm_per_px", lookup)
-    monkeypatch.setattr(ai, "image_nm_per_px", lookup)
+    monkeypatch.setattr(slides, "image_nm_per_px", lookup)
     patch = auth.get("/patches/current").json()
     assert patch["nm_per_px"] == calibration
     create, fetched, encoded, _ = fake_model
@@ -322,11 +320,13 @@ def test_worker_prepares_each_tile_once_and_prioritizes_prompts(auth, fake_model
     create, fetched, _, _ = fake_model
     patch = auth.get("/patches/current").json()
     user_id = auth.get("/me").json()["id"]
+    with session_factory()() as db:
+        tile = db.get(Patch, patch["id"])
     request = {
         **REQUEST,
         "item_id": "placeholder",
-        "left": 0,
-        "top": 0,
+        "left": tile.left,
+        "top": tile.top,
         "width": 1024,
         "height": 1024,
         "x": 200,

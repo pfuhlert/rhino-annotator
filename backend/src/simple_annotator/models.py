@@ -43,6 +43,23 @@ class Patch(Base):
     top: Mapped[int]
     width: Mapped[int]
     height: Mapped[int]
+    # Signature of the slide grid this tile belongs to; NULL for legacy random crops.
+    grid: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+
+
+class Slide(Base):
+    __tablename__ = "slides"
+
+    item_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    name: Mapped[str] = mapped_column(String(256))
+    width: Mapped[int]
+    height: Mapped[int]
+    nm_per_px: Mapped[float | None]
+    histo: Mapped[bool]
+    grid: Mapped[str] = mapped_column(String(64))
+    tile_width: Mapped[int]
+    tile_height: Mapped[int]
+    levels: Mapped[int]
 
 
 class Annotation(Base):

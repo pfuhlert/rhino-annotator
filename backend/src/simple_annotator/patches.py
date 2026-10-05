@@ -1,5 +1,6 @@
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from fastapi.responses import Response
+from pydantic import BaseModel, NonNegativeInt, PositiveInt
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -12,16 +13,19 @@ from simple_annotator.annotations import (
     row_elements,
 )
 from simple_annotator.auth import current_user
-from simple_annotator.config import DEFAULT_AI_MODEL, job_ai_model
+from simple_annotator.config import FULL_IMAGE_MAX, job_ai_model
 from simple_annotator.db import get_db
 from simple_annotator.embeddings import queue_image
-from simple_annotator.girder import PLACEHOLDER_FOLDER, fetch_image, image_nm_per_px, pick_region
-from simple_annotator.models import Annotation, Job, Patch, PatchVisit, User
+from simple_annotator.girder import PLACEHOLDER_FOLDER, thumbnail, tile
+from simple_annotator.models import Annotation, Job, Patch, PatchVisit, Slide, User
+from simple_annotator.slides import next_tile, patch_scale, slide_view
 
 router = APIRouter(prefix="/patches")
 
 
-def _dump(db: Session, user: User, patch: Patch, visit: PatchVisit) -> dict:
+def _dump(
+    db: Session, user: User, patch: Patch, visit: PatchVisit, slide: Slide, nm_per_px: float | None
+) -> dict:
     prev = db.scalar(
         select(PatchVisit.id)
         .where(
@@ -35,11 +39,46 @@ def _dump(db: Session, user: User, patch: Patch, visit: PatchVisit) -> dict:
         "id": patch.id,
         "job_id": user.last_job_id,
         "folder_id": visit.folder_id,
-        "image_url": f"/patches/{patch.id}/image",
-        "nm_per_px": image_nm_per_px(patch.girder_item_id),
+        "image": {
+            "width": patch.width,
+            "height": patch.height,
+            "left": patch.left,
+            "top": patch.top,
+            "slide_width": slide.width,
+            "slide_height": slide.height,
+            "tile_width": slide.tile_width,
+            "tile_height": slide.tile_height,
+            "levels": slide.levels,
+            "tile_url": f"/patches/{patch.id}/tiles/{{z}}/{{x}}/{{y}}",
+            "prepare_view": _prepares_view(patch),
+        },
+        "nm_per_px": nm_per_px,
         "has_prev": prev is not None,
         "elements": elements(db, user.id, patch.id),
+        "slide": slide_view(db, user, patch),
     }
+
+
+def _prepares_view(patch: Patch) -> bool:
+    # Large tissue regions prepare AI tiles around the viewed area instead of all at once.
+    return max(patch.width, patch.height) > FULL_IMAGE_MAX
+
+
+def _queue_ai(
+    db: Session,
+    user: User,
+    patch: Patch,
+    background: BackgroundTasks,
+    slide: Slide,
+    nm_per_px: float | None,
+    within: tuple[int, int, int, int] | None = None,
+) -> None:
+    if within is None and _prepares_view(patch):
+        return
+    job = db.get(Job, user.last_job_id) if user.last_job_id else None
+    histo = slide.histo
+    models = list(dict.fromkeys([job_ai_model(None, histo), job_ai_model(job and job.name, histo)]))
+    background.add_task(queue_image, patch.id, nm_per_px, models, histo, within)
 
 
 def _open(db: Session, user: User, visit: PatchVisit, background: BackgroundTasks) -> dict:
@@ -47,10 +86,9 @@ def _open(db: Session, user: User, visit: PatchVisit, background: BackgroundTask
     patch = db.get(Patch, visit.patch_id)
     assert patch
     db.commit()
-    result = _dump(db, user, patch, visit)
-    job = db.get(Job, user.last_job_id) if user.last_job_id else None
-    models = list(dict.fromkeys([DEFAULT_AI_MODEL, job_ai_model(job and job.name)]))
-    background.add_task(queue_image, patch.id, result["nm_per_px"], models)
+    slide, nm_per_px = patch_scale(db, patch)
+    result = _dump(db, user, patch, visit, slide, nm_per_px)
+    _queue_ai(db, user, patch, background, slide, nm_per_px)
     return result
 
 
@@ -62,12 +100,12 @@ def _folder_id(user: User) -> str:
 
 def _new_visit(db: Session, user: User, background: BackgroundTasks) -> dict:
     folder_id = _folder_id(user)
+    current = _cursor_visit(db, user)
+    current_item = db.get(Patch, current.patch_id).girder_item_id if current else None
     try:
-        patch = Patch(**pick_region(folder_id))
+        patch = next_tile(db, user, folder_id, current_item)
     except RuntimeError as e:
         raise HTTPException(400, str(e)) from e
-    db.add(patch)
-    db.flush()
     visit = PatchVisit(user_id=user.id, patch_id=patch.id, folder_id=folder_id)
     db.add(visit)
     db.flush()
@@ -174,8 +212,49 @@ def open_visit(
     return _open(db, user, visit, background)
 
 
-@router.get("/{patch_id}/image")
-def patch_image(
+@router.get("/{patch_id}/tiles/{z}/{x}/{y}")
+def patch_tile(
+    patch_id: int,
+    z: int,
+    x: int,
+    y: int,
+    _user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> Response:
+    patch = db.get(Patch, patch_id)
+    if not patch:
+        raise HTTPException(404, "patch not found")
+    data, media_type = tile(patch.girder_item_id, z, x, y)
+    return Response(
+        content=data, media_type=media_type, headers={"Cache-Control": "private, max-age=86400"}
+    )
+
+
+class View(BaseModel):
+    left: NonNegativeInt
+    top: NonNegativeInt
+    width: PositiveInt
+    height: PositiveInt
+
+
+@router.post("/{patch_id}/prepare")
+def prepare_view(
+    patch_id: int,
+    body: View,
+    background: BackgroundTasks,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    require_patch(db, user.id, patch_id)
+    patch = db.get(Patch, patch_id)
+    slide, nm_per_px = patch_scale(db, patch)
+    within = (body.left, body.top, body.width, body.height)
+    _queue_ai(db, user, patch, background, slide, nm_per_px, within)
+    return {"ok": True}
+
+
+@router.get("/{patch_id}/slide-thumbnail")
+def slide_thumbnail(
     patch_id: int,
     _user: User = Depends(current_user),
     db: Session = Depends(get_db),
@@ -183,8 +262,11 @@ def patch_image(
     patch = db.get(Patch, patch_id)
     if not patch:
         raise HTTPException(404, "patch not found")
-    data = fetch_image(patch.girder_item_id, patch.left, patch.top, patch.width, patch.height)
-    return Response(content=data, media_type="image/png")
+    return Response(
+        content=thumbnail(patch.girder_item_id, 512),
+        media_type="image/png",
+        headers={"Cache-Control": "private, max-age=86400"},
+    )
 
 
 @router.patch("/{patch_id}/annotations")

@@ -34,10 +34,10 @@ export default async function (page, state) {
   const canvas = page.getByTestId("patch-canvas");
   const click = async ([x, y]) => {
     const p = await canvas.evaluate((el, point) => {
-      const img = el.querySelector("img"), r = img.getBoundingClientRect();
-      const scale = Math.min(r.width / img.naturalWidth, r.height / img.naturalHeight);
-      return [r.left + (r.width - img.naturalWidth * scale) / 2 + point[0] * scale,
-        r.top + (r.height - img.naturalHeight * scale) / 2 + point[1] * scale];
+      const img = el.querySelector("[data-image-plane]"), r = img.getBoundingClientRect();
+      const scale = Math.min(r.width / Number(img.dataset.width), r.height / Number(img.dataset.height));
+      return [r.left + (r.width - Number(img.dataset.width) * scale) / 2 + point[0] * scale,
+        r.top + (r.height - Number(img.dataset.height) * scale) / 2 + point[1] * scale];
     }, [x, y]);
     const posted = page.waitForResponse((r) => /\/patches\/\d+\/ai$/.test(r.url()) && r.request().method() === "POST");
     await page.mouse.click(...p);
@@ -63,7 +63,7 @@ export default async function (page, state) {
     await page.getByTestId("folder-elmi").click();
     await page.getByTestId("sidebar-trigger").click();
   }
-  await page.waitForFunction(() => document.querySelector('[data-testid="patch-canvas"] > img')?.naturalWidth === 2048);
+  await page.waitForFunction(() => document.querySelector('[data-testid="patch-canvas"] [data-image-plane]')?.dataset.width === '2048');
   const current = (await json("/me")).last_job_id;
   const job = (await json("/jobs")).find((j) => j.id === current);
   const opened = embeddings().filter((row) => row.model === GBM_MODEL);

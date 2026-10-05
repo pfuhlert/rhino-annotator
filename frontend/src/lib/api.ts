@@ -41,14 +41,41 @@ export type Element = {
   holes?: [number, number][][];
   jobId: number;
 };
+// [left, top, width, height, visited] in slide pixels.
+export type SlideTile = [number, number, number, number, boolean];
+export type SlideView = {
+  name: string;
+  width: number;
+  height: number;
+  thumbnail_url: string;
+  tiles: SlideTile[];
+  current: number;
+};
+// A patch is a rectangle of a slide pyramid; tile_url serves the slide's tiles (not the patch's).
+export type PatchImage = {
+  width: number;
+  height: number;
+  left: number;
+  top: number;
+  slide_width: number;
+  slide_height: number;
+  tile_width: number;
+  tile_height: number;
+  levels: number;
+  tile_url: string;
+  // Large regions prepare AI embeddings for the visible area instead of all at once.
+  prepare_view: boolean;
+};
+export type ViewRect = { left: number; top: number; width: number; height: number };
 export type Patch = {
   id: number;
   job_id: number | null;
   folder_id: string;
-  image_url: string;
+  image: PatchImage;
   nm_per_px: number | null;
   has_prev: boolean;
   elements: Element[];
+  slide: SlideView | null;
 };
 
 export type Visit = { id: number; patch_id: number; n_annotations: number };
@@ -89,6 +116,11 @@ export const api = {
   prevPatch: () => req<Patch>("/patches/prev"),
   visits: () => req<Visit[]>("/patches/visits"),
   openVisit: (id: number) => req<Patch>(`/patches/visits/${id}`),
+  prepare: (patchId: number, view: ViewRect) =>
+    req<{ ok: boolean }>(`/patches/${patchId}/prepare`, {
+      method: "POST",
+      body: JSON.stringify(view),
+    }),
   aiStatus: (patchId: number, after = 0, signal?: AbortSignal) =>
     req<{
       cursor: number;

@@ -9,6 +9,14 @@ load_dotenv(Path(__file__).resolve().parents[3] / ".env")
 COOKIE_NAME = "sa_session"
 CROP_SIZE = int(os.environ.get("CROP_SIZE", "1024"))
 FULL_IMAGE_MAX = int(os.environ.get("FULL_IMAGE_MAX", "4096"))
+CROP_OVERLAP = int(os.environ.get("CROP_OVERLAP", "256"))
+# Histology is split into padded tissue regions; chunks of an oversized region overlap by more
+# than the largest glomerulus so each one is whole in some chunk.
+REGION_MAX_UM = float(os.environ.get("REGION_MAX_UM", "5000"))
+REGION_PAD_UM = float(os.environ.get("REGION_PAD_UM", "250"))
+REGION_MERGE_UM = float(os.environ.get("REGION_MERGE_UM", "200"))
+TILE_OVERLAP_UM = float(os.environ.get("TILE_OVERLAP_UM", "300"))
+TISSUE_MIN_AREA_UM2 = float(os.environ.get("TISSUE_MIN_AREA_UM2", "10000"))
 GIRDER_API_URL = os.environ.get("GIRDER_API_URL", "https://rhinodb.ims.bio/api/v1")
 
 
@@ -39,12 +47,19 @@ GBM_AI_MODEL = AiModel(
     "eef396774c4f850839941f6dd25d9586",
     whole_image=True,
 )
-AI_MODELS = {model.name: model for model in (DEFAULT_AI_MODEL, GBM_AI_MODEL)}
+# The EM-tuned µSAM does not transfer to stained tissue; histology uses Meta's default SAM.
+HISTO_AI_MODEL = AiModel(
+    "sam-vit_h",
+    "vit_h",
+    "https://dl.fbaipublicfiles.com/segment_anything/sam_vit_h_4b8939.pth",
+    "97698fac30bd929c2e6d8d8cc15933c2",
+)
+AI_MODELS = {model.name: model for model in (DEFAULT_AI_MODEL, GBM_AI_MODEL, HISTO_AI_MODEL)}
 JOB_AI_MODELS = {"GBM": GBM_AI_MODEL}
 
 
-def job_ai_model(job_name: str | None) -> AiModel:
-    return JOB_AI_MODELS.get(job_name, DEFAULT_AI_MODEL)
+def job_ai_model(job_name: str | None, histo: bool = False) -> AiModel:
+    return HISTO_AI_MODEL if histo else JOB_AI_MODELS.get(job_name, DEFAULT_AI_MODEL)
 
 
 def sqlite_path() -> Path:

@@ -16,8 +16,8 @@ export default async function (page, state) {
   await page.getByTestId("patch-canvas").waitFor();
   await page.waitForFunction(
     () =>
-      document.querySelector('[data-testid="patch-canvas"] > img')
-        ?.naturalWidth > 0,
+      document.querySelector('[data-testid="patch-canvas"] [data-image-plane]')
+        ?.dataset.loaded === 'true',
   );
   await page.getByTestId("scale-bar").waitFor();
   await page.keyboard.press("r");
@@ -27,7 +27,7 @@ export default async function (page, state) {
   const y = box.y + box.height / 2;
   await page.mouse.move(x, y);
   await root.evaluate((el) => {
-    const canvas = el.querySelector("canvas");
+    const canvas = el.querySelector('[data-testid="patch-marks"]');
     const ctx = canvas.getContext("2d");
     const clear = ctx.clearRect.bind(ctx);
     const measure = el.getBoundingClientRect.bind(el);
@@ -76,7 +76,7 @@ export default async function (page, state) {
             "image/svg+xml",
           )
         : ring;
-      const img = el.querySelector(":scope > img");
+      const img = el.querySelector(":scope > [data-image-plane]");
       const rect = img.getBoundingClientRect();
       const ringRect = ring?.getBoundingClientRect();
       return {
@@ -85,8 +85,8 @@ export default async function (page, state) {
         cursorRetained: outline === el.cursorHost && ring === el.cursorRing,
         radius: Number(svg?.querySelector("circle")?.getAttribute("r")),
         scale: Math.min(
-          rect.width / img.naturalWidth,
-          rect.height / img.naturalHeight,
+          rect.width / Number(img.dataset.width),
+          rect.height / Number(img.dataset.height),
         ),
         transform: img.style.transform,
         zoom: new DOMMatrix(getComputedStyle(img).transform).a,
@@ -192,7 +192,7 @@ export default async function (page, state) {
     async function alpha(offset = 0) {
       return root.evaluate(
         (el, { x, y }) => {
-          const canvas = el.querySelector("canvas");
+          const canvas = el.querySelector('[data-testid="patch-marks"]');
           const rect = canvas.getBoundingClientRect();
           return canvas
             .getContext("2d")
@@ -376,17 +376,17 @@ export default async function (page, state) {
   );
   await page.mouse.move(-10, -10);
   const unhovered = await root.evaluate((el) =>
-    el.querySelector("canvas").toDataURL(),
+    el.querySelector('[data-testid="patch-marks"]').toDataURL(),
   );
   await page.mouse.move(x + 1, y);
   assert.equal((await read()).css, "grab");
   assert.notEqual(
-    await root.evaluate((el) => el.querySelector("canvas").toDataURL()),
+    await root.evaluate((el) => el.querySelector('[data-testid="patch-marks"]').toDataURL()),
     unhovered,
   );
   await page.mouse.move(-10, -10);
   assert.equal(
-    await root.evaluate((el) => el.querySelector("canvas").toDataURL()),
+    await root.evaluate((el) => el.querySelector('[data-testid="patch-marks"]').toDataURL()),
     unhovered,
     "polygon leave must clear the hover highlight",
   );

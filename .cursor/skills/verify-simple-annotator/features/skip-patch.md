@@ -1,12 +1,12 @@
 # Next without marks
 
-Next advances to the next crop. With no marks, no annotation row is written.
+Next advances to the next unvisited tile of the dataset's fixed grid. With no marks, no annotation row is written. Once every tile has been visited, Next starts another pass, so a one-tile dataset (such as the ELMI fixture) keeps returning the same tile with a new visit.
 
 ## Sub-features
 
-- `next-advance` replaces the current crop.
+- `next-advance` replaces the current tile.
 - `next-no-annotation` leaves `annotations` unchanged.
-- `prev-back` returns to the previous crop via `prev`.
+- `prev-back` returns to the previous tile via `prev`.
 
 ## How to get to it (user POV)
 

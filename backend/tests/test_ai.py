@@ -7,7 +7,7 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import select
 
-from simple_annotator import ai
+from simple_annotator import ai, slides
 from simple_annotator.ai_worker import claim, complete, process_next
 from simple_annotator.config import DEFAULT_AI_MODEL, GBM_AI_MODEL
 from simple_annotator.db import session_factory
@@ -293,7 +293,7 @@ def test_box_coverage_is_validated_before_queueing(
     with session_factory()() as db:
         db.get(Patch, patch_id).width = width
         db.commit()
-    monkeypatch.setattr(ai, "image_nm_per_px", lambda _: scale)
+    monkeypatch.setattr(slides, "image_nm_per_px", lambda _: scale)
     prompt = {"id": str(uuid4()), "job_id": 2, "box": box}
     response = auth.post(f"/patches/{patch_id}/ai", json=prompt)
     assert response.status_code == expected

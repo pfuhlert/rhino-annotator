@@ -29,15 +29,15 @@ export default async function (page, state) {
   };
   const canvas = page.getByTestId("patch-canvas");
   const ready = () => page.waitForFunction(() => {
-    const img = document.querySelector('[data-testid="patch-canvas"] > img');
-    return img?.complete && img.naturalWidth === 1024 && img.naturalHeight === 1024;
+    const img = document.querySelector('[data-testid="patch-canvas"] [data-image-plane]');
+    return img?.dataset.loaded === 'true' && img.dataset.width === '1024' && img.dataset.height === '1024';
   });
   const move = async (x, y) => {
     const p = await canvas.evaluate((el, point) => {
-      const img = el.querySelector("img"), r = img.getBoundingClientRect();
-      const scale = Math.min(r.width / img.naturalWidth, r.height / img.naturalHeight);
-      return [r.left + (r.width - img.naturalWidth * scale) / 2 + point[0] * scale,
-        r.top + (r.height - img.naturalHeight * scale) / 2 + point[1] * scale];
+      const img = el.querySelector("[data-image-plane]"), r = img.getBoundingClientRect();
+      const scale = Math.min(r.width / Number(img.dataset.width), r.height / Number(img.dataset.height));
+      return [r.left + (r.width - Number(img.dataset.width) * scale) / 2 + point[0] * scale,
+        r.top + (r.height - Number(img.dataset.height) * scale) / 2 + point[1] * scale];
     }, [x, y]);
     await page.mouse.move(...p, { steps: 6 });
   };

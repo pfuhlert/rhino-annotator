@@ -32,19 +32,29 @@ export type Space = {
   rootTop: number;
 };
 
+// The image plane is an empty element sized like the root and transformed for zoom/pan; the
+// image (patch) size it stands for lives in its data attributes.
+export function planeSize(plane: HTMLElement | null): [number, number] | null {
+  const width = Number(plane?.dataset.width);
+  const height = Number(plane?.dataset.height);
+  return width > 0 && height > 0 ? [width, height] : null;
+}
+
 export function measureSpace(root: HTMLElement): Space | null {
-  const img = root.querySelector("img");
-  if (!img?.naturalWidth) return null;
-  const rect = img.getBoundingClientRect();
+  const plane = root.querySelector<HTMLElement>("[data-image-plane]");
+  const size = planeSize(plane);
+  if (!plane || !size) return null;
+  const [width, height] = size;
+  const rect = plane.getBoundingClientRect();
   const rootRect = root.getBoundingClientRect();
-  const scale = Math.min(rect.width / img.naturalWidth, rect.height / img.naturalHeight);
+  const scale = Math.min(rect.width / width, rect.height / height);
   return {
-    imageWidth: img.naturalWidth,
-    imageHeight: img.naturalHeight,
+    imageWidth: width,
+    imageHeight: height,
     imgLeft: rect.left,
     imgTop: rect.top,
-    ox: (rect.width - img.naturalWidth * scale) / 2,
-    oy: (rect.height - img.naturalHeight * scale) / 2,
+    ox: (rect.width - width * scale) / 2,
+    oy: (rect.height - height * scale) / 2,
     scale,
     rootLeft: rootRect.left,
     rootTop: rootRect.top,

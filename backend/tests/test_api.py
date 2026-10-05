@@ -31,7 +31,7 @@ def test_sticky_job_and_annotations(auth: TestClient):
     assert nxt.status_code == 200
     assert nxt.json()["job_id"] == tubule["id"]
     patch_id = nxt.json()["id"]
-    img = auth.get(f"/patches/{patch_id}/image")
+    img = auth.get(nxt.json()["image"]["tile_url"].format(z=0, x=0, y=0))
     assert img.status_code == 200
     assert img.headers["content-type"] == "image/png"
     element = {"id": "point", "jobId": tubule["id"], "type": "point", "points": [[10, 12]]}
@@ -238,15 +238,22 @@ def test_annotation_saves_preserve_selected_job(auth: TestClient):
 
 
 def test_patch_calibration_follows_image_through_history(auth, monkeypatch):
-    from simple_annotator import patches
-    from simple_annotator.girder import _region
+    from simple_annotator import patches, slides
+    from simple_annotator.db import session_factory
+    from simple_annotator.models import Patch
 
     existing = auth.get("/patches/current").json()
     assert existing["nm_per_px"] is None
-    regions = iter([_region("a", 2048, 2048), _region("b", 2048, 2048)])
-    monkeypatch.setattr(patches, "pick_region", lambda _: next(regions))
+    with session_factory()() as db:
+        tiles = [
+            Patch(girder_item_id=item, left=0, top=0, width=2048, height=2048) for item in "ab"
+        ]
+        db.add_all(tiles)
+        db.commit()
+        queue = iter([tile.id for tile in tiles])
+    monkeypatch.setattr(patches, "next_tile", lambda db, *_: db.get(Patch, next(queue)))
     monkeypatch.setattr(
-        patches, "image_nm_per_px", lambda item: {"a": 0.48828125, "b": 4.8828125}.get(item)
+        slides, "image_nm_per_px", lambda item: {"a": 0.48828125, "b": 4.8828125}.get(item)
     )
     a = auth.get("/patches/next").json()
     b = auth.get("/patches/next").json()
@@ -322,14 +329,14 @@ def test_visit_history(auth: TestClient, client: TestClient):
 def test_image_server_failure_returns_clear_error(auth: TestClient, monkeypatch):
     from simple_annotator import patches
 
-    patch_id = auth.get("/patches/current").json()["id"]
-    request = httpx.Request("GET", "https://girder.test/item/x/tiles/region")
+    tile_url = auth.get("/patches/current").json()["image"]["tile_url"].format(z=0, x=0, y=0)
+    request = httpx.Request("GET", "https://girder.test/item/x/tiles/zxy/0/0/0")
 
     def down(*_args):
         raise httpx.HTTPStatusError("404", request=request, response=httpx.Response(404))
 
-    monkeypatch.setattr(patches, "fetch_image", down)
-    r = auth.get(f"/patches/{patch_id}/image")
+    monkeypatch.setattr(patches, "tile", down)
+    r = auth.get(tile_url)
     assert r.status_code == 502
     assert r.json()["detail"] == (
         "The image server (Girder) returned an error (404). Please try again later."
@@ -338,8 +345,8 @@ def test_image_server_failure_returns_clear_error(auth: TestClient, monkeypatch)
     def unreachable(*_args):
         raise httpx.ConnectError("refused", request=request)
 
-    monkeypatch.setattr(patches, "fetch_image", unreachable)
-    r = auth.get(f"/patches/{patch_id}/image")
+    monkeypatch.setattr(patches, "tile", unreachable)
+    r = auth.get(tile_url)
     assert r.status_code == 502
     assert "could not be reached" in r.json()["detail"]
 

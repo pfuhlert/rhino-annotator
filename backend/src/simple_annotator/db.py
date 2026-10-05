@@ -115,6 +115,10 @@ def _migrate(engine: Engine) -> None:
                 )
             )
             conn.execute(text("DROP TABLE visit_cursors"))
+        patch_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(patches)"))}
+        if patch_cols and "grid" not in patch_cols:
+            conn.execute(text("ALTER TABLE patches ADD COLUMN grid VARCHAR(64)"))
+            conn.execute(text("CREATE INDEX ix_patches_grid ON patches (grid)"))
         if "patch_visits" in tables:
             visit_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(patch_visits)"))}
             if "folder_id" not in visit_cols:

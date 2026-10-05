@@ -1144,6 +1144,9 @@ source = { editable = "." }
 dependencies = [
     { name = "fastapi" },
     { name = "httpx" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
+    { name = "numpy", version = "2.5.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
+    { name = "opencv-python-headless" },
     { name = "pillow" },
     { name = "python-dotenv" },
     { name = "sqlalchemy" },
@@ -1152,9 +1155,6 @@ dependencies = [
 
 [package.optional-dependencies]
 ai = [
-    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
-    { name = "numpy", version = "2.5.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
-    { name = "opencv-python-headless" },
     { name = "segment-anything" },
     { name = "torch" },
     { name = "torchvision" },
@@ -1171,8 +1171,8 @@ dev = [
 requires-dist = [
     { name = "fastapi", specifier = ">=0.115" },
     { name = "httpx", specifier = ">=0.28" },
-    { name = "numpy", marker = "extra == 'ai'", specifier = ">=2" },
-    { name = "opencv-python-headless", marker = "extra == 'ai'", specifier = ">=4.10" },
+    { name = "numpy", specifier = ">=2" },
+    { name = "opencv-python-headless", specifier = ">=4.10" },
     { name = "pillow", specifier = ">=11" },
     { name = "python-dotenv", specifier = ">=1.2.3" },
     { name = "segment-anything", marker = "extra == 'ai'", specifier = "==1.0" },

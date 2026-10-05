@@ -1,14 +1,15 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { AiPrompt, AiTask, Element, Job } from "@/lib/api";
-import { type Mark, type Tool } from "@/lib/draw";
+import type { AiPrompt, AiTask, Element, Job, PatchImage, ViewRect } from "@/lib/api";
+import { measureSpace, type Mark, type Tool } from "@/lib/draw";
 import { useFreehand } from "@/lib/freehand";
 import { createHistory } from "@/lib/history";
 import { measureScaleBar } from "@/lib/scale-bar";
+import { createTileLayer, visibleRect } from "@/lib/tiles";
 
 type Props = {
-  src: string;
+  image: PatchImage;
   pending?: AiTask[];
   onAiPrompt: (prompt: AiPrompt) => void;
   onRemote?: (elements: Element[]) => void;
@@ -24,6 +25,7 @@ type Props = {
   onSelect?: (id: string | null) => void;
   onImageError?: () => void;
   onImageLoad?: () => void;
+  onVisibleChange?: (view: ViewRect) => void;
 };
 
 export type AnnotatorApi = {
@@ -39,7 +41,7 @@ export type AnnotatorApi = {
 };
 
 export default function PatchCanvas({
-  src,
+  image,
   pending,
   onAiPrompt,
   onRemote,
@@ -55,19 +57,42 @@ export default function PatchCanvas({
   onSelect,
   onImageError,
   onImageLoad,
+  onVisibleChange,
 }: Props) {
   const [initial] = useState(() => structuredClone(marks ?? []));
   const marksRef = useRef<Mark[]>(initial);
   const rootRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const imgRef = useRef<HTMLImageElement>(null);
+  const planeRef = useRef<HTMLDivElement>(null);
+  const tileCanvasRef = useRef<HTMLCanvasElement>(null);
+  const tilesRef = useRef<ReturnType<typeof createTileLayer> | null>(null);
+  const imageEvents = useRef({ onImageLoad, onImageError, onVisibleChange });
+  const visibleTimer = useRef(0);
   const cursorRef = useRef<HTMLDivElement>(null);
   const [scaleBar, setScaleBar] = useState<ReturnType<typeof measureScaleBar>>(null);
   const persistRef = useRef(onChange);
   const [history] = useState(() => createHistory(initial));
   useEffect(() => {
     persistRef.current = onChange;
+    imageEvents.current = { onImageLoad, onImageError, onVisibleChange };
   });
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root || !tileCanvasRef.current) return;
+    const tiles = createTileLayer(tileCanvasRef.current, root, image, {
+      onLoad: () => {
+        if (planeRef.current) planeRef.current.dataset.loaded = "true";
+        imageEvents.current.onImageLoad?.();
+      },
+      onError: () => imageEvents.current.onImageError?.(),
+    });
+    tiles.update(measureSpace(root));
+    tilesRef.current = tiles;
+    return () => {
+      tiles.destroy();
+      window.clearTimeout(visibleTimer.current);
+    };
+  }, [image]);
   const commitRef = useRef(() => {
     history.commit(marksRef.current);
     persistRef.current?.();
@@ -79,7 +104,7 @@ export default function PatchCanvas({
     onRemote,
     canvasRef,
     cursorRef,
-    imgRef,
+    planeRef,
     tool,
     jobId,
     marksRef,
@@ -89,8 +114,17 @@ export default function PatchCanvas({
     onChangeRef: commitRef,
     onSelect,
     onViewChange: (space) => {
-      if (!rootRef.current) return;
-      const next = measureScaleBar(rootRef.current, nmPerPixel, space);
+      const root = rootRef.current;
+      if (!root) return;
+      tilesRef.current?.update(space);
+      window.clearTimeout(visibleTimer.current);
+      visibleTimer.current = window.setTimeout(() => {
+        if (space)
+          imageEvents.current.onVisibleChange?.(
+            visibleRect(space, root.clientWidth, root.clientHeight),
+          );
+      }, 150);
+      const next = measureScaleBar(root, nmPerPixel, space);
       setScaleBar((prev) =>
         prev?.x === next?.x &&
         prev?.y === next?.y &&
@@ -130,20 +164,24 @@ export default function PatchCanvas({
       data-testid="patch-canvas"
       className="absolute inset-0 touch-none select-none"
     >
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        ref={imgRef}
-        alt="patch"
-        src={src}
-        className="h-full w-full origin-top-left object-contain select-none"
-        draggable={false}
-        onLoad={() => {
-          brush.reset();
-          onImageLoad?.();
-        }}
-        onError={onImageError}
+      <canvas
+        ref={tileCanvasRef}
+        data-testid="patch-tiles"
+        className="pointer-events-none absolute inset-0"
       />
-      <canvas ref={canvasRef} className="pointer-events-none absolute inset-0" />
+      {/* Carries the zoom/pan transform and the patch size; tiles are drawn from it. */}
+      <div
+        ref={planeRef}
+        data-image-plane
+        data-width={image.width}
+        data-height={image.height}
+        className="pointer-events-none absolute inset-0 origin-top-left"
+      />
+      <canvas
+        ref={canvasRef}
+        data-testid="patch-marks"
+        className="pointer-events-none absolute inset-0"
+      />
       <div
         ref={cursorRef}
         data-testid="brush-cursor"

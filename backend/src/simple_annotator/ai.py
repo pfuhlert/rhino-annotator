@@ -20,8 +20,8 @@ from simple_annotator.auth import current_user
 from simple_annotator.config import job_ai_model
 from simple_annotator.db import get_db
 from simple_annotator.embeddings import prompt_regions
-from simple_annotator.girder import image_nm_per_px
 from simple_annotator.models import AiTask, AiWorker, Job, Patch, User
+from simple_annotator.slides import patch_scale
 
 router = APIRouter(prefix="/patches")
 
@@ -100,7 +100,7 @@ def enqueue(
     task_id = str(body.id)
     patch = db.get(Patch, patch_id)
     prompt = body.model_dump(mode="json", exclude={"id", "job_id"})
-    nm_per_px = image_nm_per_px(patch.girder_item_id)
+    slide, nm_per_px = patch_scale(db, patch)
     lock(db)
     old = db.get(AiTask, task_id)
     if old:
@@ -117,7 +117,7 @@ def enqueue(
     if not job:
         raise HTTPException(400, "unknown job")
     request = {
-        "model": job_ai_model(job.name).name,
+        "model": job_ai_model(job.name, slide.histo).name,
         **prompt,
         "item_id": patch.girder_item_id,
         "left": patch.left,
@@ -125,6 +125,7 @@ def enqueue(
         "width": patch.width,
         "height": patch.height,
         "nm_per_px": nm_per_px,
+        "histo": slide.histo,
     }
     if isinstance(body, BoxPrompt):
         x0, y0, x1, y1 = body.box

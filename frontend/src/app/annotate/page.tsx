@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BrushSizeControl } from "@/components/BrushSizeControl";
 import PatchCanvas, { type AnnotatorApi } from "@/components/PatchCanvas";
 import Sidebar from "@/components/Sidebar";
+import SlideMap from "@/components/SlideMap";
 import { Button } from "@/components/ui/button";
 import { Overlay } from "@/components/Overlay";
 import {
@@ -14,7 +15,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { api, type Element, type Job, type Me, type Patch } from "@/lib/api";
+import { api, type Element, type Job, type Me, type Patch, type ViewRect } from "@/lib/api";
 import type { Tool } from "@/lib/draw";
 import { createAnnotationSync } from "@/lib/annotation-sync";
 import { useAi } from "@/lib/use-ai";
@@ -53,6 +54,26 @@ export default function AnnotatePage() {
   const [jobId, setJobId] = useState<number | null>(null);
   const [folderId, setFolderId] = useState<string | null>(null);
   const [patch, setPatch] = useState<Patch | null>(null);
+  const [view, setView] = useState<{ patchId: number; rect: ViewRect; prepare: boolean } | null>(
+    null,
+  );
+  // Next can return a tile already on screen; every open needs a fresh canvas to match the new sync.
+  const [openCount, setOpenCount] = useState(0);
+  useEffect(() => {
+    if (!view?.prepare) return;
+    // Large tissue regions prepare AI tiles for what the user is looking at once the view settles.
+    const timer = window.setTimeout(() => {
+      const { left, top, width, height } = view.rect;
+      const rect = {
+        left: Math.floor(left),
+        top: Math.floor(top),
+        width: Math.max(1, Math.ceil(width)),
+        height: Math.max(1, Math.ceil(height)),
+      };
+      void api.prepare(view.patchId, rect).catch(() => {});
+    }, 1000);
+    return () => window.clearTimeout(timer);
+  }, [view]);
   const [marks, setMarks] = useState<Element[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selectAfterSwitch = useRef<string | null>(null);
@@ -106,6 +127,7 @@ export default function AnnotatePage() {
     patchRef.current = next;
     annoRef.current = null;
     sync.current = createAnnotationSync(next.elements, (changes) => api.edit(next.id, changes));
+    setOpenCount((n) => n + 1);
     setPatch(next);
     setMarks(next.elements);
     setSelectedId(null);
@@ -346,8 +368,11 @@ export default function AnnotatePage() {
           className="relative flex min-h-0 w-full flex-1 flex-col overflow-hidden bg-black"
         >
           <PatchCanvas
-            key={patch.id}
-            src={patch.image_url}
+            key={`${patch.id}:${openCount}`}
+            image={patch.image}
+            onVisibleChange={(rect) =>
+              setView({ patchId: patch.id, rect, prepare: patch.image.prepare_view })
+            }
             pending={pending}
             onAiPrompt={(prompt) => ai.submit(patch.id, jobId, prompt)}
             onRemote={(elements) => sync.current?.accept(elements)}
@@ -419,6 +444,13 @@ export default function AnnotatePage() {
               ))}
             </div>
           </details>
+          {patch.slide && (
+            <SlideMap
+              slide={patch.slide}
+              image={patch.image}
+              view={view?.patchId === patch.id ? view.rect : null}
+            />
+          )}
           {(loadError || brokenImage === patch.id) && (
             <LoadError
               message={

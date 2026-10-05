@@ -7,6 +7,7 @@ from fastapi.responses import JSONResponse
 
 from simple_annotator import ai, auth, patches
 from simple_annotator.db import init_db
+from simple_annotator.slides import UnreadableImage
 
 log = logging.getLogger(__name__)
 
@@ -36,6 +37,14 @@ def create_app() -> FastAPI:
         )
         return JSONResponse(
             {"detail": f"The image server (Girder) {reason}. Please try again later."},
+            status_code=502,
+        )
+
+    @app.exception_handler(UnreadableImage)
+    def unreadable_image(_request: Request, exc: UnreadableImage) -> JSONResponse:
+        detail = f" Girder says: {exc}" if str(exc) else ""
+        return JSONResponse(
+            {"detail": f"The image server (Girder) cannot read this image.{detail}"},
             status_code=502,
         )
 

@@ -16,28 +16,41 @@ TILE_SIZE = 384
 HALO = 64
 TILE_NM = 3000
 HALO_NM = 500
+# Histology structures (glomeruli) are about a hundred times larger than EM ones. The halo is
+# half the largest box we accept, so any box up to 400 µm fits the tile of its center.
+HISTO_TILE_NM = 500_000
+HISTO_HALO_NM = 200_000
 # Inference memory limits are independent of the configurable image display threshold.
 FULL_EMBEDDING_MAX = 4096
 MAX_TILE_CORE = 3072
 # Change this when pixel preprocessing or embedding serialization change.
 RECIPE = "rgb-u8:npz-f32-v1"
+VIEW_AI_TILES = 16
 log = logging.getLogger(__name__)
 
 
-def tile_shape(nm_per_px: float | None = None, extent: int = FULL_EMBEDDING_MAX) -> tuple[int, int]:
+def tile_shape(
+    nm_per_px: float | None = None, extent: int = FULL_EMBEDDING_MAX, histo: bool = False
+) -> tuple[int, int]:
     if nm_per_px is None or not math.isfinite(nm_per_px) or nm_per_px <= 0:
         return TILE_SIZE, HALO
+    tile_nm, halo_nm = (HISTO_TILE_NM, HISTO_HALO_NM) if histo else (TILE_NM, HALO_NM)
     # Bound both the tile count at coarse scales and memory for very fine scales.
     limit = FULL_EMBEDDING_MAX if extent <= FULL_EMBEDDING_MAX else MAX_TILE_CORE
-    size = max(64, round(min(limit, TILE_NM / nm_per_px)))
-    halo = round(min((FULL_EMBEDDING_MAX - size) // 2, HALO_NM / nm_per_px))
+    size = max(64, round(min(limit, tile_nm / nm_per_px)))
+    halo = round(min((FULL_EMBEDDING_MAX - size) // 2, halo_nm / nm_per_px))
     return size, halo
 
 
 def tile_at(
-    x: float, y: float, width: int, height: int, nm_per_px: float | None = None
+    x: float,
+    y: float,
+    width: int,
+    height: int,
+    nm_per_px: float | None = None,
+    histo: bool = False,
 ) -> tuple[int, int, int, int]:
-    size, halo = tile_shape(nm_per_px, max(width, height))
+    size, halo = tile_shape(nm_per_px, max(width, height), histo)
     if max(width, height) <= size and max(width, height) <= FULL_EMBEDDING_MAX:
         return 0, 0, width, height
     left = int(x) // size * size
@@ -48,13 +61,17 @@ def tile_at(
 
 
 def regions(
-    width: int, height: int, nm_per_px: float | None = None, whole_image: bool = False
+    width: int,
+    height: int,
+    nm_per_px: float | None = None,
+    whole_image: bool = False,
+    histo: bool = False,
 ) -> list[tuple[int, int, int, int]]:
     if whole_image and max(width, height) <= FULL_EMBEDDING_MAX:
         return [(0, 0, width, height)]
-    size, _ = tile_shape(nm_per_px, max(width, height))
+    size, _ = tile_shape(nm_per_px, max(width, height), histo)
     tiles = [
-        tile_at(x, y, width, height, nm_per_px)
+        tile_at(x, y, width, height, nm_per_px, histo)
         for y in range(0, height, size)
         for x in range(0, width, size)
     ]
@@ -85,7 +102,7 @@ def prompt_regions(request: dict) -> list[tuple[int, int, int, int]]:
     if AI_MODELS[request["model"]].whole_image and max(width, height) <= FULL_EMBEDDING_MAX:
         return [full]
     center = ((box[0] + box[2]) / 2, (box[1] + box[3]) / 2) if box else (request["x"], request["y"])
-    first = tile_at(*center, width, height, request.get("nm_per_px"))
+    first = tile_at(*center, width, height, request.get("nm_per_px"), request.get("histo", False))
     candidates = (
         [first, full] if first != full and max(width, height) <= FULL_EMBEDDING_MAX else [first]
     )
@@ -100,19 +117,35 @@ def prompt_regions(request: dict) -> list[tuple[int, int, int, int]]:
     return candidates
 
 
+def _intersects(a: tuple[int, int, int, int], b: tuple[int, int, int, int]) -> bool:
+    return a[0] < b[0] + b[2] and b[0] < a[0] + a[2] and a[1] < b[1] + b[3] and b[1] < a[1] + a[3]
+
+
 def embedding_id(request: dict) -> str:
     return hashlib.sha256(json.dumps(request, sort_keys=True).encode()).hexdigest()
 
 
-def queue_image(patch_id: int, nm_per_px: float | None, models: list[AiModel]) -> None:
+def queue_image(
+    patch_id: int,
+    nm_per_px: float | None,
+    models: list[AiModel],
+    histo: bool = False,
+    within: tuple[int, int, int, int] | None = None,
+) -> None:
     try:
-        _queue_image(patch_id, nm_per_px, models)
+        _queue_image(patch_id, nm_per_px, models, histo, within)
     except OperationalError:
         log.exception("Could not queue embeddings for patch %s; preparation deferred", patch_id)
 
 
 @retry_sqlite_busy(attempts=3)
-def _queue_image(patch_id: int, nm_per_px: float | None, models: list[AiModel]) -> None:
+def _queue_image(
+    patch_id: int,
+    nm_per_px: float | None,
+    models: list[AiModel],
+    histo: bool,
+    within: tuple[int, int, int, int] | None,
+) -> None:
     with session_factory()() as db:
         patch = db.get(Patch, patch_id)
         requests = {}
@@ -123,9 +156,14 @@ def _queue_image(patch_id: int, nm_per_px: float | None, models: list[AiModel]) 
                 "left": patch.left,
                 "top": patch.top,
             }
-            for region in regions(patch.width, patch.height, nm_per_px, model.whole_image):
+            for region in regions(patch.width, patch.height, nm_per_px, model.whole_image, histo):
+                if within and not _intersects(region, within):
+                    continue
                 request = tile_request(source, region)
                 requests[embedding_id(request)] = request
+        # A zoomed-out view of a large region would queue all of it; wait until the user zooms in.
+        if within and len(requests) > VIEW_AI_TILES * len(models):
+            return
         existing = set(
             db.scalars(
                 select(AiEmbedding.id).where(

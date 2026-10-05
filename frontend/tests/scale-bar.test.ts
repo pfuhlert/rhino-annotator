@@ -9,8 +9,7 @@ function viewer({ imageWidth = 2000, imageHeight = 1000, width = 1000, height = 
     clientHeight: height,
     getBoundingClientRect: () => ({ left: 200, top: 50 }),
     querySelector: () => ({
-      naturalWidth: imageWidth,
-      naturalHeight: imageHeight,
+      dataset: { width: String(imageWidth), height: String(imageHeight) },
       getBoundingClientRect: () => ({ left: 200 + x, top: 50 + y, width: width * zoom, height: height * zoom }),
     }),
   } as unknown as HTMLElement;
