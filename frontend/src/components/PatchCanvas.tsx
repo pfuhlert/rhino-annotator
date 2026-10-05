@@ -124,7 +124,10 @@ export default function PatchCanvas({
             visibleRect(space, root.clientWidth, root.clientHeight),
           );
       }, 150);
-      const next = measureScaleBar(root, nmPerPixel, space);
+      const rootRect = root.getBoundingClientRect();
+      const controls = root.parentElement?.querySelector("[data-scale-bar-anchor]");
+      const controlsTop = (controls?.getBoundingClientRect().top ?? rootRect.bottom) - rootRect.top;
+      const next = measureScaleBar(root, nmPerPixel, space, controlsTop);
       setScaleBar((prev) =>
         prev?.x === next?.x &&
         prev?.y === next?.y &&

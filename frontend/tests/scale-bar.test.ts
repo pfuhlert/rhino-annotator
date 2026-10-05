@@ -15,15 +15,15 @@ function viewer({ imageWidth = 2000, imageHeight = 1000, width = 1000, height = 
   } as unknown as HTMLElement;
 }
 
-function scaleBar(root: HTMLElement, nmPerPixel: number | null) {
-  return measureScaleBar(root, nmPerPixel, measureSpace(root));
+function scaleBar(root: HTMLElement, nmPerPixel: number | null, controlsTop = 740) {
+  return measureScaleBar(root, nmPerPixel, measureSpace(root), controlsTop);
 }
 
-test("bar follows the bottom left of landscape and portrait images, inside letterboxing", () => {
+test("bar follows the left edge of landscape and portrait images, inside letterboxing", () => {
   const landscape = scaleBar(viewer(), 2)!;
-  assert.deepEqual(landscape, { x: 24, y: 626, width: 180, label: "720 nm" });
+  assert.deepEqual(landscape, { x: 24, y: 728, width: 180, label: "720 nm" });
   const portrait = scaleBar(viewer({ imageWidth: 1000, imageHeight: 2000 }), 2)!;
-  assert.deepEqual(portrait, { x: 324, y: 776, width: 180, label: "900 nm" });
+  assert.deepEqual(portrait, { x: 324, y: 728, width: 180, label: "900 nm" });
 });
 
 test("zoom changes distance, keeps bar length, and anchors to the visible crop", () => {
@@ -33,7 +33,6 @@ test("zoom changes distance, keeps bar length, and anchors to the visible crop",
   assert.equal(zoomed.label, "879 nm");
   assert.equal(zoomed.width, fit.width);
   assert.equal(zoomed.x, 24);
-  assert.equal(zoomed.y, 776);
 });
 
 test("panning preserves the distance and keeps the bar in the visible crop", () => {
@@ -42,9 +41,9 @@ test("panning preserves the distance and keeps the bar in the visible crop", () 
   assert.deepEqual(topLeft, bottomRight);
 });
 
-test("resize updates the scale and the bottom image edge", () => {
+test("resize updates the scale", () => {
   const bar = scaleBar(viewer({ width: 800, height: 800 }), 2)!;
-  assert.deepEqual(bar, { x: 24, y: 576, width: 180, label: "900 nm" });
+  assert.deepEqual(bar, { x: 24, y: 728, width: 180, label: "900 nm" });
 });
 
 test("switching calibration uses the image's own physical scale", () => {
@@ -57,4 +56,11 @@ test("no misleading bar without calibration, a loaded image, or room to draw it"
     assert.equal(scaleBar(viewer(), calibration), null);
   assert.equal(scaleBar(viewer({ imageWidth: 0 }), 2), null);
   assert.equal(scaleBar(viewer({ width: 140 }), 2), null);
+});
+
+test("bar sits a gap above the controls even below a letterboxed image, and hides without room", () => {
+  // Landscape image ends at y=650; the bar still follows the controls.
+  assert.equal(scaleBar(viewer(), 2, 740)!.y, 728);
+  assert.equal(scaleBar(viewer(), 2, 790)!.y, 778);
+  assert.equal(scaleBar(viewer(), 2, 200), null);
 });

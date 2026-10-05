@@ -471,7 +471,10 @@ export default function AnnotatePage() {
                 view={view?.patchId === patch.id ? view.rect : null}
               />
             )}
-            <div className="pointer-events-auto flex flex-wrap items-center justify-center gap-2">
+            <div
+              data-scale-bar-anchor
+              className="pointer-events-auto flex flex-wrap items-center justify-center gap-2"
+            >
               <Button
                 data-testid="prev"
                 variant="outline"
