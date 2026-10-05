@@ -105,7 +105,9 @@ def apply_changes(db: Session, user_id: int, patch: Patch, changes: Changes) -> 
             raise HTTPException(400, "invalid element type")
         if not db.get(Job, el.jobId):
             raise HTTPException(404, "job not found")
-    removed = set(changes.delete) | {el.id for el in changes.upsert}
+    # A repeated id in one save keeps its last version.
+    upserts = {el.id: el for el in changes.upsert}
+    removed = set(changes.delete) | set(upserts)
     db.execute(
         delete(Annotation).where(
             Annotation.item_id == patch.girder_item_id,
@@ -122,7 +124,7 @@ def apply_changes(db: Session, user_id: int, patch: Patch, changes: Changes) -> 
                 shift(el.model_dump(exclude={"jobId"}), patch.left, patch.top),
             )
         )
-        for el in changes.upsert
+        for el in upserts.values()
     )
 
 

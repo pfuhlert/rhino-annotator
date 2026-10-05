@@ -340,6 +340,15 @@ def test_failed_annotation_migration_leaves_the_old_table_intact(auth, monkeypat
     assert [el["points"] for el in auth.get("/patches/current").json()["elements"]] == [[[1, 2]]]
 
 
+def test_a_repeated_id_in_one_save_keeps_the_last_version(auth):
+    patch_id = auth.get("/patches/current").json()["id"]
+    first = {"id": "dup", "jobId": 1, "type": "point", "points": [[1.0, 2.0]]}
+    last = {**first, "points": [[3.0, 4.0]]}
+    response = auth.patch(f"/patches/{patch_id}/annotations", json={"upsert": [first, last]})
+    assert response.status_code == 200
+    assert auth.get("/patches/current").json()["elements"] == [last]
+
+
 @pytest.mark.parametrize("points", [[], [[1, 2, 3]], [[1]]])
 def test_annotations_without_valid_points_are_rejected(auth, points):
     patch_id = auth.get("/patches/current").json()["id"]
