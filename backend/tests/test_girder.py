@@ -162,3 +162,25 @@ def test_calibration_failure_does_not_block_image_and_is_retried(calibration_cli
     responses[path] = data
     assert girder.image_nm_per_px("a") == 0.48828125
     assert calls.count(path) == 2
+
+
+@pytest.mark.parametrize(
+    "pixels, expected",
+    [
+        ({"PhysicalSizeX": "0.242534722222222", "PhysicalSizeXUnit": "µm"}, 242.534722222222),
+        ({"PhysicalSizeX": "0.5"}, 500),
+        ({"PhysicalSizeX": "250", "PhysicalSizeXUnit": "nm"}, 250),
+        ({"PhysicalSizeX": "0.25", "PhysicalSizeXUnit": "pc"}, None),
+        ({"PhysicalSizeX": "0"}, None),
+        ({}, None),
+    ],
+)
+def test_histology_scale_comes_from_the_ome_pixel_size(calibration_client, pixels, expected):
+    responses, _ = calibration_client
+    responses["/item/a/tiles/internal_metadata"] = {"xml": {"OME": {"Image": {"Pixels": pixels}}}}
+    assert girder.ome_nm_per_px("a") == pytest.approx(expected)
+
+
+def test_histology_scale_is_missing_without_ome_metadata(calibration_client):
+    assert girder.ome_nm_per_px("a") is None
+    assert girder.ome_nm_per_px("placeholder") is None

@@ -29,7 +29,7 @@ def test_regions_pad_tissue_and_merge_only_nearby_fragments():
     rgb = tissue_image(center=(100, 150), radius=40)
     cv2.circle(rgb, (190, 150), 40, (200, 90, 160), -1)  # 10 px gap to the first blob
     cv2.circle(rgb, (340, 150), 30, (200, 90, 160), -1)
-    mask = tissue_mask(rgb, um_per_px=2.5, min_area_um2=10_000)
+    mask = tissue_mask(rgb, um_per_px=25, min_area_um2=1_000_000)
     # Mask pixels are 10 slide pixels; pad by 100 slide pixels.
     regions = tissue_regions(mask, 0.1, 4000, 3000, merge=20, pad=100)
     assert len(regions) == 2
@@ -43,7 +43,7 @@ def test_regions_pad_tissue_and_merge_only_nearby_fragments():
 def test_separate_tissue_keeps_its_own_box_even_when_padding_overlaps():
     rgb = tissue_image(center=(100, 150), radius=40)
     cv2.circle(rgb, (200, 150), 30, (200, 90, 160), -1)  # 30 px gap, above the merge distance
-    mask = tissue_mask(rgb, um_per_px=2.5, min_area_um2=10_000)
+    mask = tissue_mask(rgb, um_per_px=25, min_area_um2=1_000_000)
     regions = tissue_regions(mask, 0.1, 4000, 3000, merge=20, pad=300)
     assert len(regions) == 2
     (a, b) = sorted(regions)
@@ -69,9 +69,9 @@ def test_oversized_regions_split_into_overlapping_chunks():
 
 def test_specks_and_blank_glass_are_not_tissue():
     rgb = tissue_image(radius=2)
-    assert not tissue_mask(rgb, um_per_px=2.5, min_area_um2=10_000).any()
+    assert not tissue_mask(rgb, um_per_px=25, min_area_um2=1_000_000).any()
     blank = np.full((300, 400, 3), 245, np.uint8)
-    assert not tissue_mask(blank, um_per_px=2.5, min_area_um2=10_000).any()
+    assert not tissue_mask(blank, um_per_px=25, min_area_um2=1_000_000).any()
 
 
 def test_colored_detection_ignores_grayscale_stored_as_rgb():

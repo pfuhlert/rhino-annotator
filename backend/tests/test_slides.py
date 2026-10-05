@@ -14,11 +14,12 @@ from simple_annotator.models import Patch, Slide
 
 # Thumbnails are 800 x 600 with one tissue disk of radius 80 centred at (150, 150).
 IMAGES = {
-    "histo": {"sizeX": 8000, "sizeY": 6000, "mm_x": 0.00025},
-    "big": {"sizeX": 40000, "sizeY": 30000, "mm_x": 0.00025},
-    "gray": {"sizeX": 4200, "sizeY": 4200, "mm_x": 0.00025},
+    "histo": {"sizeX": 8000, "sizeY": 6000},
+    "big": {"sizeX": 40000, "sizeY": 30000},
+    "gray": {"sizeX": 4200, "sizeY": 4200},
     "small": {"sizeX": 900, "sizeY": 700},
 }
+NM_PER_PX = {"histo": 2500, "big": 2500, "gray": 2500}
 
 
 def _png(item_id: str) -> bytes:
@@ -40,6 +41,7 @@ def girder(auth: TestClient, monkeypatch):
     monkeypatch.setattr(images, "girder_enabled", lambda: True)
     monkeypatch.setattr(images, "folder_images", lambda _: list(items))
     monkeypatch.setattr(slides, "image_info", lambda item: (IMAGES[item], ""))
+    monkeypatch.setattr(slides, "ome_nm_per_px", NM_PER_PX.get)
     monkeypatch.setattr(slides, "thumbnail", lambda item, _: _png(item))
     monkeypatch.setattr(patches, "thumbnail", lambda item, _: _png(item))
     monkeypatch.setattr(slides, "is_elmi_folder", lambda _: False)
@@ -53,9 +55,9 @@ def _walk(client: TestClient, n: int) -> list[dict]:
 
 def test_histology_patch_is_the_padded_tissue_region_with_slide_view(auth, girder):
     patch = auth.get("/patches/current").json()
-    assert patch["nm_per_px"] == 250
+    assert patch["nm_per_px"] == 2500
     image = patch["image"]
-    # The disk spans slide pixels 700..2300; 80 µm of padding is 320 px.
+    # The disk spans slide pixels 700..2300; 800 µm of padding is 320 px.
     assert 340 <= image["left"] <= 400 and 340 <= image["top"] <= 400
     assert 2200 <= image["width"] <= 2300 and 2200 <= image["height"] <= 2300
     assert (image["slide_width"], image["levels"]) == (8000, 6)
@@ -260,16 +262,16 @@ def test_rebuilding_a_lost_slide_row_reuses_its_tiles(auth, girder):
         assert len(db.scalars(select(Patch).where(Patch.girder_item_id == "small")).all()) == 1
 
 
-@pytest.mark.parametrize("center", [1999, 2000, 2001, 4600])
-def test_histology_boxes_up_to_400_um_fit_wherever_they_sit(center):
+@pytest.mark.parametrize("center", [3071, 3072, 3073, 7000])
+def test_histology_boxes_up_to_248_um_fit_wherever_they_sit(center):
     from simple_annotator.config import HISTO_AI_MODEL
     from simple_annotator.embeddings import prompt_regions
 
-    # 250 nm/px: 2000 px (500 µm) cores; a 400 µm box is 1600 px wide.
-    request = {"model": HISTO_AI_MODEL.name, "width": 10000, "height": 10000, "nm_per_px": 250}
-    box = [center - 800, center - 800, center + 800, center + 800]
+    # 242.5 nm/px: 3072 px cores with a 512 px halo; a 248 µm box is 1024 px wide.
+    request = {"model": HISTO_AI_MODEL.name, "width": 10000, "height": 10000, "nm_per_px": 242.5}
+    box = [center - 512, center - 512, center + 512, center + 512]
     x, y, w, h = prompt_regions({**request, "box": box, "histo": True})[0]
-    assert x <= box[0] and box[2] <= x + w and w <= 3600
+    assert x <= box[0] and box[2] <= x + w and w <= 4096
     with pytest.raises(ValueError):
         prompt_regions({**request, "box": box})
 
@@ -287,4 +289,4 @@ def test_histology_prompts_and_preparation_use_default_sam(auth, girder):
     with session_factory()() as db:
         models = {json.loads(row.input)["model"] for row in db.scalars(select(AiEmbedding))}
     assert models == {HISTO_AI_MODEL.name}
-    assert patch["nm_per_px"] == 250
+    assert patch["nm_per_px"] == 2500

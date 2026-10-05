@@ -18,7 +18,7 @@ def tissue_mask(rgb: np.ndarray, um_per_px: float, min_area_um2: float) -> np.nd
     otsu, _ = cv2.threshold(saturation, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
     # Otsu splits noise on blank glass; such low saturation is never stained tissue.
     _, mask = cv2.threshold(saturation, max(otsu, 15), 255, cv2.THRESH_BINARY)
-    size = max(3, round(50 / um_per_px) | 1)
+    size = max(3, round(500 / um_per_px) | 1)
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (size, size))
     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
     mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)

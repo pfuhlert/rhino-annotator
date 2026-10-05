@@ -15,7 +15,6 @@ router = APIRouter(prefix="/images")
 
 POWERS = (1.25, 2.5, 5, 10, 20, 40, 60, 100)
 # Girder's histology pixel size is 10x too small, so its magnification is 10x too large.
-# Remove once the scale follow-up in docs/plans/image-list.plan.md lands.
 MAGNIFICATION_ERROR = 10
 
 

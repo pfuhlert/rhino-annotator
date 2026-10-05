@@ -26,6 +26,7 @@ from simple_annotator.girder import (
     image_info,
     image_nm_per_px,
     is_elmi_folder,
+    ome_nm_per_px,
     thumbnail,
 )
 from simple_annotator.images import matches, ordered_items
@@ -82,11 +83,11 @@ def _build(item: dict) -> tuple[Slide, list[tuple[int, int, int, int]]]:
         levels=int(levels),
     )
     rgb = None
-    mm_x = info.get("mm_x")
-    if mm_x and mm_x > 0 and not is_elmi_folder(item.get("folderId")):
+    nm_per_px = None if is_elmi_folder(item.get("folderId")) else ome_nm_per_px(item_id)
+    if nm_per_px:
         rgb = _rgb(item_id)
         if is_colored(rgb):
-            slide.histo, slide.nm_per_px = True, float(mm_x) * 1e6
+            slide.histo, slide.nm_per_px = True, nm_per_px
     slide.grid = _signature(slide)
     width, height = slide.width, slide.height
     if slide.histo:

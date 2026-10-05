@@ -11,6 +11,7 @@ from simple_annotator.config import GIRDER_API_URL
 
 PLACEHOLDER_FOLDER = "placeholder"
 _IMAGE_EXT = {".png", ".tif", ".tiff", ".svs", ".jpg", ".jpeg", ".bmp"}
+_OME_UNIT_NM = {"nm": 1.0, "µm": 1e3, "μm": 1e3, "um": 1e3, "mm": 1e6}
 
 _gc: httpx.Client | None = None
 _placeholders: dict[tuple[int, int], bytes] = {}
@@ -235,6 +236,20 @@ def _image_nm_per_px(item_id: str) -> float | None:
     if type(value) in (int, float) and math.isfinite(value) and value > 0:
         return float(value)
     return None
+
+
+def ome_nm_per_px(item_id: str) -> float | None:
+    # Girder's mm_x for histology slides is 10x too small; the OME pixel size is right.
+    if not girder_enabled() or item_id == PLACEHOLDER_FOLDER:
+        return None
+    metadata = _client().get(f"/item/{item_id}/tiles/internal_metadata").raise_for_status().json()
+    image = metadata.get("xml", {}).get("OME", {}).get("Image", {})
+    pixels = (image[0] if isinstance(image, list) and image else image).get("Pixels", {})
+    try:
+        value = float(pixels["PhysicalSizeX"]) * _OME_UNIT_NM[pixels.get("PhysicalSizeXUnit", "µm")]
+    except (KeyError, TypeError, ValueError):
+        return None
+    return value if math.isfinite(value) and value > 0 else None
 
 
 def fetch_image(item_id: str, left: int, top: int, width: int, height: int) -> bytes:

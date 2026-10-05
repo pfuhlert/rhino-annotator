@@ -16,10 +16,10 @@ TILE_SIZE = 384
 HALO = 64
 TILE_NM = 3000
 HALO_NM = 500
-# Histology structures (glomeruli) are about a hundred times larger than EM ones. The halo is
-# half the largest box we accept, so any box up to 400 µm fits the tile of its center.
-HISTO_TILE_NM = 500_000
-HISTO_HALO_NM = 200_000
+# Histology structures (glomeruli) are far larger than EM ones. At slide scale both sizes hit
+# the memory caps: 3072 px cores with a 512 px halo, or one 4096 px tile for small regions.
+HISTO_TILE_NM = 5_000_000
+HISTO_HALO_NM = 2_000_000
 # Inference memory limits are independent of the configurable image display threshold.
 FULL_EMBEDDING_MAX = 4096
 MAX_TILE_CORE = 3072

@@ -16,7 +16,7 @@ args = parser.parse_args()
 image = Image.open(args.image).convert("RGB")
 
 
-# A 7.5 x 3 mm slide at 250 nm/px: one tissue strip wider than the 5 mm region limit (split in
+# A 75 x 30 mm slide at 2.5 µm/px: one tissue strip wider than the 50 mm region limit (split in
 # two) and one small fragment. It is drawn on demand, so any level or window stays cheap.
 SLIDE_WIDTH, SLIDE_HEIGHT = 30000, 12000
 TILE = 256
@@ -41,7 +41,7 @@ def _shapes() -> list[tuple[float, float, float, float, tuple[int, int, int]]]:
                 rng.uniform(y - ry * 0.7, y + ry * 0.7),
             )
             shapes.append((cx, cy, 6, 5, (92, 60, 150)))
-        # Glomerulus-sized (190 µm) structures for AI Box checks.
+        # Glomerulus-sized (760 px) structures for AI Box checks.
         for _ in range(max(2, rx // 1000)):
             cx, cy = (
                 rng.uniform(x - rx * 0.5, x + rx * 0.5),
@@ -149,8 +149,9 @@ class Handler(BaseHTTPRequestHandler):
                 "tileHeight": TILE,
                 "levels": _levels(item),
             }
-            if item in HISTO:
-                data |= {"mm_x": 0.00025, "mm_y": 0.00025}
+        elif path.endswith("/tiles/internal_metadata") and path.split("/")[2] in HISTO:
+            pixels = {"PhysicalSizeX": "2.5", "PhysicalSizeXUnit": "µm"}
+            data = {"xml": {"OME": {"Image": {"Pixels": pixels}}}}
         elif "/tiles/" in path:
             item = path.split("/")[2]
             width, height = _size(item)

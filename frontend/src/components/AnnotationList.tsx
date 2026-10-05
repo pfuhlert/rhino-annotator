@@ -7,9 +7,9 @@ import { aiTaskId, type Element, type Job } from "@/lib/api";
 import { polygonArea } from "@/lib/geometry";
 
 function formatArea(px2: number, nmPerPx: number | null) {
-  if (!nmPerPx) return `${Math.round(px2).toLocaleString()} px²`;
+  if (!nmPerPx) return `${Math.round(px2).toLocaleString("en-US")} px²`;
   const um2 = (px2 * nmPerPx * nmPerPx) / 1e6;
-  return `${um2 < 10 ? um2.toFixed(2) : Math.round(um2).toLocaleString()} µm²`;
+  return `${um2 < 10 ? um2.toFixed(2) : Math.round(um2).toLocaleString("en-US")} µm²`;
 }
 
 export default function AnnotationList({
