@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AiCursorStatus } from "@/components/AiCursorStatus";
 import { BrushSizeControl } from "@/components/BrushSizeControl";
 import PatchCanvas, { type AnnotatorApi } from "@/components/PatchCanvas";
 import Sidebar from "@/components/Sidebar";
@@ -101,16 +102,9 @@ export default function AnnotatePage() {
   );
   const failed = ai.tasks.filter((t) => t.status === "failed");
   const failedIds = failed.map((t) => t.id).join(",");
-  const aiQueue = useRef<HTMLDetailsElement>(null);
-  const openedForFailure = useRef(false);
   const cancelAi = ai.cancel;
   useEffect(() => {
-    const queue = aiQueue.current;
-    if (!failedIds) {
-      if (openedForFailure.current && queue) queue.open = openedForFailure.current = false;
-      return;
-    }
-    if (queue && !queue.open) queue.open = openedForFailure.current = true;
+    if (!failedIds) return;
     // Any change to the failed set clears this timer, so it only dismisses tasks that are still failed.
     const timer = setTimeout(() => {
       for (const id of failedIds.split(",")) void cancelAi(id);
@@ -408,59 +402,19 @@ export default function AnnotatePage() {
             onImageError={() => setBrokenImage(patch.id)}
             onImageLoad={() => setBrokenImage(null)}
           />
-          <details
-            ref={aiQueue}
-            className="absolute right-4 top-4 z-20 max-w-sm rounded-md border bg-background/95 px-3 py-2 text-sm shadow"
-            data-testid="ai-queue"
-          >
-            <summary className="cursor-pointer" aria-live="polite">
-              {ai.tasks.length
-                ? [
-                    "AI",
-                    ai.tasks.length > failed.length && `${ai.tasks.length - failed.length} pending`,
-                    failed.length && `${failed.length} failed`,
-                  ]
-                    .filter(Boolean)
-                    .join(" · ")
-                : ai.worker === "ready"
-                  ? "AI ready"
-                  : ai.worker === "loading"
-                    ? "AI warming up…"
-                    : "AI offline"}
-            </summary>
-            <div className="max-h-64 space-y-2 overflow-auto pt-2">
-              {ai.tasks.length === 0 && (
-                <p className="text-xs text-muted-foreground">
-                  {tool === "ai-box"
-                    ? "Draw a tight box around one object. AI outlines it within that box."
-                    : "Click inside a structure with Point (P). AI replaces the dot with its outline."}{" "}
-                  R switches to the brush.
+          <AiCursorStatus count={pending.length} worker={ai.worker} />
+          {failed.length > 0 && (
+            <div
+              data-testid="ai-errors"
+              className="absolute right-4 top-4 z-20 max-w-sm space-y-1 rounded-md border bg-background/95 px-3 py-2 text-xs shadow"
+            >
+              {failed.map((task) => (
+                <p key={task.id} role="alert">
+                  {`${task.box ? "AI Box" : "AI point"} failed: ${task.error || "Segmentation failed."}`}
                 </p>
-              )}
-              {ai.tasks.map((task) => (
-                <div key={task.id} className="flex items-center gap-2 text-xs">
-                  <span
-                    className="min-w-0 flex-1"
-                    role={task.status === "failed" ? "alert" : undefined}
-                  >
-                    {task.status === "failed"
-                      ? `${task.box ? "AI Box" : "AI point"} failed: ${task.error || "Segmentation failed."}`
-                      : `${task.patch_id === patch.id ? "This image" : `Image ${task.patch_id}`} · ${task.status}`}
-                  </span>
-                  {task.status !== "failed" && (
-                    <button
-                      className="underline"
-                      data-testid={`ai-cancel-${task.id}`}
-                      aria-label="Cancel AI annotation"
-                      onClick={() => void ai.cancel(task.id)}
-                    >
-                      Cancel
-                    </button>
-                  )}
-                </div>
               ))}
             </div>
-          </details>
+          )}
           {(loadError || brokenImage === patch.id) && (
             <LoadError
               message={

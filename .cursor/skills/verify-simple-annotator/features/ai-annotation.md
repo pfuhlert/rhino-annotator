@@ -5,7 +5,7 @@ Point and AI Box submit prompts to the GPU worker for every job. Both reuse imag
 ## Sub-features
 
 - Automatic AI inference from Point (P), replacing the dot with a polygon and saving no duplicate point.
-- Local GPU inference, queue feedback and cancellation. A failed point or box disappears from the canvas and the queue opens with the reason, which clears itself after about five seconds; there is no retry or dismiss button.
+- Local GPU inference, pending feedback and cancellation. A badge next to the cursor counts pending requests on the current image. A failed point or box disappears from the canvas and the top-right error box shows the reason, which clears itself after about five seconds; there is no retry or dismiss button.
 - Drawing and navigation while requests are pending.
 - Ordinary polygon editing, undo/redo and persistence.
 - Opening an image queues 3 µm tiles with 0.5 µm context margins without waiting for encoding; uncalibrated images use 384/64 pixels and have no scale bar.
@@ -16,7 +16,7 @@ Point and AI Box submit prompts to the GPU worker for every job. Both reuse imag
 
 ## How to get to it (user POV)
 
-Open a dataset, select any job, and choose Point (P). Click inside an object; R returns to brush corrections. Open the AI indicator to manage pending requests.
+Open a dataset, select any job, and choose Point (P). Click inside an object; R returns to brush corrections. A small spinner with the pending count follows the cursor while requests run; Escape or Ctrl+Z cancels the newest one.
 
 ## Driving it with Playwright
 
@@ -26,7 +26,7 @@ For real inference, run `tests/girder_fixture.py /path/to/TEM.png --nm-per-px SC
 
 Use the helper's browser commands to choose `tool-point` (without pressing A), click the canvas, immediately switch to the brush and draw, and navigate Next/Previous. Capture the pending dot and the resulting outline, an ARIA snapshot, and SQLite rows from `ai_tasks` and `annotations`. Confirm the AI click saves exactly one polygon and no point; manual brush marks coexist on the original patch and job. Undo/redo the prediction and reload to check that the original dot never returns. Repeat on Nucleus or Podocyte to verify Point AI is available outside Mitochondria. The closed job selector must not consume P as typeahead.
 
-Choose `tool-ai-box` or press A on any job. Drag around one object, including in reverse direction and with zoom/pan. Check the pending rectangle, the square cursor at hotspot 8,8, and the request's integer `box` bounds. Confirm that one polygon is saved under the submitting job, all vertices stay within those bounds, and no rectangle annotation is saved. Reload and undo/redo to verify persistence. Check that tiny drags, Escape during drawing, pointer cancellation, and switching tools/jobs/images during drawing do not enqueue. Fail a box and confirm the queue opens with the reason, offers no Retry or Dismiss, no longer draws the box, and clears and closes itself after about five seconds. Use `browser script` interception to make pending/cancellation and failure checks deterministic, separately from real GPU inference.
+Choose `tool-ai-box` or press A on any job. Drag around one object, including in reverse direction and with zoom/pan. Check the pending rectangle, the square cursor at hotspot 8,8, and the request's integer `box` bounds. Confirm that one polygon is saved under the submitting job, all vertices stay within those bounds, and no rectangle annotation is saved. Reload and undo/redo to verify persistence. Check that tiny drags, Escape during drawing, pointer cancellation, and switching tools/jobs/images during drawing do not enqueue. Fail a box and confirm the top-right error box (`ai-errors`) shows the reason, offers no Retry or Dismiss, no longer draws the box, and disappears after about five seconds. Nothing else appears in the top-right corner. Use `browser script` interception to make pending/cancellation and failure checks deterministic, separately from real GPU inference.
 
 Run `browser script --file .cursor/skills/verify-simple-annotator/features/embeddings.mjs` with the 1024 × 1024 TEM fixture and `--nm-per-px 5` to exercise adaptive tiling. It checks calibration and scale-bar visibility, automatic preparation before prompting, Point AI on Nucleus, Box AI on Podocyte, shared cache reuse, manual annotation, history, and reload. Evidence is saved under `artifacts/embeddings-*`. Inspect `ai_embeddings` for ready rows containing tensors; use a fresh GPU predictor with image fetching/encoding disabled to prove that persisted tensors can serve both prompts after its memory cache is discarded.
 

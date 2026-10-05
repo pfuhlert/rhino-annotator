@@ -2,6 +2,9 @@ import assert from "node:assert/strict";
 import { writeFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 
+const aiIdle = (page) =>
+  page.getByTestId("ai-status").evaluate((el) => el.dataset.worker === "ready" && el.dataset.pending === "0");
+
 const artifacts = ".cursor/skills/verify-simple-annotator/artifacts/ai-box";
 
 export default async function (page, state) {
@@ -104,7 +107,7 @@ export default async function (page, state) {
   await page.keyboard.press("r");
   resume();
   const completed = await until(() => json("/patches/current"), (p) => p.elements.some((el) => el.id === `ai-${task.id}`));
-  await until(() => page.getByTestId("ai-queue").locator("summary").innerText(), (s) => s === "AI ready");
+  await until(() => aiIdle(page), Boolean);
   const polygon = completed.elements.find((el) => el.id === `ai-${task.id}`);
   assert.equal(completed.elements.length, 1);
   assert.equal(polygon.type, "polygon");
@@ -145,9 +148,10 @@ export default async function (page, state) {
   await page.keyboard.press("Escape");
   await page.mouse.up();
   assert.equal(mocked.length, 1);
-  assert.match(await page.getByTestId("ai-queue").innerText(), /1 pending/);
+  assert.equal(await page.getByTestId("ai-status").getAttribute("data-pending"), "1");
+  assert.ok(await page.getByTestId("ai-status").isVisible(), "spinner follows the cursor while pending");
   await page.keyboard.press("Control+z");
-  await until(() => page.getByTestId("ai-queue").innerText(), (text) => !text.includes("pending"));
+  await until(() => page.getByTestId("ai-status").getAttribute("data-pending"), (n) => n === "0");
   assert.equal((await json("/patches/current")).elements.length, 1);
 
   for (const key of ["Escape", "Control+z", "l"]) {
@@ -174,22 +178,20 @@ export default async function (page, state) {
   failNext = true;
   await startBox([750, 600], [600, 450]);
   await page.mouse.up();
-  const alert = page.getByTestId("ai-queue").getByRole("alert");
+  const alert = page.getByTestId("ai-errors").getByRole("alert");
   await alert.waitFor();
   const shown = Date.now();
   assert.deepEqual(mocked.at(-1).box, [600, 450, 750, 600]);
   const failed = mocked.at(-1);
-  assert.ok(await page.getByTestId("ai-queue").evaluate((el) => el.open), "queue opens on failure");
   assert.match(await alert.innerText(), /AI Box failed: .*Verification failure/);
   assert.equal(await page.getByRole("button", { name: "Retry" }).count(), 0);
   await page.waitForTimeout(100);
   assert.equal(await canvasPixels(), before, "canvas returns to its state before the failed box");
-  assert.equal(await page.getByTestId(`ai-cancel-${failed.id}`).count(), 0, "no dismiss button");
+  assert.equal(await page.getByTestId("ai-errors").getByRole("button").count(), 0, "no dismiss button");
   await shot("failed");
-  await until(() => page.getByTestId("ai-queue").locator("summary").innerText(), (s) => s === "AI ready");
+  await page.getByTestId("ai-errors").waitFor({ state: "detached", timeout: 10000 });
   const visibleMs = Date.now() - shown;
   assert.ok(visibleMs >= 3000 && visibleMs < 10000, `failure message visible for ${visibleMs} ms`);
-  assert.equal(await page.getByTestId("ai-queue").evaluate((el) => el.open), false, "queue closes again");
   assert.equal(mocked.length, 2);
   results.push({ check: "failed box explains why, then clears itself without retry, dismiss, or marker", failed, visibleMs });
 

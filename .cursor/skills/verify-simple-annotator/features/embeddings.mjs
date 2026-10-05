@@ -2,6 +2,9 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { writeFile } from "node:fs/promises";
 
+const aiIdle = (page) =>
+  page.getByTestId("ai-status").evaluate((el) => el.dataset.worker === "ready" && el.dataset.pending === "0");
+
 const artifacts = ".cursor/skills/verify-simple-annotator/artifacts/embeddings";
 
 export default async function (page, state) {
@@ -101,7 +104,7 @@ export default async function (page, state) {
   const boxPolygon = await complete(boxTask);
   for (const ring of [boxPolygon.points, ...(boxPolygon.holes ?? [])])
     assert.ok(ring.every(([x, y]) => x >= 475 && x < 530 && y >= 758 && y < 803));
-  await until(() => page.getByTestId("ai-queue").locator("summary").innerText(), (s) => s === "AI ready");
+  await until(() => aiIdle(page), Boolean);
   await page.screenshot({ path: `${artifacts}-box.png`, fullPage: true });
 
   await page.getByTestId("next").click();
@@ -118,7 +121,7 @@ export default async function (page, state) {
   assert.equal(pointTask.job_id, jobs.find((j) => j.name === "Nucleus").id);
   assert.ok(!pointTask.box);
   const pointPolygon = await complete(pointTask);
-  await until(() => page.getByTestId("ai-queue").locator("summary").innerText(), (s) => s === "AI ready");
+  await until(() => aiIdle(page), Boolean);
   await page.keyboard.press("Control+z");
   await until(() => json("/patches/current"), (p) => p.elements.length === 0);
   await page.keyboard.press("Control+Shift+z");
