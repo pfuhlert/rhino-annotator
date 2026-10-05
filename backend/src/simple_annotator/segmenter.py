@@ -157,6 +157,7 @@ class MicroSam:
         return (labels == largest).astype(np.uint8), (x, y)
 
     def _predict_point(self, request: dict) -> tuple[np.ndarray, tuple[int, int]]:
+        clipped_any = False
         for x, y, w, h in prompt_regions(request):
             self._set_tile(request, (x, y, w, h))
             point = np.array([[request["x"] - x, request["y"] - y]])
@@ -165,21 +166,22 @@ class MicroSam:
             )
             px, py = min(w - 1, round(point[0, 0])), min(h - 1, round(point[0, 1]))
             choices = [i for i in np.argsort(scores)[::-1] if masks[i, py, px]]
-            if not choices:
-                raise ValueError(
-                    "No structure found at this point. Try a nearby point or the brush."
+            # SAM's best-scoring mask often leaks into the background; a smaller one may still fit.
+            for choice in choices:
+                _, labels = cv2.connectedComponents(masks[choice].astype(np.uint8))
+                mask = (labels == labels[py, px]).astype(np.uint8)
+                clipped = (
+                    (x > 0 and mask[:, 0].any())
+                    or (y > 0 and mask[0, :].any())
+                    or (x + w < request["width"] and mask[:, -1].any())
+                    or (y + h < request["height"] and mask[-1, :].any())
                 )
-            _, labels = cv2.connectedComponents(masks[choices[0]].astype(np.uint8))
-            mask = (labels == labels[py, px]).astype(np.uint8)
-            clipped = (
-                (x > 0 and mask[:, 0].any())
-                or (y > 0 and mask[0, :].any())
-                or (x + w < request["width"] and mask[:, -1].any())
-                or (y + h < request["height"] and mask[-1, :].any())
-            )
-            if not clipped:
-                return mask, (x, y)
-        raise ValueError("Structure extends beyond the tile. Try a box or use the brush.")
+                if not clipped:
+                    return mask, (x, y)
+                clipped_any = True
+        if clipped_any:
+            raise ValueError("Structure extends beyond the tile. Try a box or use the brush.")
+        raise ValueError("No structure found at this point. Try a nearby point or the brush.")
 
 
 def mask_polygon(mask: np.ndarray, origin: tuple[int, int]) -> dict:

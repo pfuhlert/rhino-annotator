@@ -217,6 +217,58 @@ def test_point_touching_tile_boundary_reuses_prepared_overview(fake_model):
     assert len(encoded) == count
 
 
+def test_point_falls_back_to_lower_scoring_mask_that_fits_the_tile(fake_model):
+    create, _, _, _ = fake_model
+    model = create()
+    # Too large for a whole-image fallback, so only the point's tile is available.
+    request = {**REQUEST, "width": 5000, "height": 5000, "x": 1000, "y": 1000}
+    leaking = 1
+
+    def predict(**kwargs):
+        h, w = model.predictor.original_size
+        masks = np.zeros((3, h, w), dtype=bool)
+        x, y = np.round(kwargs["point_coords"][0]).astype(int)
+        for i, r in enumerate((5, 20)):
+            masks[i, y - r : y + r + 1, x - r : x + r + 1] = True
+        masks[3 - leaking :] = True
+        return masks, np.array([0.3, 0.9, 0.95]), None
+
+    model.predictor.predict = predict
+    polygon = model.predict(request)
+    assert min(x for x, _ in polygon["points"]) == 980
+
+    leaking = 2
+    polygon = model.predict(request)
+    assert min(x for x, _ in polygon["points"]) == 995
+
+    leaking = 3
+    with pytest.raises(ValueError, match="extends beyond the tile"):
+        model.predict(request)
+
+
+def test_point_missed_by_its_tile_still_tries_the_whole_image(fake_model):
+    create, _, _, _ = fake_model
+    model = create()
+    request = {**REQUEST, "width": 1024, "height": 768, "x": 383, "y": 200}
+
+    def predict(**kwargs):
+        h, w = model.predictor.original_size
+        x, y = np.round(kwargs["point_coords"][0]).astype(int)
+        mask = np.zeros((1, h, w), dtype=bool)
+        if (h, w) == (768, 1024):
+            mask[0, y - 10 : y + 11, x - 30 : x + 31] = True
+        return mask, np.array([0.9]), None
+
+    model.predictor.predict = predict
+    polygon = model.predict(request)
+    assert min(x for x, _ in polygon["points"]) == 353
+    assert max(x for x, _ in polygon["points"]) == 413
+
+    model.predictor.predict = lambda **_: (np.zeros((1, 768, 1024), dtype=bool), [0.9], None)
+    with pytest.raises(ValueError, match="No structure found at this point"):
+        model.predict(request)
+
+
 @pytest.mark.parametrize(
     "width,height,scale",
     [(1024, 768, None), (4096, 3072, 5), (1024, 768, 12), (5000, 3000, 0.48828125)],
