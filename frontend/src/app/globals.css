@@ -119,30 +119,53 @@ body {
   --overlay-trigger-top: 0.5rem;
   --overlay-trigger-left: 1rem;
   --overlay-trigger-size: 1rem;
+  --overlay-ease-out: cubic-bezier(0.32, 0.72, 0, 1);
+  --overlay-ease-in: cubic-bezier(0.4, 0, 0.6, 1);
 }
 [data-slot="overlay-panel"] {
-  mask-image: linear-gradient(#000, #000);
-  mask-repeat: no-repeat;
-  mask-size: 100% 100%;
-  mask-position: 0 0;
+  clip-path: inset(0);
+  transition: clip-path 320ms var(--overlay-ease-out);
+}
+[data-slot="overlay-inner"] > :not(:first-child),
+[data-slot="overlay-inner"] > :first-child > :not([data-slot="sidebar-trigger"]) {
   transition:
-    mask-size 200ms ease-in-out,
-    mask-position 200ms ease-in-out;
+    opacity 220ms ease-out 80ms,
+    translate 320ms var(--overlay-ease-out);
 }
 [data-slot="overlay"][data-pinned] > main {
   width: auto;
   margin-left: var(--overlay-width);
 }
 [data-slot="overlay"][data-state="collapsed"] [data-slot="overlay-panel"] {
-  mask-size: var(--overlay-trigger-size) var(--overlay-trigger-size);
-  mask-position: var(--overlay-trigger-left) var(--overlay-trigger-top);
+  clip-path: inset(
+    var(--overlay-trigger-top)
+      calc(100% - var(--overlay-trigger-left) - var(--overlay-trigger-size))
+      calc(100% - var(--overlay-trigger-top) - var(--overlay-trigger-size))
+      var(--overlay-trigger-left)
+  );
+  transition: clip-path 220ms var(--overlay-ease-in);
   pointer-events: none;
 }
-[data-slot="overlay"][data-state="collapsed"] [data-slot="overlay-inner"] {
-  background: transparent;
+[data-slot="overlay"][data-state="collapsed"] [data-slot="overlay-inner"] > :not(:first-child),
+[data-slot="overlay"][data-state="collapsed"]
+  [data-slot="overlay-inner"]
+  > :first-child
+  > :not([data-slot="sidebar-trigger"]) {
+  opacity: 0;
+  translate: -0.75rem -0.5rem;
+  transition:
+    opacity 120ms ease-in,
+    translate 220ms var(--overlay-ease-in);
 }
 [data-slot="overlay"][data-state="collapsed"] [data-slot="sidebar-trigger"] {
   pointer-events: auto;
   background: #000;
   border-color: var(--sidebar);
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-slot="overlay-panel"],
+  [data-slot="overlay-inner"] > *,
+  [data-slot="overlay-inner"] > :first-child > :not([data-slot="sidebar-trigger"]) {
+    transition: none !important;
+  }
 }
