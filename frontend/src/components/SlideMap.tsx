@@ -15,16 +15,16 @@ export default function SlideMap({
   const zoomed = view && (view.width < image.width * 0.98 || view.height < image.height * 0.98);
   const scale = SIDE / Math.max(slide.width, slide.height);
   const [x, y, w, h] = slide.tiles[slide.current];
-  const visited = slide.tiles.filter((tile) => tile[4]).length;
   return (
     <figure
       data-testid="slide-map"
-      className="pointer-events-none absolute right-4 bottom-4 z-20 rounded-lg border border-white/10 bg-zinc-950/85 p-2 shadow-lg backdrop-blur"
+      className="pointer-events-none absolute right-4 bottom-full border-2 border-zinc-500"
     >
       <svg
-        width={slide.width * scale}
-        height={slide.height * scale}
+        width={Math.round(slide.width * scale)}
+        height={Math.round(slide.height * scale)}
         viewBox={`0 0 ${slide.width} ${slide.height}`}
+        preserveAspectRatio="none"
         className="block overflow-visible bg-white"
         aria-label={`Tile ${slide.current + 1} of ${slide.tiles.length} on ${slide.name}`}
       >
@@ -42,7 +42,10 @@ export default function SlideMap({
             width={tw}
             height={th}
             vectorEffect="non-scaling-stroke"
-            className={seen ? "fill-sky-500/15 stroke-sky-700/40" : "fill-none stroke-zinc-900/20"}
+            strokeWidth={seen ? 2 : 1}
+            className={
+              seen ? "fill-emerald-500/10 stroke-emerald-500" : "fill-none stroke-zinc-900/20"
+            }
           />
         ))}
         <rect
@@ -67,12 +70,6 @@ export default function SlideMap({
           />
         )}
       </svg>
-      <figcaption className="mt-1.5 flex max-w-52 justify-between gap-3 text-[11px] text-zinc-300">
-        <span className="truncate">{slide.name}</span>
-        <span className="shrink-0 tabular-nums">
-          {visited} / {slide.tiles.length} visited
-        </span>
-      </figcaption>
     </figure>
   );
 }

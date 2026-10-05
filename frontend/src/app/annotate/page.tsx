@@ -444,13 +444,6 @@ export default function AnnotatePage() {
               ))}
             </div>
           </details>
-          {patch.slide && (
-            <SlideMap
-              slide={patch.slide}
-              image={patch.image}
-              view={view?.patchId === patch.id ? view.rect : null}
-            />
-          )}
           {(loadError || brokenImage === patch.id) && (
             <LoadError
               message={
@@ -471,6 +464,13 @@ export default function AnnotatePage() {
             </div>
           )}
           <footer className="pointer-events-none absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-black/70 to-transparent px-4 py-4">
+            {patch.slide && (
+              <SlideMap
+                slide={patch.slide}
+                image={patch.image}
+                view={view?.patchId === patch.id ? view.rect : null}
+              />
+            )}
             <div className="pointer-events-auto flex flex-wrap items-center justify-center gap-2">
               <Button
                 data-testid="prev"
