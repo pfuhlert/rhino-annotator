@@ -1,0 +1,13 @@
+#!/bin/sh
+# Git has no post-push hook; a successful push (or a fetch with new commits) moves origin/main.
+[ "$1" = committed ] || exit 0
+sha=$(awk '$3 == "refs/remotes/origin/main" && $2 !~ /^0+$/ { s = $2 } END { print s }')
+[ -n "$sha" ] || exit 0
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
+root=$(git rev-parse --show-toplevel)
+log=${SIMPLE_ANNOTATOR_PROD_DIR:-$HOME/simple-annotator-prod}/logs/deploy.log
+mkdir -p "$(dirname "$log")"
+echo "prod: deploying $(git rev-parse --short "$sha") (log: $log)" >&2
+# setsid keeps Ctrl-C on the push from interrupting a half-done deploy.
+setsid -w "$root/scripts/prod" deploy "$sha" >> "$log" 2>&1 < /dev/null
+echo "prod: $(tail -n 1 "$log")" >&2
