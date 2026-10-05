@@ -24,6 +24,7 @@ import {
   imageBox,
   insideImageBounds,
   insidePixelBounds,
+  moveVertex,
   moveWithinImage,
 } from "./image-bounds";
 import { isTypingTarget } from "./keys";
@@ -530,7 +531,7 @@ export function useFreehand(opts: {
         const m = marksRef.current.find((x) => x.id === active.id);
         if (m && active.kind === "vertex") {
           const ring = ringOf(m, active.ring);
-          if (ring) ring[active.index] = clampToImage(now, space);
+          if (ring) ring[active.index] = moveVertex(ring[active.index], now, space);
           dirty = true;
         } else if (m && active.kind === "move") {
           const delta = moveWithinImage(m, now[0] - active.last[0], now[1] - active.last[1], space);

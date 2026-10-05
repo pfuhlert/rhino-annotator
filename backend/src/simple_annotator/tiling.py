@@ -41,22 +41,6 @@ def grid(width: int, height: int, tile: int, stride: int) -> list[Rect]:
     ]
 
 
-def _merge(boxes: list[list[int]]) -> list[list[int]]:
-    merged = True
-    while merged:
-        merged = False
-        for i, a in enumerate(boxes):
-            for b in boxes[i + 1 :]:
-                if a[0] < b[2] and b[0] < a[2] and a[1] < b[3] and b[1] < a[3]:
-                    a[:] = [min(a[0], b[0]), min(a[1], b[1]), max(a[2], b[2]), max(a[3], b[3])]
-                    boxes.remove(b)
-                    merged = True
-                    break
-            if merged:
-                break
-    return boxes
-
-
 def _spans(start: int, end: int, max_size: int, overlap: int) -> list[tuple[int, int]]:
     length = end - start
     if length <= max_size:
@@ -88,4 +72,9 @@ def tissue_regions(
         ]
         for x, y, w, h, _ in stats[1:]
     ]
-    return sorted(_merge(boxes), key=lambda b: (b[1], b[0]))
+    # Separate tissue keeps its own box even where padding overlaps; only nested boxes go.
+    kept: list[list[int]] = []
+    for b in sorted(boxes, key=lambda b: (b[2] - b[0]) * (b[3] - b[1]), reverse=True):
+        if not any(k[0] <= b[0] and k[1] <= b[1] and b[2] <= k[2] and b[3] <= k[3] for k in kept):
+            kept.append(b)
+    return sorted(kept, key=lambda b: (b[1], b[0]))

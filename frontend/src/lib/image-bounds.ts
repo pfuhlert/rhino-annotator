@@ -8,6 +8,14 @@ export function clampToImage([x, y]: Point, size: Size): Point {
   return [Math.max(0, Math.min(size.imageWidth, x)), Math.max(0, Math.min(size.imageHeight, y))];
 }
 
+// A vertex of a mark shared with a neighbouring region may lie outside; never push it further out.
+export function moveVertex([ox, oy]: Point, [x, y]: Point, size: Size): Point {
+  return [
+    Math.max(Math.min(0, ox), Math.min(Math.max(size.imageWidth, ox), x)),
+    Math.max(Math.min(0, oy), Math.min(Math.max(size.imageHeight, oy), y)),
+  ];
+}
+
 export function imageBox(a: Point, b: Point, size: Size): Box | null {
   const [ax, ay] = clampToImage(a, size).map(Math.round);
   const [bx, by] = clampToImage(b, size).map(Math.round);
@@ -42,8 +50,9 @@ export function moveWithinImage(mark: Mark, dx: number, dy: number, size: Size):
     }
   }
   const inset = mark.type === "point" ? 1 : 0;
-  dx = Math.max(-minX, Math.min(size.imageWidth - inset - maxX, dx));
-  dy = Math.max(-minY, Math.min(size.imageHeight - inset - maxY, dy));
+  // Marks shared with a neighbouring region may already cross the edge; never push them further out.
+  dx = Math.max(Math.min(0, -minX), Math.min(Math.max(0, size.imageWidth - inset - maxX), dx));
+  dy = Math.max(Math.min(0, -minY), Math.min(Math.max(0, size.imageHeight - inset - maxY), dy));
   if (!Number.isFinite(dx) || !Number.isFinite(dy) || (!dx && !dy)) return null;
   shiftMark(mark, dx, dy);
   return [dx, dy];

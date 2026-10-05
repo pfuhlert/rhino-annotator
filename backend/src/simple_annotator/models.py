@@ -1,4 +1,4 @@
-from sqlalchemy import ForeignKey, String, Text
+from sqlalchemy import ForeignKey, String, Text, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -66,12 +66,20 @@ class Slide(Base):
 
 class Annotation(Base):
     __tablename__ = "annotations"
+    __table_args__ = (UniqueConstraint("user_id", "item_id", "element_id"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    patch_id: Mapped[int] = mapped_column(ForeignKey("patches.id"))
+    element_id: Mapped[str] = mapped_column(String(100))
+    item_id: Mapped[str] = mapped_column(String(64))
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
     job_id: Mapped[int] = mapped_column(ForeignKey("jobs.id"))
-    elements: Mapped[str] = mapped_column(Text)
+    type: Mapped[str] = mapped_column(String(16))
+    # JSON points and holes in full-image pixels; the bounding box finds a patch's elements.
+    geometry: Mapped[str] = mapped_column(Text)
+    x0: Mapped[float]
+    y0: Mapped[float]
+    x1: Mapped[float]
+    y1: Mapped[float]
 
 
 class PatchVisit(Base):

@@ -3,17 +3,17 @@ from uuid import uuid4
 
 from fastapi import HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import select, text
+from sqlalchemy import and_, delete, or_, select, text
 from sqlalchemy.orm import Session
 
-from simple_annotator.models import Annotation, Job, PatchVisit
+from simple_annotator.models import Annotation, Job, Patch, PatchVisit
 
 
 class Element(BaseModel):
     id: str = Field(default_factory=lambda: uuid4().hex, min_length=1, max_length=100)
     type: str
-    points: list[list[float]]
-    holes: list[list[list[float]]] = []
+    points: list[tuple[float, float]] = Field(min_length=1)
+    holes: list[list[tuple[float, float]]] = []
 
 
 class Edit(Element):
@@ -38,62 +38,92 @@ def ai_element_id(task_id: str) -> str:
     return f"ai-{task_id}"
 
 
-def row_elements(row: Annotation) -> list[dict]:
-    marks = json.loads(row.elements)
-    for i, el in enumerate(marks):
-        el.setdefault("id", f"legacy-{row.id}-{i}")
-    return marks
+def shift(el: dict, dx: float, dy: float) -> dict:
+    def move(ring: list[list[float]]) -> list[list[float]]:
+        return [[x + dx, y + dy] for x, y in ring]
+
+    moved = {**el, "points": move(el["points"])}
+    if el.get("holes"):
+        moved["holes"] = [move(ring) for ring in el["holes"]]
+    return moved
 
 
-def elements(db: Session, user_id: int, patch_id: int) -> list[dict]:
-    return [
-        {**el, "jobId": row.job_id}
-        for row in db.scalars(
-            select(Annotation).where(Annotation.patch_id == patch_id, Annotation.user_id == user_id)
+def element_row(item_id: str, user_id: int, job_id: int, el: dict) -> dict:
+    xs = [x for x, _ in el["points"]]
+    ys = [y for _, y in el["points"]]
+    geometry = {k: el[k] for k in ("points", "holes") if el.get(k)}
+    return {
+        "element_id": el["id"],
+        "item_id": item_id,
+        "user_id": user_id,
+        "job_id": job_id,
+        "type": el["type"],
+        "geometry": json.dumps(geometry),
+        "x0": min(xs),
+        "y0": min(ys),
+        "x1": max(xs),
+        "y1": max(ys),
+    }
+
+
+def elements(db: Session, user_id: int, patch: Patch) -> list[dict]:
+    right, bottom = patch.left + patch.width, patch.top + patch.height
+    rows = db.scalars(
+        select(Annotation)
+        .where(
+            Annotation.item_id == patch.girder_item_id,
+            Annotation.user_id == user_id,
+            Annotation.x0 < right,
+            Annotation.y0 < bottom,
+            # A point belongs to the pixel it sits in; a polygon shows if its box overlaps.
+            or_(
+                and_(
+                    Annotation.type == "point",
+                    Annotation.x1 >= patch.left,
+                    Annotation.y1 >= patch.top,
+                ),
+                and_(Annotation.x1 > patch.left, Annotation.y1 > patch.top),
+            ),
         )
-        for el in row_elements(row)
+        .order_by(Annotation.id)
+    )
+    return [
+        {
+            "id": a.element_id,
+            "type": a.type,
+            **shift(json.loads(a.geometry), -patch.left, -patch.top),
+            "jobId": a.job_id,
+        }
+        for a in rows
     ]
 
 
-def apply_changes(db: Session, user_id: int, patch_id: int, changes: Changes) -> None:
+def apply_changes(db: Session, user_id: int, patch: Patch, changes: Changes) -> None:
     # Caller holds BEGIN IMMEDIATE: worker completion and manual edits share this transaction.
-    rows = {
-        row.job_id: row
-        for row in db.scalars(
-            select(Annotation).where(Annotation.patch_id == patch_id, Annotation.user_id == user_id)
-        )
-    }
-    by_job = {job_id: {el["id"]: el for el in row_elements(row)} for job_id, row in rows.items()}
-    removed = set(changes.delete) | {el.id for el in changes.upsert}
-    touched = set()
-    for job_id, marks in by_job.items():
-        if removed.intersection(marks):
-            touched.add(job_id)
-            for key in removed:
-                marks.pop(key, None)
     for el in changes.upsert:
         if el.type not in {"point", "polygon"}:
             raise HTTPException(400, "invalid element type")
         if not db.get(Job, el.jobId):
             raise HTTPException(404, "job not found")
-        by_job.setdefault(el.jobId, {})[el.id] = el.model_dump(
-            exclude={"jobId"}, exclude_defaults=True
+    removed = set(changes.delete) | {el.id for el in changes.upsert}
+    db.execute(
+        delete(Annotation).where(
+            Annotation.item_id == patch.girder_item_id,
+            Annotation.user_id == user_id,
+            Annotation.element_id.in_(removed),
         )
-        touched.add(el.jobId)
-    for job_id in touched:
-        marks = list(by_job[job_id].values())
-        row = rows.get(job_id)
-        if not marks:
-            if row:
-                db.delete(row)
-        elif row:
-            row.elements = json.dumps(marks)
-        else:
-            db.add(
-                Annotation(
-                    patch_id=patch_id, user_id=user_id, job_id=job_id, elements=json.dumps(marks)
-                )
+    )
+    db.add_all(
+        Annotation(
+            **element_row(
+                patch.girder_item_id,
+                user_id,
+                el.jobId,
+                shift(el.model_dump(exclude={"jobId"}), patch.left, patch.top),
             )
+        )
+        for el in changes.upsert
+    )
 
 
 def lock(db: Session) -> None:

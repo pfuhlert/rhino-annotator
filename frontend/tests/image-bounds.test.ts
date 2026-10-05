@@ -7,6 +7,7 @@ import {
   imageBox,
   insideImageBounds,
   insidePixelBounds,
+  moveVertex,
   moveWithinImage,
 } from "../src/lib/image-bounds";
 
@@ -128,6 +129,29 @@ test("whole-polygon movement stops at the boundary without distorting its outlin
     [80, 200],
     [0, 200],
   ]);
+});
+
+test("polygons crossing the edge move freely inward but never further out", () => {
+  const mark: Mark = {
+    id: "shared",
+    jobId: 1,
+    type: "polygon",
+    points: [
+      [-50, 30],
+      [60, 30],
+      [60, 90],
+    ],
+  };
+  assert.deepEqual(moveWithinImage(mark, 20, 5, size), [20, 5]);
+  assert.equal(moveWithinImage(mark, -20, 0, size), null);
+  assert.deepEqual(moveWithinImage(mark, -20, 10, size), [0, 10]);
+  assert.deepEqual(mark.points[0], [-30, 45]);
+});
+
+test("vertices outside the image keep their place but cannot move further out", () => {
+  assert.deepEqual(moveVertex([-50, 30], [-40, 300], size), [-40, 200]);
+  assert.deepEqual(moveVertex([-50, 30], [-80, 20], size), [-50, 20]);
+  assert.deepEqual(moveVertex([20, 30], [-80, -20], size), [0, 0]);
 });
 
 test("point dragging is bounded too", () => {

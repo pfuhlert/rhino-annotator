@@ -40,6 +40,24 @@ def test_regions_pad_tissue_and_merge_only_nearby_fragments():
         assert any(b[0] <= x * 10 < b[2] and b[1] <= y * 10 < b[3] for b in regions)
 
 
+def test_separate_tissue_keeps_its_own_box_even_when_padding_overlaps():
+    rgb = tissue_image(center=(100, 150), radius=40)
+    cv2.circle(rgb, (200, 150), 30, (200, 90, 160), -1)  # 30 px gap, above the merge distance
+    mask = tissue_mask(rgb, um_per_px=2.5, min_area_um2=10_000)
+    regions = tissue_regions(mask, 0.1, 4000, 3000, merge=20, pad=300)
+    assert len(regions) == 2
+    (a, b) = sorted(regions)
+    assert a[2] > b[0]
+    assert a[2] - a[0] < 1500 and b[2] - b[0] < 1300
+
+
+def test_boxes_nested_in_another_region_are_dropped():
+    mask = np.zeros((300, 400), bool)
+    mask[50:250, 50:60] = mask[50:60, 50:350] = mask[240:250, 50:350] = True  # a "C" shape
+    mask[140:160, 200:220] = True  # a fragment inside the C's box
+    assert len(tissue_regions(mask, 0.1, 4000, 3000, merge=3, pad=0)) == 1
+
+
 def test_oversized_regions_split_into_overlapping_chunks():
     chunks = split([500, 0, 23_000, 3_000], max_size=20_000, overlap=1_200)
     assert [(c[1], c[3]) for c in chunks] == [(0, 3_000)] * 2

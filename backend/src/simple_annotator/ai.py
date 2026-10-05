@@ -63,6 +63,7 @@ def status(
     db: Session = Depends(get_db),
 ) -> dict:
     require_patch(db, user.id, patch_id)
+    patch = db.get(Patch, patch_id)
     worker = db.get(AiWorker, 1)
     available = bool(worker and time.time() - worker.updated < 15)
     tasks = db.scalars(
@@ -71,7 +72,10 @@ def status(
             AiTask.user_id == user.id,
             (AiTask.status.in_(["queued", "running", "failed"]))
             | (
-                (AiTask.patch_id == patch_id)
+                # Results land on the image, so overlapping patches show them too.
+                AiTask.patch_id.in_(
+                    select(Patch.id).where(Patch.girder_item_id == patch.girder_item_id)
+                )
                 & (AiTask.status == "done")
                 & (AiTask.finished > after)
             ),
@@ -83,9 +87,7 @@ def status(
         "cursor": max((t.finished or 0 for t in tasks), default=after),
         "worker": worker.status if available else "offline",
         "tasks": [task_json(t) for t in tasks if t.status != "done"],
-        "elements": [el for el in elements(db, user.id, patch_id) if el["id"] in done]
-        if done
-        else [],
+        "elements": [el for el in elements(db, user.id, patch) if el["id"] in done] if done else [],
     }
 
 
@@ -177,7 +179,8 @@ def cancel(task_id: str, user: User = Depends(current_user), db: Session = Depen
         raise HTTPException(404, "AI task not found")
     # Completion may win the race with Cancel; remove its annotation in the same transaction.
     if task.status == "done":
-        apply_changes(db, user.id, task.patch_id, Changes(delete=[ai_element_id(task.id)]))
+        patch = db.get(Patch, task.patch_id)
+        apply_changes(db, user.id, patch, Changes(delete=[ai_element_id(task.id)]))
     task.status = "cancelled"
     db.commit()
     return {"ok": True}

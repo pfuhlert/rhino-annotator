@@ -13,7 +13,7 @@ CROP_OVERLAP = int(os.environ.get("CROP_OVERLAP", "256"))
 # Histology is split into padded tissue regions; chunks of an oversized region overlap by more
 # than the largest glomerulus so each one is whole in some chunk.
 REGION_MAX_UM = float(os.environ.get("REGION_MAX_UM", "5000"))
-REGION_PAD_UM = float(os.environ.get("REGION_PAD_UM", "250"))
+REGION_PAD_UM = float(os.environ.get("REGION_PAD_UM", "80"))
 REGION_MERGE_UM = float(os.environ.get("REGION_MERGE_UM", "200"))
 TILE_OVERLAP_UM = float(os.environ.get("TILE_OVERLAP_UM", "300"))
 TISSUE_MIN_AREA_UM2 = float(os.environ.get("TISSUE_MIN_AREA_UM2", "10000"))

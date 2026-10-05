@@ -41,7 +41,7 @@ def _dump(
             "prepare_view": _prepares_view(patch),
         },
         "nm_per_px": nm_per_px,
-        "elements": elements(db, user.id, patch.id),
+        "elements": elements(db, user.id, patch),
         "slide": slide_view(db, user, patch),
     }
 
@@ -227,6 +227,6 @@ def edit_annotations(
 ) -> dict:
     require_patch(db, user.id, patch_id)
     lock(db)
-    apply_changes(db, user.id, patch_id, body)
+    apply_changes(db, user.id, db.get(Patch, patch_id), body)
     db.commit()
     return {"ok": True}

@@ -55,12 +55,13 @@ def test_histology_patch_is_the_padded_tissue_region_with_slide_view(auth, girde
     patch = auth.get("/patches/current").json()
     assert patch["nm_per_px"] == 250
     image = patch["image"]
-    # The disk spans slide pixels 700..2300; 250 µm of padding is 1000 px, clamped at 0.
-    assert (image["left"], image["top"]) == (0, 0)
-    assert 3300 <= image["width"] <= 3400 and 3300 <= image["height"] <= 3400
+    # The disk spans slide pixels 700..2300; 80 µm of padding is 320 px.
+    assert 340 <= image["left"] <= 400 and 340 <= image["top"] <= 400
+    assert 2200 <= image["width"] <= 2300 and 2200 <= image["height"] <= 2300
     assert (image["slide_width"], image["levels"]) == (8000, 6)
     slide = patch["slide"]
-    assert [t[:4] for t in slide["tiles"]] == [[0, 0, image["width"], image["height"]]]
+    box = [image[k] for k in ("left", "top", "width", "height")]
+    assert [t[:4] for t in slide["tiles"]] == [box]
     assert slide["tiles"][slide["current"]][4] is True
     assert auth.get(f"/patches/{patch['id']}/slide-thumbnail").content == _png("histo")
 

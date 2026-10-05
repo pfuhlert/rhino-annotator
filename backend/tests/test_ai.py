@@ -53,6 +53,15 @@ def test_queue_is_idempotent_and_captures_image(auth, queued):
     assert result[0]["id"] == f"ai-{task_id}"
 
 
+def test_results_finishing_after_moving_on_show_in_an_overlapping_patch(auth, queued):
+    patch, _ = queued
+    task_id, _ = claim()
+    nxt = auth.get("/patches/next").json()
+    dx = nxt["image"]["left"]
+    complete(task_id, {"points": [[dx + 10, 10], [dx + 50, 10], [dx + 30, 50]]}, 20)
+    assert marks(auth, nxt["id"])[0]["points"] == POLYGON["points"]
+
+
 def test_background_and_manual_updates_merge_atomically(auth, queued):
     patch, prompt = queued
     task_id, _ = claim()
@@ -188,7 +197,8 @@ def test_worker_recovers_from_busy_database_without_repeating_prediction(queued,
         assert task.status == {"fail": "failed", "cancel": "cancelled"}.get(stage, "done")
         from simple_annotator.annotations import elements
 
-        assert len(elements(db, task.user_id, task.patch_id)) == (stage not in ("fail", "cancel"))
+        patch = db.get(Patch, task.patch_id)
+        assert len(elements(db, task.user_id, patch)) == (stage not in ("fail", "cancel"))
 
 
 def test_competing_claims_only_start_a_task_once(queued):

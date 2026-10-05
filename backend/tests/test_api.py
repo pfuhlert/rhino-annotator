@@ -1,4 +1,5 @@
 import json
+import sqlite3
 
 import httpx
 import pytest
@@ -185,24 +186,11 @@ def test_folder_migration_preserves_history(auth, monkeypatch, existing_columns,
     from sqlalchemy import text
 
     from simple_annotator import db
-    from simple_annotator.models import Annotation
 
     monkeypatch.setenv("GIRDER_FOLDER_ID", legacy_folder)
     first = auth.get("/patches/current").json()
     auth.get("/patches/next")
     auth.get("/patches/prev")
-    element = {"type": "point", "points": [[10.0, 12.0]]}
-
-    with db.session_factory()() as session:
-        session.add(
-            Annotation(
-                patch_id=first["id"],
-                user_id=auth.get("/me").json()["id"],
-                job_id=1,
-                elements=json.dumps([element]),
-            )
-        )
-        session.commit()
     with db.get_engine().begin() as conn:
         if legacy_folder:
             conn.execute(text("UPDATE patches SET girder_item_id = 'legacy-image'"))
@@ -218,9 +206,6 @@ def test_folder_migration_preserves_history(auth, monkeypatch, existing_columns,
     current = auth.get("/patches/current").json()
     assert current["id"] == first["id"]
     assert current["folder_id"] == (legacy_folder or "placeholder")
-    assert [{k: v for k, v in e.items() if k != "id"} for e in current["elements"]] == [
-        {**element, "jobId": 1}
-    ]
 
 
 def test_annotation_saves_preserve_selected_job(auth: TestClient):
@@ -264,31 +249,104 @@ def test_patch_calibration_follows_image_through_history(auth, monkeypatch):
     assert auth.get("/patches/next").json()["nm_per_px"] == b["nm_per_px"]
 
 
-def test_legacy_annotations_keep_their_ids_when_edited_and_deleted(auth):
-    from simple_annotator.db import session_factory
-    from simple_annotator.models import Annotation
-
-    patch_id = auth.get("/patches/current").json()["id"]
-    user_id = auth.get("/me").json()["id"]
-    marks = [{"type": "point", "points": [[x, 10]]} for x in (10, 20, 30)]
-    marks[2]["id"] = "existing"
-    with session_factory()() as db:
-        db.add(Annotation(patch_id=patch_id, user_id=user_id, job_id=1, elements=json.dumps(marks)))
-        db.commit()
-    original = auth.get("/patches/current").json()["elements"]
-    edited = {**original[1], "points": [[25, 15]]}
-    response = auth.patch(
-        f"/patches/{patch_id}/annotations",
-        json={"upsert": [edited], "delete": [original[0]["id"]]},
-    )
+def test_annotations_follow_the_image_into_overlapping_patches(auth):
+    first = auth.get("/patches/current").json()
+    second = auth.get("/patches/next").json()
+    dx = second["image"]["left"] - first["image"]["left"]
+    assert first["item_id"] == second["item_id"] and 0 < dx < first["image"]["width"]
+    shared = {"id": "shared", "jobId": 1, "type": "point", "points": [[dx + 5.0, 12.0]]}
+    own = {"id": "own", "jobId": 1, "type": "point", "points": [[5.0, 12.0]]}
+    response = auth.patch(f"/patches/{first['id']}/annotations", json={"upsert": [shared, own]})
     assert response.status_code == 200
-    loaded = auth.get("/patches/current").json()["elements"]
-    assert {el["id"]: el for el in loaded} == {edited["id"]: edited, "existing": original[2]}
-    assert (
-        auth.patch(f"/patches/{patch_id}/annotations", json={"delete": [edited["id"]]}).status_code
-        == 200
-    )
-    assert auth.get("/patches/current").json()["elements"] == [original[2]]
+    assert auth.get("/patches/current").json()["elements"] == [{**shared, "points": [[5.0, 12.0]]}]
+    moved = {**shared, "points": [[7.0, 12.0]]}
+    auth.patch(f"/patches/{second['id']}/annotations", json={"upsert": [moved]})
+    loaded = auth.get("/patches/prev").json()["elements"]
+    assert {el["id"]: el for el in loaded} == {
+        "shared": {**moved, "points": [[dx + 7.0, 12.0]]},
+        "own": own,
+    }
+
+
+def _legacy_annotations(rows, user_id):
+    from sqlalchemy import text
+
+    from simple_annotator import db
+
+    with db.get_engine().begin() as conn:
+        conn.execute(text("DROP TABLE annotations"))
+        conn.execute(
+            text(
+                "CREATE TABLE annotations (id INTEGER PRIMARY KEY, patch_id INTEGER, "
+                "user_id INTEGER, job_id INTEGER, elements TEXT)"
+            )
+        )
+        for patch_id, marks in rows:
+            conn.execute(
+                text("INSERT INTO annotations VALUES (NULL, :p, :u, 1, :e)"),
+                {"p": patch_id, "u": user_id, "e": json.dumps(marks)},
+            )
+
+
+def test_patch_annotations_migrate_to_image_coordinates(auth):
+    from simple_annotator import db
+    from simple_annotator.config import sqlite_path
+
+    first = auth.get("/patches/current").json()
+    second = auth.get("/patches/next").json()
+    user_id = auth.get("/me").json()["id"]
+    dx = second["image"]["left"] - first["image"]["left"]
+    rows = [
+        (first["id"], [{"type": "point", "points": [[dx + 5, 10]]}]),
+        (first["id"], [{"type": "point", "points": [[1, 2]]}]),
+        (second["id"], [{"id": "kept", "type": "polygon", "points": [[1, 1], [9, 1], [9, 9]]}]),
+    ]
+    _legacy_annotations(rows, user_id)
+
+    db.init_db()
+    db.init_db()
+    assert auth.get("/patches/current").json()["elements"] == [
+        {"id": "legacy-1-0", "jobId": 1, "type": "point", "points": [[5, 10]]},
+        {"id": "kept", "jobId": 1, "type": "polygon", "points": [[1, 1], [9, 1], [9, 9]]},
+    ]
+    assert [el["id"] for el in auth.get("/patches/prev").json()["elements"]] == [
+        "legacy-1-0",
+        "legacy-2-0",
+        "kept",
+    ]
+    with sqlite3.connect(sqlite_path()) as conn:
+        assert conn.execute("SELECT count(*) FROM annotations_json").fetchone() == (3,)
+    assert auth.get("/me").json()["done_count"] == 1
+
+
+def test_failed_annotation_migration_leaves_the_old_table_intact(auth, monkeypatch):
+    from simple_annotator import db
+    from simple_annotator.config import sqlite_path
+
+    patch = auth.get("/patches/current").json()
+    _legacy_annotations([(patch["id"], [{"type": "point", "points": [[1, 2]]}])], 1)
+
+    def broken(*_):
+        raise RuntimeError("interrupted")
+
+    monkeypatch.setattr(db, "element_row", broken)
+    with pytest.raises(RuntimeError):
+        db.init_db()
+    with sqlite3.connect(sqlite_path()) as conn:
+        assert "patch_id" in {row[1] for row in conn.execute("PRAGMA table_info(annotations)")}
+        assert conn.execute("SELECT count(*) FROM annotations").fetchone() == (1,)
+    monkeypatch.undo()
+    db.init_db()
+    assert [el["points"] for el in auth.get("/patches/current").json()["elements"]] == [[[1, 2]]]
+
+
+@pytest.mark.parametrize("points", [[], [[1, 2, 3]], [[1]]])
+def test_annotations_without_valid_points_are_rejected(auth, points):
+    patch_id = auth.get("/patches/current").json()["id"]
+    element = {"jobId": 1, "type": "polygon", "points": points}
+    response = auth.patch(f"/patches/{patch_id}/annotations", json={"upsert": [element]})
+    assert response.status_code == 422
+    assert auth.get("/patches/current").json()["elements"] == []
 
 
 def test_image_server_failure_returns_clear_error(auth: TestClient, monkeypatch):

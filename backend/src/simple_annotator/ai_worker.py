@@ -9,7 +9,7 @@ from sqlalchemy import select, update
 from simple_annotator.annotations import Changes, Edit, ai_element_id, apply_changes, lock
 from simple_annotator.config import AI_MODELS, sqlite_path
 from simple_annotator.db import init_db, retry_sqlite_busy, session_factory
-from simple_annotator.models import AiEmbedding, AiTask, AiWorker
+from simple_annotator.models import AiEmbedding, AiTask, AiWorker, Patch
 
 log = logging.getLogger(__name__)
 
@@ -40,7 +40,7 @@ def complete(task_id: str, polygon: dict, elapsed_ms: int) -> None:
         if task.status != "running":
             return
         el = Edit(id=ai_element_id(task.id), jobId=task.job_id, type="polygon", **polygon)
-        apply_changes(db, task.user_id, task.patch_id, Changes(upsert=[el]))
+        apply_changes(db, task.user_id, db.get(Patch, task.patch_id), Changes(upsert=[el]))
         task.status = "done"
         task.finished = time.time()
         task.elapsed_ms = elapsed_ms

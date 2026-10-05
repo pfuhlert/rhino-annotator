@@ -123,9 +123,13 @@ def logout(
 
 
 def _done_count(db: Session, user: User) -> int:
-    return db.scalar(
-        select(func.count()).select_from(Annotation).where(Annotation.user_id == user.id)
+    annotated = (
+        select(Annotation.item_id, Annotation.job_id)
+        .where(Annotation.user_id == user.id)
+        .distinct()
+        .subquery()
     )
+    return db.scalar(select(func.count()).select_from(annotated))
 
 
 @me_router.get("/me")

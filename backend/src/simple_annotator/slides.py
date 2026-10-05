@@ -44,7 +44,7 @@ class UnreadableImage(Exception):
 def _signature(slide: Slide) -> str:
     if slide.histo:
         params = (REGION_MAX_UM, TILE_OVERLAP_UM, REGION_PAD_UM, REGION_MERGE_UM)
-        return f"v2:regions:{':'.join(f'{v:g}' for v in params)}:{TISSUE_MIN_AREA_UM2:g}"
+        return f"v3:regions:{':'.join(f'{v:g}' for v in params)}:{TISSUE_MIN_AREA_UM2:g}"
     if max(slide.width, slide.height) <= FULL_IMAGE_MAX:
         return "v1:whole"
     return f"v1:{CROP_SIZE}:{CROP_SIZE - _crop_overlap()}:all"

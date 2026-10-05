@@ -1,4 +1,5 @@
 import fcntl
+import json
 import os
 import sqlite3
 import time
@@ -10,9 +11,10 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 
+from simple_annotator.annotations import element_row, shift
 from simple_annotator.config import sqlite_path
 from simple_annotator.girder import PLACEHOLDER_FOLDER
-from simple_annotator.models import Base, Job
+from simple_annotator.models import Annotation, Base, Job
 
 SEED_JOBS = (
     ("glomerulus", "#e11d48"),
@@ -89,8 +91,40 @@ def reset_engine() -> None:
     _SessionLocal = None
 
 
+def _annotations_to_rows(conn, columns: set[str]) -> None:
+    # The old table stays as a backup of the annotations before the rewrite.
+    conn.execute(text("ALTER TABLE annotations RENAME TO annotations_json"))
+    Annotation.__table__.create(conn)
+    if "patch_id" in columns:
+        query = """
+            SELECT a.id, a.user_id, a.job_id, a.elements, p.girder_item_id AS item_id,
+                   p."left" AS dx, p.top AS dy
+            FROM annotations_json a JOIN patches p ON p.id = a.patch_id ORDER BY a.id
+        """
+    else:
+        query = """
+            SELECT id, user_id, job_id, elements, item_id, 0 AS dx, 0 AS dy
+            FROM annotations_json ORDER BY id
+        """
+    rows = {}
+    for old in conn.execute(text(query)):
+        for i, el in enumerate(json.loads(old.elements)):
+            el.setdefault("id", f"legacy-{old.id}-{i}")
+            moved = shift(el, old.dx, old.dy)
+            rows[old.user_id, old.item_id, el["id"]] = element_row(
+                old.item_id, old.user_id, old.job_id, moved
+            )
+    if rows:
+        conn.execute(Annotation.__table__.insert(), list(rows.values()))
+
+
 def _migrate(engine: Engine) -> None:
     with engine.begin() as conn:
+        # pysqlite leaves schema changes outside a transaction unless one is opened explicitly.
+        conn.execute(text("BEGIN IMMEDIATE"))
+        cols = {row[1] for row in conn.execute(text("PRAGMA table_info(annotations)"))}
+        if "elements" in cols:
+            _annotations_to_rows(conn, cols)
         ai_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(ai_tasks)"))}
         if ai_cols and "finished" not in ai_cols:
             conn.execute(text("ALTER TABLE ai_tasks ADD COLUMN finished FLOAT"))
