@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { cn } from "cn";
 import AnnotationList from "@/components/AnnotationList";
 import FolderPicker from "@/components/FolderPicker";
 import ImageList, { StainFilter } from "@/components/ImageList";
+import MarkedScroll from "@/components/MarkedScroll";
 import { OverlayPin, OverlayTrigger } from "@/components/Overlay";
-import { Button } from "@/components/ui/button";
+import UserMenu from "@/components/UserMenu";
 import {
   api,
   type Element,
@@ -16,12 +17,23 @@ import {
   type Me,
   type Patch,
 } from "@/lib/api";
+import { groupImages, strongest } from "@/lib/images";
 
 const TABS = [
   ["images", "Images"],
   ["annotations", "Annotations"],
 ] as const;
 type Tab = (typeof TABS)[number][0];
+const TAB_KEY = "sidebar-tab";
+
+function readTab(): Tab | null {
+  try {
+    const tab = localStorage.getItem(TAB_KEY);
+    return TABS.some(([id]) => id === tab) ? (tab as Tab) : null;
+  } catch {
+    return null;
+  }
+}
 
 function useFolderPath(folderId: string | null) {
   const [path, setPath] = useState<{ folder: FolderLevel; parent: FolderLevel } | null>(null);
@@ -43,8 +55,9 @@ function useFolderPath(folderId: string | null) {
   return { path, failed: failedId === folderId };
 }
 
-// Refetched per image (not per region) so images left behind show their final progress.
-function useCatalog(folderId: string | null, itemId: string | null) {
+// Refetched per image (not per region) so images left behind show their final progress, and after
+// each save so annotation marks follow edits.
+function useCatalog(folderId: string | null, itemId: string | null, saves: number) {
   const [catalog, setCatalog] = useState<{ folderId: string; data: ImageCatalog } | null>(null);
   const [failedId, setFailedId] = useState<string | null>(null);
   useEffect(() => {
@@ -57,7 +70,7 @@ function useCatalog(folderId: string | null, itemId: string | null) {
     return () => {
       live = false;
     };
-  }, [folderId, itemId]);
+  }, [folderId, itemId, saves]);
   return {
     catalog: catalog?.folderId === folderId ? catalog.data : null,
     failed: failedId === folderId,
@@ -78,6 +91,8 @@ export default function Sidebar({
   onHoverMark,
   onSelectMark,
   onDeleteMark,
+  saves,
+  onShortcuts,
   onLogout,
 }: {
   me: Me;
@@ -93,28 +108,35 @@ export default function Sidebar({
   onHoverMark: (id: string | null) => void;
   onSelectMark: (mark: Element) => void;
   onDeleteMark: (id: string) => void;
+  // Bumped after each save.
+  saves: number;
+  onShortcuts: () => void;
   onLogout: () => void;
 }) {
-  // Until a tab is picked, follow the patch: Annotations once one loads, Images otherwise.
-  const [pickedTab, setTab] = useState<Tab | null>(null);
-  const tab = pickedTab ?? (!folderId || loadFailed ? "images" : "annotations");
+  // Images while no image can load; otherwise the last picked tab, Annotations by default.
+  const [pickedTab, setPickedTab] = useState(readTab);
+  const tab = !folderId || loadFailed ? "images" : (pickedTab ?? "annotations");
+  const setTab = (next: Tab) => {
+    setPickedTab(next);
+    try {
+      localStorage.setItem(TAB_KEY, next);
+    } catch {}
+  };
   // The last loaded path, possibly for the previous folder while the new one loads.
   const { path: lastPath, failed: pathFailed } = useFolderPath(folderId);
-  const path = lastPath?.folder.id === folderId ? lastPath : null;
   const { catalog, failed: catalogFailed } = useCatalog(
     me.last_folder_id === folderId ? folderId : null,
     patch?.item_id ?? null,
+    saves,
   );
-  const polygons = marks.filter((m) => m.type === "polygon").length;
-  const slide = patch?.slide;
-  const folderLabel = path ? (
-    <>
-      {path.parent.id && <span className="text-sidebar-foreground/60">{path.parent.name} / </span>}
-      {path.folder.name}
-    </>
-  ) : (
-    "No dataset selected"
+  const groups = useMemo(
+    () => (catalog ? groupImages(catalog.items, me.stain_filter, patch) : null),
+    [catalog, me.stain_filter, patch],
   );
+  const progress = groups && {
+    done: groups.reduce((n, g) => n + g.done, 0),
+    total: groups.reduce((n, g) => n + g.rows.length, 0),
+  };
 
   return (
     <>
@@ -123,18 +145,6 @@ export default function Sidebar({
         <OverlayTrigger />
         <OverlayPin />
       </div>
-      <button
-        type="button"
-        data-testid="sidebar-context"
-        className="mx-2 mt-1 flex flex-col rounded-md px-2 py-1.5 text-left hover:bg-sidebar-accent"
-        onClick={() => setTab("images")}
-      >
-        <span className="truncate text-sm font-medium">{folderLabel}</span>
-        <span className="text-xs text-muted-foreground tabular-nums">
-          {slide ? `Region ${slide.current + 1}/${slide.tiles.length} · ` : ""}
-          {polygons} annotation{polygons === 1 ? "" : "s"}
-        </span>
-      </button>
       <div
         role="tablist"
         className="mx-2 my-2 grid grid-cols-2 gap-0.5 rounded-lg bg-sidebar-accent p-0.5"
@@ -156,10 +166,10 @@ export default function Sidebar({
           </button>
         ))}
       </div>
-      <div
+      <MarkedScroll
         role="tabpanel"
         // No top padding: pinned rows would leave a see-through band above them.
-        className="flex min-h-0 flex-1 flex-col overflow-auto px-2 pb-2 [scrollbar-width:none]"
+        className="flex min-h-0 flex-1 flex-col overflow-auto px-2 pb-2"
       >
         {tab === "images" &&
           (folderId && !lastPath && !pathFailed ? (
@@ -169,15 +179,16 @@ export default function Sidebar({
               selectedId={folderId}
               initialLevel={lastPath?.parent ?? null}
               onUse={onUseFolder}
+              progress={progress}
+              mark={groups && strongest(groups.map((g) => g.mark))}
               pinned={
                 <StainFilter catalog={catalog} stains={me.stain_filter} onStains={onStains} />
               }
               selected={
                 <ImageList
-                  catalog={catalog}
+                  groups={groups}
                   failed={catalogFailed}
-                  patch={patch}
-                  stains={me.stain_filter}
+                  currentId={patch?.item_id ?? null}
                   onOpen={onOpenImage}
                 />
               }
@@ -199,16 +210,8 @@ export default function Sidebar({
             onDelete={onDeleteMark}
           />
         )}
-      </div>
-      <div className="flex w-full items-center justify-between p-2">
-        <div className="flex min-w-0 items-baseline gap-2 px-2">
-          <div className="truncate text-sm font-medium">{me.username}</div>
-          <div className="shrink-0 text-xs text-muted-foreground">{me.done_count} done</div>
-        </div>
-        <Button data-testid="logout" variant="ghost" size="sm" onClick={onLogout}>
-          Log out
-        </Button>
-      </div>
+      </MarkedScroll>
+      <UserMenu username={me.username} onShortcuts={onShortcuts} onLogout={onLogout} />
     </>
   );
 }

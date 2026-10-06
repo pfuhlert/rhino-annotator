@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from simple_annotator.auth import current_user
 from simple_annotator.db import get_db
 from simple_annotator.girder import PLACEHOLDER_FOLDER, folder_images, get_item, girder_enabled
-from simple_annotator.models import Patch, PatchVisit, Slide, User
+from simple_annotator.models import Annotation, Patch, PatchVisit, Slide, User
 
 router = APIRouter(prefix="/images")
 
@@ -83,6 +83,13 @@ def list_images(user: User = Depends(current_user), db: Session = Depends(get_db
             .group_by(Patch.girder_item_id)
         ).all()
     )
+    annotations = dict(
+        db.execute(
+            select(Annotation.item_id, func.count())
+            .where(Annotation.user_id == user.id, Annotation.item_id.in_(ids))
+            .group_by(Annotation.item_id)
+        ).all()
+    )
     stains = Counter(staining(item) for item in items)
     return {
         "items": [
@@ -94,6 +101,7 @@ def list_images(user: User = Depends(current_user), db: Session = Depends(get_db
                 "magnification": magnification(item),
                 "regions": regions.get(item["_id"]),
                 "visited": visited.get(item["_id"], 0),
+                "annotations": annotations.get(item["_id"], 0),
             }
             for item in items
         ],

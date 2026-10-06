@@ -1,14 +1,31 @@
 "use client";
 
-import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
-import { PanelLeftIcon, PinIcon, PinOffIcon } from "lucide-react";
+import {
+  createContext,
+  type CSSProperties,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
+import { PanelLeftIcon, PinIcon } from "lucide-react";
+import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 
 const PIN_KEY = "sidebar-pinned";
+const WIDTH_KEY = "sidebar-width";
+const WIDTH = { min: 224, default: 256, max: 480 };
 const EDGE_PX = 8;
 const PEEK_CLOSE_MS = 300;
 
-type OverlayState = { toggle: () => void; pinned: boolean; togglePin: () => void };
+type OverlayState = {
+  toggle: () => void;
+  expanded: boolean;
+  pinned: boolean;
+  togglePin: () => void;
+};
 const OverlayCtx = createContext<OverlayState | null>(null);
 
 function readPinned() {
@@ -19,9 +36,50 @@ function readPinned() {
   }
 }
 
+function readWidth() {
+  try {
+    const width = Number(localStorage.getItem(WIDTH_KEY));
+    return width ? clampWidth(width) : WIDTH.default;
+  } catch {
+    return WIDTH.default;
+  }
+}
+
+const clampWidth = (px: number) => Math.round(Math.min(WIDTH.max, Math.max(WIDTH.min, px)));
+
+function ResizeHandle({ onResize }: { onResize: (px: number) => void }) {
+  const [dragging, setDragging] = useState(false);
+  function start(e: ReactPointerEvent<HTMLDivElement>) {
+    e.preventDefault();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    setDragging(true);
+  }
+  return (
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Resize sidebar"
+      data-testid="sidebar-resize"
+      title="Drag to resize, double-click to reset"
+      className={cn(
+        "group absolute inset-y-0 right-0 z-10 w-1.5 cursor-col-resize touch-none",
+        dragging && "active",
+      )}
+      onPointerDown={start}
+      onPointerMove={(e) => dragging && onResize(clampWidth(e.clientX))}
+      onPointerUp={() => setDragging(false)}
+      onPointerCancel={() => setDragging(false)}
+      onDoubleClick={() => onResize(WIDTH.default)}
+    >
+      <span className="absolute inset-y-0 right-0 w-px bg-sidebar-border transition-colors group-hover:w-0.5 group-hover:bg-sidebar-ring group-[.active]:w-0.5 group-[.active]:bg-sidebar-ring" />
+    </div>
+  );
+}
+
 export function Overlay({ sidebar, children }: { sidebar: ReactNode; children: ReactNode }) {
   const [open, setOpen] = useState<"closed" | "peek" | "open">("open");
   const [pinned, setPinned] = useState(readPinned);
+  const [width, setWidth] = useState(readWidth);
   const panelRef = useRef<HTMLDivElement>(null);
   const expanded = pinned || open !== "closed";
 
@@ -29,6 +87,8 @@ export function Overlay({ sidebar, children }: { sidebar: ReactNode; children: R
     if (!expanded || pinned) return;
     const outside = (e: Event) => {
       const el = e.target as Element | null;
+      // An open dialog and its backdrop sit outside the panel but don't dismiss it.
+      if (document.querySelector("[role=dialog]")) return;
       if (el?.closest("[data-slot=overlay-panel],[data-slot=sidebar-trigger]")) return;
       setOpen("closed");
     };
@@ -63,6 +123,12 @@ export function Overlay({ sidebar, children }: { sidebar: ReactNode; children: R
     };
   }, [open, pinned]);
 
+  useEffect(() => {
+    try {
+      localStorage.setItem(WIDTH_KEY, String(width));
+    } catch {}
+  }, [width]);
+
   function togglePin() {
     const next = !pinned;
     setPinned(next);
@@ -74,6 +140,7 @@ export function Overlay({ sidebar, children }: { sidebar: ReactNode; children: R
 
   const state: OverlayState = {
     toggle: () => (pinned ? togglePin() : setOpen(expanded ? "closed" : "open")),
+    expanded,
     pinned,
     togglePin,
   };
@@ -85,6 +152,7 @@ export function Overlay({ sidebar, children }: { sidebar: ReactNode; children: R
         data-state={expanded ? "expanded" : "collapsed"}
         data-pinned={pinned || undefined}
         className="flex h-dvh min-h-0 w-full"
+        style={{ "--overlay-width": `${width}px` } as CSSProperties}
       >
         <div
           ref={panelRef}
@@ -95,6 +163,7 @@ export function Overlay({ sidebar, children }: { sidebar: ReactNode; children: R
           <div data-slot="overlay-inner" className="flex size-full flex-col bg-sidebar">
             {sidebar}
           </div>
+          <ResizeHandle onResize={setWidth} />
         </div>
         {children}
       </div>
@@ -102,7 +171,7 @@ export function Overlay({ sidebar, children }: { sidebar: ReactNode; children: R
   );
 }
 
-function useOverlay() {
+export function useOverlay() {
   const ctx = useContext(OverlayCtx);
   if (!ctx) throw new Error("Overlay components need Overlay");
   return ctx;
@@ -134,9 +203,12 @@ export function OverlayPin() {
       size="icon-xs"
       aria-pressed={pinned}
       title={pinned ? "Unpin sidebar" : "Pin sidebar"}
+      className={cn("text-muted-foreground hover:text-foreground", pinned && "text-foreground")}
       onClick={togglePin}
     >
-      {pinned ? <PinOffIcon /> : <PinIcon />}
+      <PinIcon
+        className={cn("size-3.5! transition-transform", pinned ? "fill-current" : "rotate-45")}
+      />
       <span className="sr-only">{pinned ? "Unpin sidebar" : "Pin sidebar"}</span>
     </Button>
   );

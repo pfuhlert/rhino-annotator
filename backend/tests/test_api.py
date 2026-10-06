@@ -44,11 +44,9 @@ def test_sticky_job_and_annotations(auth: TestClient):
     assert auth.get("/patches/current").json()["elements"] == [element]
     me = auth.get("/me").json()
     assert me["last_job_id"] == tubule["id"]
-    assert me["done_count"] == 1
     nxt2 = auth.get("/patches/next")
     assert nxt2.status_code == 200
     assert nxt2.json()["id"] != patch_id
-    assert auth.get("/me").json()["done_count"] == 1
 
 
 def test_current_and_prev_patch(auth: TestClient):
@@ -129,7 +127,7 @@ def test_stain_filter_is_kept_per_folder_choice(auth: TestClient):
     ]
     assert auth.patch("/me", json={"last_folder_id": "a"}).json()["stain_filter"] == ["PAS", None]
     kept = auth.patch("/me", json={"last_job_id": 2}).json()
-    assert (kept["stain_filter"], kept["done_count"]) == (["PAS", None], 0)
+    assert kept["stain_filter"] == ["PAS", None]
     assert auth.patch("/me", json={"last_folder_id": "b"}).json()["stain_filter"] == []
     auth.patch("/me", json={"stain_filter": ["HE"]})
     assert auth.patch("/me", json={"stain_filter": []}).json()["stain_filter"] == []
@@ -316,7 +314,6 @@ def test_patch_annotations_migrate_to_image_coordinates(auth):
     ]
     with sqlite3.connect(sqlite_path()) as conn:
         assert conn.execute("SELECT count(*) FROM annotations_json").fetchone() == (3,)
-    assert auth.get("/me").json()["done_count"] == 1
 
 
 def test_failed_annotation_migration_leaves_the_old_table_intact(auth, monkeypatch):

@@ -5,13 +5,13 @@ import secrets
 from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi.security import APIKeyCookie
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from simple_annotator.config import COOKIE_NAME
 from simple_annotator.db import ELMI_JOBS, SEED_JOBS, get_db
 from simple_annotator.girder import is_elmi_folder, list_folders
-from simple_annotator.models import Annotation, Job, User
+from simple_annotator.models import Job, User
 from simple_annotator.models import Session as AuthSession
 
 router = APIRouter(prefix="/auth")
@@ -61,17 +61,14 @@ def _set_session(db: Session, user: User, response: Response) -> None:
     )
 
 
-def _user_json(user: User, done_count: int | None = None) -> dict:
-    out = {
+def _user_json(user: User) -> dict:
+    return {
         "id": user.id,
         "username": user.username,
         "last_job_id": user.last_job_id,
         "last_folder_id": user.last_folder_id,
         "stain_filter": user_stains(user),
     }
-    if done_count is not None:
-        out["done_count"] = done_count
-    return out
 
 
 def user_stains(user: User) -> list[str | None]:
@@ -122,19 +119,9 @@ def logout(
     return {"ok": True}
 
 
-def _done_count(db: Session, user: User) -> int:
-    annotated = (
-        select(Annotation.item_id, Annotation.job_id)
-        .where(Annotation.user_id == user.id)
-        .distinct()
-        .subquery()
-    )
-    return db.scalar(select(func.count()).select_from(annotated))
-
-
 @me_router.get("/me")
-def me(user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
-    return _user_json(user, _done_count(db, user))
+def me(user: User = Depends(current_user)) -> dict:
+    return _user_json(user)
 
 
 @me_router.patch("/me")
@@ -150,7 +137,7 @@ def patch_me(
     if "stain_filter" in body.model_fields_set:
         user.stain_filter = json.dumps(body.stain_filter) if body.stain_filter else None
     db.commit()
-    return _user_json(user, _done_count(db, user))
+    return _user_json(user)
 
 
 @me_router.get("/folders")

@@ -1,6 +1,15 @@
 import type { ImageRow, Patch } from "@/lib/api";
 
-export type ImageGroup = { name: string; rows: ImageRow[]; done: number };
+export type ImageGroup = { name: string; rows: ImageRow[]; done: number; mark: Mark | null };
+
+// Opening an image already visits its first region, so annotated is the stronger mark.
+export type Mark = "annotated" | "visited";
+
+export const rowMark = (row: ImageRow): Mark | null =>
+  row.annotations ? "annotated" : row.visited ? "visited" : null;
+
+export const strongest = (marks: (Mark | null)[]): Mark | null =>
+  marks.includes("annotated") ? "annotated" : marks.includes("visited") ? "visited" : null;
 
 export const isDone = (row: ImageRow) => row.regions !== null && row.visited >= row.regions;
 
@@ -23,9 +32,11 @@ export function groupImages(
     if (stains.length && !stains.includes(item.staining)) continue;
     const row = withProgress(item, patch);
     let group = groups.at(-1);
-    if (group?.name !== row.group) groups.push((group = { name: row.group, rows: [], done: 0 }));
+    if (group?.name !== row.group)
+      groups.push((group = { name: row.group, rows: [], done: 0, mark: null }));
     group.rows.push(row);
     if (isDone(row)) group.done++;
+    group.mark = strongest([group.mark, rowMark(row)]);
   }
   return groups;
 }

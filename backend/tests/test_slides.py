@@ -170,16 +170,29 @@ def test_image_list_groups_by_case_with_stains_and_progress(auth, girder):
     girder[2]["meta"]["image_magnification"] = 206.156046875
     auth.get("/patches/current")
     auth.post("/patches/open", json={"item_id": "gray"})
-    auth.get("/patches/next")
+    patch_id = auth.get("/patches/next").json()["id"]
+    dots = [{"id": i, "jobId": 1, "type": "point", "points": [[5.0, 5.0]]} for i in "ab"]
+    auth.patch(f"/patches/{patch_id}/annotations", json={"upsert": dots})
     listing = auth.get("/images").json()
     rows = [
-        (r["id"], r["group"], r["staining"], r["magnification"], r["regions"], r["visited"])
+        tuple(
+            r[k]
+            for k in (
+                "id",
+                "group",
+                "staining",
+                "magnification",
+                "regions",
+                "visited",
+                "annotations",
+            )
+        )
         for r in listing["items"]
     ]
     assert rows == [
-        ("small", "case-2", "PAS", 20, 1, 1),
-        ("gray", "case-10", "HE", 40, 36, 2),
-        ("histo", "zz", "PAS", None, None, 0),
+        ("small", "case-2", "PAS", 20, 1, 1, 0),
+        ("gray", "case-10", "HE", 40, 36, 2, 2),
+        ("histo", "zz", "PAS", None, None, 0, 0),
     ]
     assert listing["stains"] == [{"name": "PAS", "count": 2}, {"name": "HE", "count": 1}]
 

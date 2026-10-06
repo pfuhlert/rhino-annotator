@@ -1,19 +1,58 @@
 "use client";
 
 import { type ReactNode, useEffect, useState } from "react";
-import { CheckIcon, ChevronLeftIcon, ChevronRightIcon, FolderIcon } from "lucide-react";
+import {
+  CheckIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  FolderIcon,
+  FolderOpenIcon,
+} from "lucide-react";
 import { cn } from "cn";
+import MarkDot from "@/components/MarkDot";
 import { Button } from "@/components/ui/button";
 import { api, type FolderChild, type FolderLevel } from "@/lib/api";
+import type { Mark } from "@/lib/images";
+
+function CollapseToggle({
+  collapsed,
+  onToggle,
+  className,
+}: {
+  collapsed: boolean;
+  onToggle: () => void;
+  className?: string;
+}) {
+  const Icon = collapsed ? FolderIcon : FolderOpenIcon;
+  return (
+    <Button
+      data-testid="folder-collapse"
+      variant="ghost"
+      size="icon-xs"
+      aria-expanded={!collapsed}
+      aria-label={collapsed ? "Show images" : "Hide images"}
+      className={cn("text-muted-foreground hover:text-foreground", className)}
+      onClick={onToggle}
+    >
+      <Icon className="size-4" />
+    </Button>
+  );
+}
 
 function FolderRow({
   child,
   active,
+  mark,
+  collapsed,
+  onToggle,
   onOpen,
   onUse,
 }: {
   child: FolderChild;
   active: boolean;
+  mark: Mark | null;
+  collapsed: boolean;
+  onToggle: () => void;
   onOpen: () => void;
   onUse: () => void;
 }) {
@@ -28,14 +67,20 @@ function FolderRow({
       {active && (
         <span className="absolute inset-y-1.5 left-0 w-0.5 rounded-full bg-sidebar-primary" />
       )}
+      {/* Takes the folder icon's place, so the name stays aligned with the other rows. */}
+      {active && <CollapseToggle collapsed={collapsed} onToggle={onToggle} className="ml-1" />}
       <button
         type="button"
         data-testid={`folder-${child.id}`}
-        className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-left text-sm"
-        onClick={drill ? onOpen : onUse}
+        className={cn(
+          "flex min-w-0 flex-1 items-center gap-2 py-1.5 pr-2 text-left text-sm",
+          active ? "pl-1" : "pl-2",
+        )}
+        onClick={drill ? onOpen : active ? onToggle : onUse}
       >
-        <FolderIcon className="size-4 shrink-0 text-muted-foreground" />
+        {!active && <FolderIcon className="size-4 shrink-0 text-muted-foreground" />}
         <span className={cn("min-w-0 flex-1 truncate", active && "font-medium")}>{child.name}</span>
+        <MarkDot mark={mark} />
         {child.n_items > 0 && (
           <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
             {child.n_items}
@@ -79,26 +124,50 @@ function UseButton({
   );
 }
 
-function Indent({ className, children }: { className?: string; children: ReactNode }) {
+type Progress = { done: number; total: number };
+
+// The label is drawn twice, the filled copy clipped to the fill, so it reads on both halves.
+function ProgressBar({ done, total }: Progress) {
+  const label = `${done}/${total} done`;
   return (
-    <div className={cn("ml-3 border-l border-sidebar-border pl-1", className)}>{children}</div>
+    <div
+      role="progressbar"
+      aria-label="Images done"
+      aria-valuemin={0}
+      aria-valuemax={total}
+      aria-valuenow={done}
+      data-testid="folder-progress"
+      className="relative mt-1 h-3.5 overflow-hidden rounded-full bg-sidebar-accent text-center text-[10px] leading-3.5 font-medium tabular-nums"
+    >
+      <span className="text-sidebar-foreground/70">{label}</span>
+      <span
+        aria-hidden
+        className="absolute inset-0 bg-sidebar-primary text-sidebar-primary-foreground transition-[clip-path]"
+        style={{ clipPath: `inset(0 ${100 - (done / total) * 100}% 0 0)` }}
+      >
+        {label}
+      </span>
+    </div>
   );
 }
 
 // The selected folder and its pinned controls stay in view, opaque, while its images scroll by.
 function Pinned({
   pinned,
+  progress,
   className,
   children,
 }: {
   pinned: ReactNode;
+  progress: Progress | null;
   className: string;
   children: ReactNode;
 }) {
   return (
-    <div className={cn("sticky z-10 flex flex-col bg-sidebar", className)}>
+    <div data-scroll-pin className={cn("sticky z-10 flex flex-col bg-sidebar", className)}>
       {children}
-      <Indent className="pt-0.5 empty:hidden">{pinned}</Indent>
+      {progress && progress.total > 0 && <ProgressBar {...progress} />}
+      <div className="pt-0.5 empty:hidden">{pinned}</div>
     </div>
   );
 }
@@ -108,6 +177,8 @@ export default function FolderPicker({
   initialLevel,
   onUse,
   pinned,
+  progress,
+  mark,
   selected,
 }: {
   selectedId: string | null;
@@ -115,10 +186,18 @@ export default function FolderPicker({
   onUse: (id: string) => void;
   // Shown under the selected folder, which may be this level itself or one of its rows.
   pinned: ReactNode;
+  // Over the selected folder's listed images, null while they load.
+  progress: Progress | null;
+  // Strongest mark among the selected folder's listed images.
+  mark: Mark | null;
   selected: ReactNode;
 }) {
   const [level, setLevel] = useState(initialLevel);
   const [error, setError] = useState<string | null>(null);
+  // Keyed by folder, so switching to another folder shows its images again.
+  const [collapsedId, setCollapsedId] = useState<string | null>(null);
+  const collapsed = !!selectedId && collapsedId === selectedId;
+  const toggle = () => setCollapsedId(collapsed ? null : selectedId);
 
   useEffect(() => {
     if (level) return;
@@ -166,6 +245,8 @@ export default function FolderPicker({
       <span className={cn("min-w-0 flex-1 truncate", !level.id && "px-1")}>
         {level.id ? level.name : "Datasets"}
       </span>
+      {levelSelected && <MarkDot mark={mark} />}
+      {levelSelected && <CollapseToggle collapsed={collapsed} onToggle={toggle} />}
       {levelId &&
         (levelSelected ? (
           <CheckIcon className="mr-1 size-3.5 shrink-0" />
@@ -178,7 +259,7 @@ export default function FolderPicker({
   return (
     <div data-testid="folder-switcher" className="flex flex-col">
       {levelSelected ? (
-        <Pinned pinned={pinned} className="top-0">
+        <Pinned pinned={!collapsed && pinned} progress={progress} className="top-0">
           {levelHeader}
         </Pinned>
       ) : (
@@ -189,20 +270,21 @@ export default function FolderPicker({
           Could not load this folder. {error}
         </p>
       )}
-      {levelSelected ? (
-        <Indent className="mb-1">{selected}</Indent>
-      ) : (
-        level.children.length === 0 && (
-          <p className="px-2 py-1 text-xs text-muted-foreground">
-            {level.n_items} image{level.n_items === 1 ? "" : "s"}, no subfolders with images.
-          </p>
-        )
-      )}
+      {levelSelected
+        ? !collapsed && <div className="mb-1">{selected}</div>
+        : level.children.length === 0 && (
+            <p className="px-2 py-1 text-xs text-muted-foreground">
+              {level.n_items} image{level.n_items === 1 ? "" : "s"}, no subfolders with images.
+            </p>
+          )}
       {level.children.map((child) => {
         const row = (
           <FolderRow
             child={child}
             active={child.id === selectedId}
+            mark={child.id === selectedId ? mark : null}
+            collapsed={collapsed}
+            onToggle={toggle}
             onOpen={() => go(child.id)}
             onUse={() => onUse(child.id)}
           />
@@ -210,10 +292,10 @@ export default function FolderPicker({
         return child.id === selectedId ? (
           <div key={child.id} className="flex flex-col">
             {/* Below the pinned level header (h-8.5). */}
-            <Pinned pinned={pinned} className="top-8.5">
+            <Pinned pinned={!collapsed && pinned} progress={progress} className="top-8.5">
               {row}
             </Pinned>
-            <Indent className="mb-1">{selected}</Indent>
+            {!collapsed && <div className="mb-1">{selected}</div>}
           </div>
         ) : (
           <div key={child.id} className="pb-0.5">

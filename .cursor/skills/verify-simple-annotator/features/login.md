@@ -26,6 +26,7 @@ Preconditions:
 ```bash
 ./scripts/verify-simple-annotator browser \
   goto --path /annotate \
+  click --testid user-menu \
   click --testid logout \
   fill --testid username --value "$USER" \
   fill --testid password --value verify-pass \

@@ -6,6 +6,7 @@ import { AiCursorStatus } from "@/components/AiCursorStatus";
 import { BrushSizeControl } from "@/components/BrushSizeControl";
 import PatchCanvas, { type AnnotatorApi } from "@/components/PatchCanvas";
 import Sidebar from "@/components/Sidebar";
+import ShortcutsDialog from "@/components/ShortcutsDialog";
 import SlideMap from "@/components/SlideMap";
 import { Button } from "@/components/ui/button";
 import { Overlay } from "@/components/Overlay";
@@ -82,6 +83,8 @@ export default function AnnotatePage() {
   const [brushRadius, setBrushRadius] = useState(16);
   const [openMenu, setOpenMenu] = useState<Menu | null>(null);
   const [busy, setBusy] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [saves, setSaves] = useState(0);
   const toggleMenu = (id: Menu) => (open: boolean) =>
     setOpenMenu(open ? id : (cur) => (cur === id ? null : cur));
   const keyHandler = useRef<(e: KeyboardEvent) => void>(() => {});
@@ -175,7 +178,7 @@ export default function AnnotatePage() {
     try {
       await saver.save(annoRef.current.toElements());
       setSaveError(null);
-      setMe(await api.me());
+      setSaves((n) => n + 1);
     } catch (error) {
       setSaveError("Changes could not be saved. Please retry before leaving.");
       throw error;
@@ -289,8 +292,18 @@ export default function AnnotatePage() {
 
   useEffect(() => {
     keyHandler.current = (e: KeyboardEvent) => {
+      // Keys inside the dialog belong to it; isTypingTarget keeps them from the canvas too.
+      if (shortcutsOpen) {
+        if (e.key === "?") setShortcutsOpen(false);
+        return;
+      }
       if (isTypingTarget(e.target)) return;
       const k = e.key.toLowerCase();
+      if (k === "?") {
+        e.preventDefault();
+        setShortcutsOpen(true);
+        return;
+      }
       if (k === "tab") {
         e.preventDefault();
         const dir = e.shiftKey ? -1 : 1;
@@ -350,6 +363,8 @@ export default function AnnotatePage() {
       onHoverMark={(id) => annoRef.current?.highlight(id)}
       onSelectMark={selectMark}
       onDeleteMark={(id) => annoRef.current?.remove(id)}
+      saves={saves}
+      onShortcuts={() => setShortcutsOpen(true)}
       onLogout={async () => {
         await api.logout();
         router.replace("/");
@@ -359,10 +374,11 @@ export default function AnnotatePage() {
 
   return (
     <Overlay sidebar={sidebar}>
+      <ShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
       {!patch ? (
         <main
           data-testid="annotate-app"
-          className="flex min-h-0 w-full flex-1 items-center justify-center bg-black p-8 text-center text-sm text-muted-foreground"
+          className="flex min-h-0 w-full flex-1 items-center justify-center bg-canvas p-8 text-center text-sm text-muted-foreground"
         >
           {loadError ? (
             <LoadError
@@ -376,7 +392,7 @@ export default function AnnotatePage() {
       ) : (
         <main
           data-testid="annotate-app"
-          className="relative flex min-h-0 w-full flex-1 flex-col overflow-hidden bg-black"
+          className="relative flex min-h-0 w-full flex-1 flex-col overflow-hidden bg-canvas"
         >
           <PatchCanvas
             key={`${patch.id}:${openCount}`}
@@ -460,7 +476,11 @@ export default function AnnotatePage() {
                 onOpenChange={toggleMenu("job")}
                 onValueChange={(id) => void switchJob(Number(id))}
               >
-                <SelectTrigger data-testid="job-switcher" aria-label="Job">
+                <SelectTrigger
+                  data-testid="job-switcher"
+                  aria-label="Job"
+                  className="bg-background"
+                >
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent position="popper" align="center" side="top">
@@ -481,7 +501,11 @@ export default function AnnotatePage() {
                 onOpenChange={toggleMenu("tool")}
                 onValueChange={(id) => setTool(id as (typeof TOOLS)[number][0])}
               >
-                <SelectTrigger data-testid="tool-switcher" aria-label="Tool">
+                <SelectTrigger
+                  data-testid="tool-switcher"
+                  aria-label="Tool"
+                  className="bg-background"
+                >
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent position="popper" align="center" side="top">
@@ -506,7 +530,12 @@ export default function AnnotatePage() {
               <Button data-testid="redo" variant="outline" onClick={() => annoRef.current?.redo()}>
                 Redo (Ctrl+Y)
               </Button>
-              <Button data-testid="next" disabled={busy} onClick={() => void finish("next")}>
+              <Button
+                data-testid="next"
+                variant="outline"
+                disabled={busy}
+                onClick={() => void finish("next")}
+              >
                 Next (N)
               </Button>
             </div>

@@ -1,10 +1,19 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { ImageRow, Patch } from "../src/lib/api";
-import { groupImages } from "../src/lib/images";
+import { groupImages, rowMark, strongest } from "../src/lib/images";
 
 const row = (id: string, group: string, staining: string | null, regions: number | null = null) =>
-  ({ id, name: id, group, staining, magnification: null, regions, visited: 0 }) as ImageRow;
+  ({
+    id,
+    name: id,
+    group,
+    staining,
+    magnification: null,
+    regions,
+    visited: 0,
+    annotations: 0,
+  }) as ImageRow;
 
 const rows = [
   row("a", "case-2", "PAS", 4),
@@ -52,4 +61,19 @@ test("a patch without a slide view keeps the fetched progress", () => {
   const legacyCrop = { item_id: "a", slide: null } as unknown as Patch;
   const [first] = groupImages(rows, [], legacyCrop);
   assert.deepEqual([first.rows[0].visited, first.rows[0].regions, first.done], [0, 4, 0]);
+});
+
+test("a group takes the strongest mark of its images", () => {
+  const annotated = rows.map((r) => (r.id === "b" ? { ...r, annotations: 2 } : r));
+  const [first, second] = groupImages(annotated, [], null);
+  assert.deepEqual([first.mark, second.mark], ["annotated", null]);
+});
+
+test("annotated outranks visited, which outranks untouched", () => {
+  const at = (visited: number, annotations: number) =>
+    ({ ...row("x", "g", null, 2), visited, annotations }) as ImageRow;
+  assert.deepEqual([at(2, 1), at(1, 0), at(0, 0)].map(rowMark), ["annotated", "visited", null]);
+  assert.equal(strongest(["visited", null, "annotated"]), "annotated");
+  assert.equal(strongest([null, "visited"]), "visited");
+  assert.equal(strongest([]), null);
 });

@@ -6,7 +6,6 @@ export type Me = {
   last_folder_id: string | null;
   // null selects images without a stain.
   stain_filter: (string | null)[];
-  done_count: number;
 };
 export type FolderChild = {
   id: string;
@@ -89,6 +88,7 @@ export type ImageRow = {
   // null until the image has been opened and split into regions.
   regions: number | null;
   visited: number;
+  annotations: number;
 };
 export type ImageCatalog = {
   items: ImageRow[];

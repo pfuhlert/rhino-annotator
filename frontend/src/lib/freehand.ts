@@ -345,18 +345,21 @@ export function useFreehand(opts: {
       latest.current.onViewChange?.(space);
     }
 
+    // Zooms about a point given in root coordinates.
+    function zoom(deltaY: number, cx: number, cy: number) {
+      const z2 = Math.min(maxZoom(), Math.max(1, view.z * Math.exp(-deltaY * 0.002)));
+      const k = z2 / view.z;
+      view.x = cx - (cx - view.x) * k;
+      view.y = cy - (cy - view.y) * k;
+      view.z = z2;
+    }
+
     function onWheel(e: WheelEvent) {
       e.preventDefault();
       pointer = e;
       if (e.ctrlKey || e.metaKey) {
         const r = root.getBoundingClientRect();
-        const z2 = Math.min(maxZoom(), Math.max(1, view.z * Math.exp(-e.deltaY * 0.002)));
-        const k = z2 / view.z;
-        const cx = e.clientX - r.left;
-        const cy = e.clientY - r.top;
-        view.x = cx - (cx - view.x) * k;
-        view.y = cy - (cy - view.y) * k;
-        view.z = z2;
+        zoom(e.deltaY, e.clientX - r.left, e.clientY - r.top);
       } else if (e.shiftKey && brushing()) {
         const delta = e.deltaY || e.deltaX;
         latest.current.onRadiusChange(
@@ -371,6 +374,14 @@ export function useFreehand(opts: {
         cursor();
         return;
       }
+      applyView();
+    }
+
+    // Ctrl/⌘+scroll elsewhere (sidebar, toolbar) would zoom the browser page; zoom the image instead.
+    function onPageWheel(e: WheelEvent) {
+      if (!(e.ctrlKey || e.metaKey) || root.contains(e.target as Node)) return;
+      e.preventDefault();
+      zoom(e.deltaY, root.clientWidth / 2, root.clientHeight / 2);
       applyView();
     }
 
@@ -565,7 +576,8 @@ export function useFreehand(opts: {
     }
 
     function onKey(e: KeyboardEvent) {
-      if (isTypingTarget(e.target)) return;
+      // A dialog closing on Escape marks it handled.
+      if (e.defaultPrevented || isTypingTarget(e.target)) return;
       if (e.key === "Escape") {
         selected = null;
         hover = null;
@@ -681,6 +693,7 @@ export function useFreehand(opts: {
     root.addEventListener("pointerleave", onLeave);
     root.addEventListener("contextmenu", onMenu);
     root.addEventListener("wheel", onWheel, { passive: false });
+    window.addEventListener("wheel", onPageWheel, { passive: false });
     window.addEventListener("keydown", onKey);
     if (brushing()) ensureBrush();
     redraw();
@@ -696,6 +709,7 @@ export function useFreehand(opts: {
       root.removeEventListener("pointerleave", onLeave);
       root.removeEventListener("contextmenu", onMenu);
       root.removeEventListener("wheel", onWheel);
+      window.removeEventListener("wheel", onPageWheel);
       window.removeEventListener("keydown", onKey);
     };
   }, [rootRef, canvasRef, cursorRef, planeRef, marksRef, onChangeRef]);

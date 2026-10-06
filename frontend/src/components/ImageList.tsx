@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { CheckIcon, ChevronDownIcon, ChevronRightIcon } from "lucide-react";
 import { cn } from "cn";
-import type { ImageCatalog, ImageRow, Patch } from "@/lib/api";
-import { groupImages, isDone } from "@/lib/images";
+import type { ImageCatalog, ImageRow } from "@/lib/api";
+import MarkDot from "@/components/MarkDot";
+import { type ImageGroup, isDone, rowMark } from "@/lib/images";
 
 type Stain = string | null;
 const stainLabel = (stain: Stain) => stain ?? "No stain";
@@ -53,7 +54,7 @@ export function StainFilter({
     onStains(stains.includes(stain) ? stains.filter((s) => s !== stain) : [...stains, stain]);
 
   return (
-    <div ref={root} className="relative px-1 py-1">
+    <div ref={root} className="relative py-1">
       <button
         type="button"
         data-testid="stain-filter"
@@ -76,7 +77,7 @@ export function StainFilter({
         <div
           role="listbox"
           aria-multiselectable
-          className="absolute inset-x-1 top-full z-30 max-h-64 overflow-auto [scrollbar-color:var(--border)_transparent] [scrollbar-width:thin] rounded-lg bg-popover p-1 text-popover-foreground shadow-md ring-1 ring-foreground/10"
+          className="absolute inset-x-0 top-full z-30 max-h-64 overflow-auto [scrollbar-color:var(--border)_transparent] [scrollbar-width:thin] rounded-lg bg-popover p-1 text-popover-foreground shadow-md ring-1 ring-foreground/10"
         >
           {catalog.stains.map((s) => {
             const on = stains.includes(s.name);
@@ -115,24 +116,17 @@ export function StainFilter({
 }
 
 export default function ImageList({
-  catalog,
+  groups,
   failed,
-  patch,
-  stains,
+  currentId,
   onOpen,
 }: {
-  catalog: ImageCatalog | null;
+  groups: ImageGroup[] | null;
   failed: boolean;
-  patch: Patch | null;
-  stains: Stain[];
+  currentId: string | null;
   onOpen: (itemId: string) => void;
 }) {
-  const groups = useMemo(
-    () => (catalog ? groupImages(catalog.items, stains, patch) : []),
-    [catalog, stains, patch],
-  );
-  const currentId = patch?.item_id ?? null;
-  const currentGroup = groups.find((g) => g.rows.some((r) => r.id === currentId))?.name ?? null;
+  const currentGroup = groups?.find((g) => g.rows.some((r) => r.id === currentId))?.name ?? null;
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
   const [revealed, setRevealed] = useState<string | null>(null);
   if (currentGroup !== revealed) {
@@ -141,11 +135,13 @@ export default function ImageList({
   }
   const currentRow = useRef<HTMLButtonElement>(null);
   const currentOpen = currentGroup !== null && expanded.has(currentGroup);
+  const loaded = groups !== null;
+  // Not on every regroup: edits and saves would pull the list back to the current image.
   useEffect(() => {
     currentRow.current?.scrollIntoView({ block: "nearest" });
-  }, [currentId, catalog, currentOpen]);
+  }, [currentId, loaded, currentOpen]);
 
-  if (!catalog)
+  if (!groups)
     return (
       <p className="px-2 text-xs text-muted-foreground">
         {failed ? "Could not load images." : "Loading images"}
@@ -172,11 +168,13 @@ export default function ImageList({
               type="button"
               data-testid={`image-group-${group.name}`}
               aria-expanded={open}
-              className="flex items-center gap-1 rounded-md px-1 py-1 text-left text-xs font-medium text-sidebar-foreground/70 hover:bg-sidebar-accent"
+              data-scroll-mark={(!open && group.mark) || undefined}
+              className="flex items-center gap-2 rounded-md px-2 py-1 text-left text-xs font-medium text-sidebar-foreground/70 hover:bg-sidebar-accent"
               onClick={() => toggle(group.name)}
             >
-              <Chevron className="size-3.5 shrink-0" />
+              <Chevron className="size-4 shrink-0" />
               <span className="min-w-0 flex-1 truncate">{group.name || "Ungrouped"}</span>
+              <MarkDot mark={group.mark} />
               <span className="shrink-0 tabular-nums">
                 {group.done}/{group.rows.length}
               </span>
@@ -191,8 +189,9 @@ export default function ImageList({
                     type="button"
                     data-testid={`image-row-${row.id}`}
                     aria-current={current || undefined}
+                    data-scroll-mark={rowMark(row) ?? undefined}
                     className={cn(
-                      "relative flex items-center gap-2 rounded-md py-1 pr-2 pl-6 text-left text-sm hover:bg-sidebar-accent",
+                      "relative flex items-center gap-2 rounded-md py-1 pr-2 pl-8 text-left text-sm hover:bg-sidebar-accent",
                       current && "bg-sidebar-accent font-medium",
                     )}
                     onClick={() => !current && onOpen(row.id)}
