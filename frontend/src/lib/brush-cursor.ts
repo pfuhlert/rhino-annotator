@@ -20,8 +20,11 @@ export function createBrushCursor(outline: HTMLElement) {
   return {
     update(pointer: PointerPosition | null, space: Space | null, next: number | null = null) {
       if (!pointer || !space || next === null) return hide("crosshair");
-      if (next !== radius) {
-        radius = next;
+      // Each new radius is a new cursor image the browser must decode, showing a fallback
+      // meanwhile; whole pixels avoid rebuilding it for zoom steps that change nothing visible.
+      const rounded = Math.max(1, Math.round(next));
+      if (rounded !== radius) {
+        radius = rounded;
         center = Math.ceil(radius + 2);
         const size = center * 2;
         const circles = `<circle cx="${center}" cy="${center}" r="${radius}" fill="none" stroke="#111" stroke-width="3.5"/><circle cx="${center}" cy="${center}" r="${radius}" fill="none" stroke="white" stroke-width="1.5"/>`;

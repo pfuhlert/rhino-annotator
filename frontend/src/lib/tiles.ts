@@ -146,7 +146,9 @@ export function createTileLayer(
   return {
     update(next: Space | null) {
       space = next;
-      schedule();
+      // Draw now so tiles stay in the same frame as the annotations drawn alongside them.
+      cancelAnimationFrame(frame);
+      draw();
     },
     destroy() {
       cancelAnimationFrame(frame);

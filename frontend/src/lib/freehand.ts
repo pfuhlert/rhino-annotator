@@ -366,6 +366,16 @@ export function useFreehand(opts: {
       view.z = z2;
     }
 
+    // Wheel and pointer input can arrive several times per frame; render the view once per frame.
+    let viewFrame = 0;
+    function scheduleView() {
+      if (!viewFrame)
+        viewFrame = requestAnimationFrame(() => {
+          viewFrame = 0;
+          applyView();
+        });
+    }
+
     function onWheel(e: WheelEvent) {
       e.preventDefault();
       pointer = e;
@@ -386,7 +396,8 @@ export function useFreehand(opts: {
         cursor();
         return;
       }
-      applyView();
+      clampView();
+      scheduleView();
     }
 
     // Ctrl/⌘+scroll elsewhere (sidebar, toolbar) would zoom the browser page; zoom the image instead.
@@ -394,7 +405,8 @@ export function useFreehand(opts: {
       if (!(e.ctrlKey || e.metaKey) || root.contains(e.target as Node)) return;
       e.preventDefault();
       zoom(e.deltaY, root.clientWidth / 2, root.clientHeight / 2);
-      applyView();
+      clampView();
+      scheduleView();
     }
 
     function hit(e: PointerPosition) {
@@ -557,7 +569,8 @@ export function useFreehand(opts: {
         view.y += e.clientY - pan.y;
         pan.x = e.clientX;
         pan.y = e.clientY;
-        applyView();
+        clampView();
+        scheduleView();
         return;
       }
       if (boxDrag && space) {
@@ -775,6 +788,7 @@ export function useFreehand(opts: {
     redraw();
     return () => {
       ro.disconnect();
+      cancelAnimationFrame(viewFrame);
       brushCursor.destroy();
       root.style.cursor = "";
       root.removeEventListener("pointerdown", onDown);
