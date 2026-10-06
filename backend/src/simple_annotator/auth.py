@@ -119,6 +119,12 @@ def logout(
     return {"ok": True}
 
 
+def set_folder(user: User, folder_id: str) -> None:
+    if folder_id != user.last_folder_id:
+        user.last_folder_id = folder_id
+        user.stain_filter = None
+
+
 @me_router.get("/me")
 def me(user: User = Depends(current_user)) -> dict:
     return _user_json(user)
@@ -131,9 +137,8 @@ def patch_me(
     if body.last_job_id is not None:
         require_job(db, body.last_job_id)
         user.last_job_id = body.last_job_id
-    if body.last_folder_id is not None and body.last_folder_id != user.last_folder_id:
-        user.last_folder_id = body.last_folder_id
-        user.stain_filter = None
+    if body.last_folder_id is not None:
+        set_folder(user, body.last_folder_id)
     if "stain_filter" in body.model_fields_set:
         user.stain_filter = json.dumps(body.stain_filter) if body.stain_filter else None
     db.commit()

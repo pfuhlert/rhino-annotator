@@ -129,8 +129,8 @@ export const api = {
   currentPatch: () => req<Patch>("/patches/current"),
   nextPatch: () => req<Patch>("/patches/next"),
   prevPatch: () => req<Patch>("/patches/prev"),
-  openImage: (item_id: string) =>
-    req<Patch>("/patches/open", { method: "POST", body: JSON.stringify({ item_id }) }),
+  openImage: (item_id: string, link?: { folder_id: string; view: ViewRect }) =>
+    req<Patch>("/patches/open", { method: "POST", body: JSON.stringify({ item_id, ...link }) }),
   images: () => req<ImageCatalog>("/images"),
   setStains: (stain_filter: (string | null)[]) =>
     req<Me>("/me", { method: "PATCH", body: JSON.stringify({ stain_filter }) }),

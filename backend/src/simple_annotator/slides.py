@@ -206,6 +206,21 @@ def open_item(db: Session, user: User, item: dict) -> Patch:
     return next((t for t in tiles if t.id not in visited), tiles[0])
 
 
+def tile_at(db: Session, slide: Slide, left: int, top: int, width: int, height: int) -> Patch:
+    # Tiles overlap; prefer the one showing most of the view, then the one nearest its center.
+    x, y = left + width / 2, top + height / 2
+
+    def rank(t: Patch) -> tuple[float, float]:
+        overlap_x = min(left + width, t.left + t.width) - max(left, t.left)
+        overlap_y = min(top + height, t.top + t.height) - max(top, t.top)
+        gap = math.hypot(
+            max(t.left - x, 0, x - t.left - t.width), max(t.top - y, 0, y - t.top - t.height)
+        )
+        return -max(overlap_x, 0) * max(overlap_y, 0), gap
+
+    return min(_tiles(db, slide), key=rank)
+
+
 def patch_scale(db: Session, patch: Patch) -> tuple[Slide, float | None]:
     # Legacy random crops predate slide rows. The Girder item supplies the folder that decides
     # ELMI and the name shown on the map.

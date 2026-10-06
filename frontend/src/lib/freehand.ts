@@ -1,5 +1,5 @@
 import { useEffect, useRef, type RefObject } from "react";
-import type { AiPrompt, AiTask, Job } from "@/lib/api";
+import type { AiPrompt, AiTask, Job, ViewRect } from "@/lib/api";
 import { applyPolys, createBrush, jobPolys, type Brush } from "./brush";
 import { createBrushCursor } from "./brush-cursor";
 import { TOOL_CURSORS } from "./tool-cursors";
@@ -28,6 +28,7 @@ import {
   moveWithinImage,
 } from "./image-bounds";
 import { isTypingTarget } from "./keys";
+import { fitView } from "./share-link";
 
 type Ctl = {
   flush: () => void;
@@ -56,6 +57,8 @@ export function useFreehand(opts: {
   onRemote?: (marks: Mark[]) => void;
   onViewChange?: (space: Space | null) => void;
   onSelect?: (id: string | null) => void;
+  // Patch-pixel rectangle to show first instead of the whole patch.
+  initialView?: ViewRect | null;
 }): Ctl {
   const { rootRef, canvasRef, cursorRef, planeRef, tool, jobId, marksRef, onChangeRef, radius } =
     opts;
@@ -682,6 +685,12 @@ export function useFreehand(opts: {
       if (brushing()) e.preventDefault();
     }
 
+    const size = planeSize(planeRef.current);
+    const initial = latest.current.initialView;
+    if (initial && size) {
+      Object.assign(view, fitView(initial, size, [root.clientWidth, root.clientHeight], maxZoom()));
+      applyView();
+    }
     const ro = new ResizeObserver(() => applyView());
     ro.observe(root);
     cursor();

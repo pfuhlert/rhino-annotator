@@ -7,14 +7,14 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from simple_annotator.annotations import Changes, apply_changes, elements, lock, require_patch
-from simple_annotator.auth import current_user, user_stains
+from simple_annotator.auth import current_user, set_folder, user_stains
 from simple_annotator.config import FULL_IMAGE_MAX, job_ai_model
 from simple_annotator.db import get_db
 from simple_annotator.embeddings import queue_image
 from simple_annotator.girder import PLACEHOLDER_FOLDER, thumbnail, tile
 from simple_annotator.images import ordered_items
 from simple_annotator.models import Job, Patch, PatchVisit, Slide, User
-from simple_annotator.slides import open_item, patch_scale, slide_view, step
+from simple_annotator.slides import ensure_slide, open_item, patch_scale, slide_view, step, tile_at
 
 router = APIRouter(prefix="/patches")
 
@@ -143,8 +143,18 @@ def prev_patch(
     return _step(db, user, -1, background)
 
 
+class View(BaseModel):
+    left: NonNegativeInt
+    top: NonNegativeInt
+    width: PositiveInt
+    height: PositiveInt
+
+
 class OpenImage(BaseModel):
     item_id: str
+    # A shared link names its dataset and the visible slide rectangle.
+    folder_id: str | None = None
+    view: View | None = None
 
 
 @router.post("/open")
@@ -154,11 +164,21 @@ def open_image(
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
 ) -> dict:
+    if body.folder_id:
+        set_folder(user, body.folder_id)
     folder_id = _folder_id(user)
     item = next((it for it in ordered_items(folder_id) if it["_id"] == body.item_id), None)
     if not item:
         raise HTTPException(404, "image not in this dataset")
-    return _record(db, user, open_item(db, user, item), folder_id, background)
+    if body.view is None:
+        patch = open_item(db, user, item)
+    else:
+        patch = tile_at(db, ensure_slide(db, item), **body.view.model_dump())
+    visit = _cursor_visit(db, user)
+    # Reloading a shared link reopens the cursor instead of recording another visit.
+    if visit and visit.patch_id == patch.id:
+        return _open(db, user, visit, background)
+    return _record(db, user, patch, folder_id, background)
 
 
 @router.get("/{patch_id}/tiles/{z}/{x}/{y}")
@@ -177,13 +197,6 @@ def patch_tile(
     return Response(
         content=data, media_type=media_type, headers={"Cache-Control": "private, max-age=86400"}
     )
-
-
-class View(BaseModel):
-    left: NonNegativeInt
-    top: NonNegativeInt
-    width: PositiveInt
-    height: PositiveInt
 
 
 @router.post("/{patch_id}/prepare")

@@ -22,6 +22,7 @@ import type { Tool } from "@/lib/draw";
 import { createAnnotationSync } from "@/lib/annotation-sync";
 import { useAi } from "@/lib/use-ai";
 import { isTypingTarget } from "@/lib/keys";
+import { parseShareLink, shareLinkQuery } from "@/lib/share-link";
 
 const TOOLS = [
   ["point", "Point (P)"],
@@ -38,13 +39,23 @@ function errorMessage(error: unknown) {
   return error instanceof Error && error.message ? error.message : "Something went wrong.";
 }
 
-function LoadError({ message, className }: { message: string; className?: string }) {
+function LoadError({
+  message,
+  className,
+  retry = true,
+}: {
+  message: string;
+  className?: string;
+  retry?: boolean;
+}) {
   return (
     <p role="alert" data-testid="load-error" className={className}>
       {message}{" "}
-      <button className="underline" onClick={() => window.location.reload()}>
-        Retry
-      </button>
+      {retry && (
+        <button className="underline" onClick={() => window.location.reload()}>
+          Retry
+        </button>
+      )}
     </p>
   );
 }
@@ -61,6 +72,8 @@ export default function AnnotatePage() {
   );
   // Next can return a tile already on screen; every open needs a fresh canvas to match the new sync.
   const [openCount, setOpenCount] = useState(0);
+  // A shared link opens zoomed to the sender's view (patch pixels).
+  const [initialView, setInitialView] = useState<ViewRect | null>(null);
   useEffect(() => {
     if (!view?.prepare) return;
     // Large tissue regions prepare AI tiles for what the user is looking at once the view settles.
@@ -95,6 +108,8 @@ export default function AnnotatePage() {
   const sync = useRef<ReturnType<typeof createAnnotationSync> | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  // The address bar already shows the fallback patch, so reloading cannot retry a failed link.
+  const [linkFailed, setLinkFailed] = useState(false);
   const [brokenImage, setBrokenImage] = useState<number | null>(null);
   const ai = useAi(patch?.id, (elements, sourcePatchId) => {
     if (patchRef.current?.id === sourcePatchId) annoRef.current?.add(elements);
@@ -120,8 +135,9 @@ export default function AnnotatePage() {
     jobIdRef.current = jobId;
   }, [patch, jobId]);
 
-  const showPatch = useCallback((next: Patch) => {
+  const showPatch = useCallback((next: Patch, initial: ViewRect | null = null) => {
     patchRef.current = next;
+    setInitialView(initial);
     annoRef.current = null;
     sync.current = createAnnotationSync(next.elements, (changes) => api.edit(next.id, changes));
     setOpenCount((n) => n + 1);
@@ -129,6 +145,7 @@ export default function AnnotatePage() {
     setMarks(next.elements);
     setSelectedId(null);
     setLoadError(null);
+    setLinkFailed(false);
     if (next.job_id) setJobId(next.job_id);
     if (next.folder_id) setFolderId(next.folder_id);
     // The server picks a folder for users without one; the image list waits for that confirmation.
@@ -154,18 +171,67 @@ export default function AnnotatePage() {
   useEffect(() => {
     (async () => {
       try {
+        // Opening a link may switch the dataset, which changes the jobs and folder fetched below.
+        const link = parseShareLink(window.location.search);
+        let linkError: string | null = null;
+        const opened = link
+          ? await api
+              .openImage(link.image, {
+                folder_id: link.dataset,
+                view: link.view,
+              })
+              .catch((error) => {
+                if ((error as { status?: number }).status === 401) throw error;
+                linkError = errorMessage(error);
+                return null;
+              })
+          : null;
         const [who, jobList] = await Promise.all([api.me(), api.jobs()]);
         setMe(who);
         setJobs(jobList);
-        setJobId(who.last_job_id ?? jobList[0]?.id ?? null);
+        const job = jobList.find((j) => j.id === who.last_job_id)?.id ?? jobList[0]?.id ?? null;
+        setJobId(job);
+        if (job != null && job !== who.last_job_id) setMe(await api.setJob(job));
         setFolderId(who.last_folder_id);
-        await loadLatest(api.currentPatch);
+        if (link && opened) {
+          const { left, top } = opened.image;
+          // The patch carries the job from before the remap above.
+          showPatch(
+            { ...opened, job_id: job },
+            {
+              ...link.view,
+              left: link.view.left - left,
+              top: link.view.top - top,
+            },
+          );
+        } else await loadLatest(api.currentPatch);
+        if (linkError) {
+          setLoadError(`Could not open the shared image: ${linkError}`);
+          setLinkFailed(true);
+        }
       } catch (error) {
-        if ((error as { status?: number }).status === 401) router.replace("/");
+        if ((error as { status?: number }).status === 401)
+          router.replace(`/?next=${encodeURIComponent(location.pathname + location.search)}`);
         else setLoadError(errorMessage(error));
       }
     })();
-  }, [loadLatest, router]);
+  }, [loadLatest, showPatch, router]);
+
+  // The address bar always links to the open image and the visible area.
+  useEffect(() => {
+    if (!patch) return;
+    const { image } = patch;
+    const rect =
+      view?.patchId === patch.id
+        ? view.rect
+        : (initialView ?? { left: 0, top: 0, width: image.width, height: image.height });
+    const query = shareLinkQuery({
+      dataset: patch.folder_id,
+      image: patch.item_id,
+      view: { ...rect, left: rect.left + image.left, top: rect.top + image.top },
+    });
+    window.history.replaceState(null, "", `/annotate?${query}`);
+  }, [patch, view, initialView]);
 
   async function switchJob(id: number) {
     setJobId(id);
@@ -397,6 +463,7 @@ export default function AnnotatePage() {
           <PatchCanvas
             key={`${patch.id}:${openCount}`}
             image={patch.image}
+            initialView={initialView}
             onVisibleChange={(rect) =>
               setView({ patchId: patch.id, rect, prepare: patch.image.prepare_view })
             }
@@ -437,6 +504,7 @@ export default function AnnotatePage() {
                 loadError ?? "The image could not be loaded. The image server may be unavailable."
               }
               className="absolute top-4 left-1/2 z-20 max-w-md -translate-x-1/2 rounded bg-background p-3 text-sm"
+              retry={!linkFailed}
             />
           )}
           {saveError && (

@@ -7,6 +7,7 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { api } from "@/lib/api";
+import { safeNext } from "@/lib/share-link";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -22,7 +23,7 @@ export default function LoginPage() {
     try {
       if (mode === "login") await api.login(username, password);
       else await api.register(username, password);
-      router.push("/annotate");
+      router.push(safeNext(window.location.search) ?? "/annotate");
     } catch (err) {
       setError(err instanceof Error ? err.message : "failed");
     } finally {

@@ -133,6 +133,28 @@ def test_stain_filter_is_kept_per_folder_choice(auth: TestClient):
     assert auth.patch("/me", json={"stain_filter": []}).json()["stain_filter"] == []
 
 
+def test_shared_link_switches_dataset_and_opens_the_tile_at_its_point(auth: TestClient):
+    from simple_annotator.db import session_factory
+    from simple_annotator.models import PatchVisit
+
+    first = auth.get("/patches/current").json()
+    second = auth.get("/patches/next").json()["image"]
+    auth.patch("/me", json={"stain_filter": ["PAS"]})
+    # The view's center lies where both tiles overlap, but only the second tile holds all of it.
+    view = {"left": second["left"] + 32, "top": 0, "width": 400, "height": 100}
+    link = {"item_id": first["item_id"], "folder_id": "other", "view": view}
+
+    opened = auth.post("/patches/open", json=link).json()
+    me = auth.get("/me").json()
+    assert (me["last_folder_id"], me["stain_filter"]) == ("other", [])
+    assert (opened["image"]["left"], opened["image"]["top"]) == (second["left"], second["top"])
+    with session_factory()() as db:
+        visits = db.query(PatchVisit).count()
+    assert auth.post("/patches/open", json=link).json()["id"] == opened["id"]
+    with session_factory()() as db:
+        assert db.query(PatchVisit).count() == visits
+
+
 def test_elmi_jobs(auth: TestClient, monkeypatch: pytest.MonkeyPatch):
     from simple_annotator import girder
     from simple_annotator.db import ELMI_JOBS, SEED_JOBS

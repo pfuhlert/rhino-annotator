@@ -26,6 +26,7 @@ type Props = {
   onImageError?: () => void;
   onImageLoad?: () => void;
   onVisibleChange?: (view: ViewRect) => void;
+  initialView?: ViewRect | null;
 };
 
 export type AnnotatorApi = {
@@ -58,6 +59,7 @@ export default function PatchCanvas({
   onImageError,
   onImageLoad,
   onVisibleChange,
+  initialView,
 }: Props) {
   const [initial] = useState(() => structuredClone(marks ?? []));
   const marksRef = useRef<Mark[]>(initial);
@@ -129,6 +131,7 @@ export default function PatchCanvas({
     onRadiusChange,
     onChangeRef: commitRef,
     onSelect,
+    initialView,
     onViewChange: (space) => {
       const root = rootRef.current;
       if (!root) return;
