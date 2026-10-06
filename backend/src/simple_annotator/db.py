@@ -17,10 +17,10 @@ from simple_annotator.girder import PLACEHOLDER_FOLDER
 from simple_annotator.models import Annotation, Base, Job
 
 SEED_JOBS = (
-    ("glomerulus", "#e11d48"),
-    ("tubule", "#2563eb"),
-    ("vessel", "#059669"),
-    ("other", "#d97706"),
+    ("Glomerulus", "#e11d48"),
+    ("Tubule", "#2563eb"),
+    ("Vessel", "#059669"),
+    ("Other", "#d97706"),
 )
 ELMI_JOBS = (
     ("GBM", "#e11d48"),
@@ -191,9 +191,13 @@ def init_db() -> None:
         Base.metadata.create_all(engine)
         _migrate(engine)
         with session_factory()() as db:
-            have = {j.name for j in db.scalars(select(Job)).all()}
+            jobs = {j.name: j for j in db.scalars(select(Job)).all()}
             for name, color in (*SEED_JOBS, *ELMI_JOBS):
-                if name not in have:
+                if name in jobs:
+                    continue
+                if name.lower() in jobs:
+                    jobs[name.lower()].name = name
+                else:
                     db.add(Job(name=name, color=color))
             db.commit()
 

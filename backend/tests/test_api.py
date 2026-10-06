@@ -24,8 +24,8 @@ def test_register_login_and_me(client: TestClient):
 
 def test_sticky_job_and_annotations(auth: TestClient):
     jobs = auth.get("/jobs").json()
-    assert {j["name"] for j in jobs} >= {"glomerulus", "tubule"}
-    tubule = next(j for j in jobs if j["name"] == "tubule")
+    assert {j["name"] for j in jobs} >= {"Glomerulus", "Tubule"}
+    tubule = next(j for j in jobs if j["name"] == "Tubule")
     patched = auth.patch("/me", json={"last_job_id": tubule["id"]})
     assert patched.json()["last_job_id"] == tubule["id"]
     nxt = auth.get("/patches/next")
