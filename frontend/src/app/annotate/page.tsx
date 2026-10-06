@@ -23,14 +23,8 @@ import { createAnnotationSync } from "@/lib/annotation-sync";
 import { useAi } from "@/lib/use-ai";
 import { isTypingTarget } from "@/lib/keys";
 import { parseShareLink, shareLinkQuery } from "@/lib/share-link";
+import { TOOLS, useEnabledTools } from "@/lib/tools";
 
-const TOOLS = [
-  ["point", "Point (P)"],
-  ["polygon", "Polygon (L)"],
-  ["brush", "Brush (R)"],
-  ["ai-box", "AI Box (A)"],
-] as const;
-const TOOL_IDS = TOOLS.map(([id]) => id);
 const FAILURE_MESSAGE_MS = 5000;
 
 type Menu = "job" | "tool" | "size";
@@ -92,7 +86,9 @@ export default function AnnotatePage() {
   const [marks, setMarks] = useState<Element[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selectAfterSwitch = useRef<string | null>(null);
-  const [tool, setTool] = useState<Tool>("polygon");
+  const [chosenTool, setTool] = useState<Tool>("polygon");
+  const enabledTools = useEnabledTools();
+  const tool = enabledTools.includes(chosenTool) ? chosenTool : enabledTools[0];
   const [brushRadius, setBrushRadius] = useState(16);
   const [openMenu, setOpenMenu] = useState<Menu | null>(null);
   const [busy, setBusy] = useState(false);
@@ -373,16 +369,16 @@ export default function AnnotatePage() {
       if (k === "tab") {
         e.preventDefault();
         const dir = e.shiftKey ? -1 : 1;
-        setTool(
-          (cur) => TOOL_IDS[(TOOL_IDS.indexOf(cur) + dir + TOOL_IDS.length) % TOOL_IDS.length],
-        );
+        const n = enabledTools.length;
+        setTool(enabledTools[(enabledTools.indexOf(tool) + dir + n) % n]);
         return;
       }
       if (k === "escape" && !annoRef.current?.cancelDraft()) cancelLatestPending();
-      if (!e.ctrlKey && !e.metaKey && !e.altKey && ["p", "l", "r", "a"].includes(k)) {
+      const keyed = TOOLS.find(([, , key]) => key.toLowerCase() === k)?.[0];
+      if (!e.ctrlKey && !e.metaKey && !e.altKey && keyed && enabledTools.includes(keyed)) {
         e.preventDefault();
         e.stopPropagation();
-        setTool(k === "p" ? "point" : k === "l" ? "polygon" : k === "r" ? "brush" : "ai-box");
+        setTool(keyed);
         return;
       }
       if ((k === "z" || k === "y") && (e.metaKey || e.ctrlKey)) {
@@ -567,7 +563,7 @@ export default function AnnotatePage() {
                 value={tool}
                 open={openMenu === "tool"}
                 onOpenChange={toggleMenu("tool")}
-                onValueChange={(id) => setTool(id as (typeof TOOLS)[number][0])}
+                onValueChange={(id) => setTool(id as Tool)}
               >
                 <SelectTrigger
                   data-testid="tool-switcher"
@@ -577,9 +573,9 @@ export default function AnnotatePage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent position="popper" align="center" side="top">
-                  {TOOLS.map(([id, label]) => (
+                  {TOOLS.filter(([id]) => enabledTools.includes(id)).map(([id, label, key]) => (
                     <SelectItem key={id} value={id} data-testid={`tool-${id}`}>
-                      {label}
+                      {label} ({key})
                     </SelectItem>
                   ))}
                 </SelectContent>

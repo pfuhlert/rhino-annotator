@@ -1,6 +1,6 @@
 import type { AiTask, Box, Element, Job } from "@/lib/api";
 
-export type Tool = "point" | "polygon" | "brush" | "ai-box";
+export type Tool = "hand" | "point" | "polygon" | "brush" | "ai-box";
 export type Mark = Element;
 
 export function polyRings(m: Mark): [number, number][][] {

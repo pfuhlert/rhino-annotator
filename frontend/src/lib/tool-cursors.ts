@@ -11,7 +11,7 @@ function outlined(path: string) {
 
 const point = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><g stroke="#111" stroke-width="3.5"><circle cx="12" cy="12" r="6" fill="none"/><circle cx="12" cy="12" r="1.5" fill="#111"/></g><g stroke="#fff" stroke-width="1.5"><circle cx="12" cy="12" r="6" fill="none"/><circle cx="12" cy="12" r="1.5" fill="#fff"/></g></svg>`;
 
-export const TOOL_CURSORS: Record<Exclude<Tool, "brush">, string> = {
+export const TOOL_CURSORS: Record<Exclude<Tool, "brush" | "hand">, string> = {
   point: svgCursor(point, 12, 12),
   polygon: svgCursor(
     outlined("M4 8h8M8 4v8M27 18a7 5 0 1 1-14 0a7 5 0 1 1 14 0M15 22q4 5-2 6"),

@@ -2,10 +2,12 @@
 
 import { XIcon } from "lucide-react";
 import { Dialog } from "radix-ui";
+import type { Tool } from "@/lib/draw";
+import { TOOLS, useEnabledTools } from "@/lib/tools";
 
 const MOD = "Ctrl/⌘";
 
-const SECTIONS: [string, [string[][], string][]][] = [
+const SECTIONS: [string, [string[][], string, Tool?][]][] = [
   [
     "Navigation",
     [
@@ -16,10 +18,7 @@ const SECTIONS: [string, [string[][], string][]][] = [
   [
     "Tools",
     [
-      [[["P"]], "Point"],
-      [[["L"]], "Polygon"],
-      [[["R"]], "Brush"],
-      [[["A"]], "AI box"],
+      ...TOOLS.map(([id, label, key]): [string[][], string, Tool] => [[[key]], label, id]),
       [[["Tab"], ["Shift", "Tab"]], "Next / previous tool"],
     ],
   ],
@@ -45,7 +44,7 @@ const SECTIONS: [string, [string[][], string][]][] = [
     "View",
     [
       [[[MOD, "Scroll"]], "Zoom"],
-      [[["Scroll"], ["Middle-drag"]], "Pan when zoomed in"],
+      [[["Scroll"], ["Space", "Drag"], ["Middle-drag"]], "Pan when zoomed in"],
       [[["?"]], "Show this list"],
     ],
   ],
@@ -78,6 +77,7 @@ export default function ShortcutsDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
+  const enabledTools = useEnabledTools();
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
@@ -102,10 +102,10 @@ export default function ShortcutsDialog({
             {SECTIONS.map(([title, rows]) => (
               <section key={title} className="flex flex-col gap-1">
                 <h3 className="text-xs font-medium text-muted-foreground">{title}</h3>
-                {rows.map(([combos, label]) => (
+                {rows.map(([combos, label, tool]) => (
                   <div
                     key={label}
-                    className="flex items-center justify-between gap-4 py-0.5 text-sm"
+                    className={`flex items-center justify-between gap-4 py-0.5 text-sm ${tool && !enabledTools.includes(tool) ? "opacity-40" : ""}`}
                   >
                     <span>{label}</span>
                     <Keys combos={combos} />

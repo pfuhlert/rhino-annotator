@@ -1,23 +1,43 @@
 "use client";
 
 import {
+  BrushIcon,
+  ChevronRightIcon,
   ChevronsUpDownIcon,
+  CircleDotIcon,
+  HandIcon,
   KeyboardIcon,
   LogOutIcon,
   MonitorIcon,
   MoonIcon,
+  PentagonIcon,
+  ScanIcon,
+  ShapesIcon,
   SunIcon,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { DropdownMenu } from "radix-ui";
 import { useOverlay } from "@/components/Overlay";
+import type { Tool } from "@/lib/draw";
 import { setTheme, type Theme, useTheme } from "@/lib/theme";
+import { setToolEnabled, TOOLS, useEnabledTools } from "@/lib/tools";
 
 const THEME_OPTIONS = {
   light: [SunIcon, "Light"],
   dark: [MoonIcon, "Dark"],
   system: [MonitorIcon, "System"],
 } as const;
+
+const TOOL_ICONS: Record<Tool, typeof HandIcon> = {
+  hand: HandIcon,
+  point: CircleDotIcon,
+  polygon: PentagonIcon,
+  brush: BrushIcon,
+  "ai-box": ScanIcon,
+};
+
+const ROW =
+  "flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-hidden select-none focus:bg-accent focus:text-accent-foreground";
 
 export default function UserMenu({
   username,
@@ -29,17 +49,20 @@ export default function UserMenu({
   onLogout: () => void;
 }) {
   const theme = useTheme();
+  const enabledTools = useEnabledTools();
   const { expanded } = useOverlay();
   const [open, setOpen] = useState(false);
   if (open && !expanded) setOpen(false);
   const trigger = useRef<HTMLButtonElement>(null);
   const content = useRef<HTMLDivElement>(null);
+  const toolsContent = useRef<HTMLDivElement>(null);
   // Capture phase: the canvas and shortcuts handle their own events before they would bubble.
   useEffect(() => {
     if (!open) return;
     const close = (e: Event) => {
       const target = e.target as Node;
-      if (!trigger.current?.contains(target) && !content.current?.contains(target)) setOpen(false);
+      if (![trigger, content, toolsContent].some((ref) => ref.current?.contains(target)))
+        setOpen(false);
     };
     const events = ["pointerdown", "wheel", "keydown"] as const;
     for (const type of events) document.addEventListener(type, close, true);
@@ -110,11 +133,49 @@ export default function UserMenu({
           </DropdownMenu.Item>
         </div>
         <DropdownMenu.Separator className="-mx-1 my-1 h-px bg-border" />
-        <DropdownMenu.Item
-          data-testid="logout"
-          className="flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-hidden select-none focus:bg-accent focus:text-accent-foreground"
-          onSelect={onLogout}
-        >
+        <DropdownMenu.Sub>
+          <DropdownMenu.SubTrigger
+            data-testid="tools-menu"
+            className={`${ROW} data-[state=open]:bg-accent data-[state=open]:text-accent-foreground`}
+          >
+            <ShapesIcon className="size-4 text-muted-foreground" />
+            <span className="flex-1">Tools</span>
+            <ChevronRightIcon className="size-4 text-muted-foreground" />
+          </DropdownMenu.SubTrigger>
+          <DropdownMenu.Portal>
+            <DropdownMenu.SubContent
+              ref={toolsContent}
+              sideOffset={6}
+              className="z-50 w-52 rounded-lg bg-popover p-1 text-popover-foreground shadow-md ring-1 ring-foreground/10 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95"
+            >
+              {TOOLS.map(([id, label, key]) => {
+                const Icon = TOOL_ICONS[id];
+                const on = enabledTools.includes(id);
+                return (
+                  <DropdownMenu.CheckboxItem
+                    key={id}
+                    data-testid={`tool-enabled-${id}`}
+                    checked={on}
+                    // The last enabled tool stays on so there is always something to draw with.
+                    disabled={on && enabledTools.length === 1}
+                    onCheckedChange={(checked) => setToolEnabled(id, checked)}
+                    onSelect={(e) => e.preventDefault()}
+                    className={`${ROW} group data-disabled:opacity-60`}
+                  >
+                    <Icon className="size-4 text-muted-foreground" />
+                    <span className="flex-1">{label}</span>
+                    <kbd className="font-sans text-xs text-muted-foreground">{key}</kbd>
+                    <span className="flex h-4 w-7 shrink-0 items-center rounded-full bg-input p-0.5 transition-colors group-data-[state=checked]:bg-primary">
+                      <span className="size-3 rounded-full bg-background shadow-sm transition-transform group-data-[state=checked]:translate-x-3" />
+                    </span>
+                  </DropdownMenu.CheckboxItem>
+                );
+              })}
+            </DropdownMenu.SubContent>
+          </DropdownMenu.Portal>
+        </DropdownMenu.Sub>
+        <DropdownMenu.Separator className="-mx-1 my-1 h-px bg-border" />
+        <DropdownMenu.Item data-testid="logout" className={ROW} onSelect={onLogout}>
           <LogOutIcon className="size-4 text-muted-foreground" />
           Log out
         </DropdownMenu.Item>

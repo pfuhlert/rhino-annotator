@@ -112,7 +112,9 @@ export function useFreehand(opts: {
       | { kind: "vertex"; id: string; ring: number; index: number }
       | null = null;
     let insertAt: [number, number] | null = null;
-    let pan: { pointerId: number; x: number; y: number } | null = null;
+    // Middle-drag, Hand-tool drag, and Space+drag pan the view; `buttons` is the held-button mask.
+    let pan: { pointerId: number; buttons: number; x: number; y: number } | null = null;
+    let spaceHeld = false;
     let dirty = false;
     const stroke: [number, number][] = [];
     const draft: [number, number][] = [];
@@ -127,6 +129,10 @@ export function useFreehand(opts: {
 
     function brushing() {
       return latest.current.tool === "brush";
+    }
+
+    function hand() {
+      return latest.current.tool === "hand";
     }
 
     function ensureBrush() {
@@ -254,6 +260,7 @@ export function useFreehand(opts: {
     function cursorAt() {
       if (pan) return "grabbing";
       const tool = latest.current.tool;
+      if (tool === "hand" || (spaceHeld && !busy())) return "grab";
       if (tool === "brush")
         return brushCursor.update(
           pointer,
@@ -275,7 +282,7 @@ export function useFreehand(opts: {
     }
 
     function cursor() {
-      if (!brushing() || pan) brushCursor.update(null, space);
+      if (!brushing() || pan || spaceHeld) brushCursor.update(null, space);
       const next = cursorAt();
       if (root.style.cursor !== next) root.style.cursor = next;
     }
@@ -396,8 +403,9 @@ export function useFreehand(opts: {
     }
 
     function updateHover() {
-      hover = pointer && !brushing() ? hit(pointer) : null;
-      insertAt = pointer && !brushing() ? (edgeInsert(pointer, selected)?.point ?? null) : null;
+      const at = brushing() || hand() || spaceHeld || pan ? null : pointer;
+      hover = at ? hit(at) : null;
+      insertAt = at ? (edgeInsert(at, selected)?.point ?? null) : null;
     }
 
     function sample(e: PointerEvent, final = false) {
@@ -443,15 +451,20 @@ export function useFreehand(opts: {
     }
 
     function onDown(e: PointerEvent) {
-      if (e.button === 1) {
+      if (e.button === 1 || (e.button === 0 && (hand() || spaceHeld))) {
         e.preventDefault();
         if (busy() || pan) return;
-        pan = { pointerId: e.pointerId, x: e.clientX, y: e.clientY };
+        pan = {
+          pointerId: e.pointerId,
+          buttons: e.button === 1 ? 4 : 1,
+          x: e.clientX,
+          y: e.clientY,
+        };
         root.setPointerCapture(e.pointerId);
         cursor();
         return;
       }
-      if (boxDrag || pan) return;
+      if (boxDrag || pan || hand() || spaceHeld) return;
       pointer = e;
       if (brushing()) {
         if (e.button !== 0 && e.button !== 2) return;
@@ -539,7 +552,7 @@ export function useFreehand(opts: {
       pointer = e;
       if (pan) {
         if (e.pointerId !== pan.pointerId) return;
-        if ((e.buttons & 4) === 0) return finishGesture(e);
+        if ((e.buttons & pan.buttons) === 0) return finishGesture(e);
         view.x += e.clientX - pan.x;
         view.y += e.clientY - pan.y;
         pan.x = e.clientX;
@@ -596,6 +609,29 @@ export function useFreehand(opts: {
         insertAt?.[1] !== previousInsert?.[1]
       )
         redraw();
+    }
+
+    function holdSpace(held: boolean) {
+      if (spaceHeld === held) return;
+      spaceHeld = held;
+      if (!busy()) updateHover();
+      cursor();
+      redraw();
+    }
+
+    // Capture phase so the canvas sees Space first; it only swallows the key over the image,
+    // so a focused button or menu trigger elsewhere still gets it.
+    function onSpaceDown(e: KeyboardEvent) {
+      if (e.key !== " " || isTypingTarget(e.target)) return;
+      if (pointer) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+      holdSpace(true);
+    }
+
+    function onKeyUp(e: KeyboardEvent) {
+      if (e.key === " ") holdSpace(false);
     }
 
     function onKey(e: KeyboardEvent) {
@@ -731,6 +767,10 @@ export function useFreehand(opts: {
     root.addEventListener("wheel", onWheel, { passive: false });
     window.addEventListener("wheel", onPageWheel, { passive: false });
     window.addEventListener("keydown", onKey);
+    window.addEventListener("keydown", onSpaceDown, true);
+    window.addEventListener("keyup", onKeyUp);
+    const releaseSpace = () => holdSpace(false);
+    window.addEventListener("blur", releaseSpace);
     if (brushing()) ensureBrush();
     redraw();
     return () => {
@@ -747,6 +787,9 @@ export function useFreehand(opts: {
       root.removeEventListener("wheel", onWheel);
       window.removeEventListener("wheel", onPageWheel);
       window.removeEventListener("keydown", onKey);
+      window.removeEventListener("keydown", onSpaceDown, true);
+      window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("blur", releaseSpace);
     };
   }, [rootRef, canvasRef, cursorRef, planeRef, marksRef, onChangeRef]);
 
@@ -765,7 +808,7 @@ export function useFreehand(opts: {
     prev.current = { tool, jobId };
     if (!last) return;
     if (last.tool === "brush" && (tool !== "brush" || last.jobId !== jobId)) ctl.current.flush();
-    ctl.current.reset(last.jobId !== jobId || tool === "brush");
+    ctl.current.reset(last.jobId !== jobId || tool === "brush" || tool === "hand");
   }, [tool, jobId]);
 
   return {

@@ -89,7 +89,8 @@ export function Overlay({ sidebar, children }: { sidebar: ReactNode; children: R
       const el = e.target as Element | null;
       // An open dialog and its backdrop sit outside the panel but don't dismiss it.
       if (document.querySelector("[role=dialog]")) return;
-      if (el?.closest("[data-slot=overlay-panel],[data-slot=sidebar-trigger]")) return;
+      // Submenus are portalled out of the panel, whose clip-path would cut them off.
+      if (el?.closest("[data-slot=overlay-panel],[data-slot=sidebar-trigger],[role=menu]")) return;
       setOpen("closed");
     };
     document.addEventListener("pointerdown", outside);
