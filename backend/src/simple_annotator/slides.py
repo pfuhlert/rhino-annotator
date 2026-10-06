@@ -31,7 +31,7 @@ from simple_annotator.girder import (
 )
 from simple_annotator.images import matches, ordered_items
 from simple_annotator.models import Patch, PatchVisit, Slide, User
-from simple_annotator.tiling import grid, is_colored, split, tissue_mask, tissue_regions
+from simple_annotator.tiling import grid, split, tissue_mask, tissue_regions
 
 PLACEHOLDER_SIZE = FULL_IMAGE_MAX + CROP_SIZE
 DETECTION_SIDE = 2048
@@ -48,7 +48,8 @@ def _signature(slide: Slide) -> str:
         return f"v3:regions:{':'.join(f'{v:g}' for v in params)}:{TISSUE_MIN_AREA_UM2:g}"
     if max(slide.width, slide.height) <= FULL_IMAGE_MAX:
         return "v1:whole"
-    return f"v1:{CROP_SIZE}:{CROP_SIZE - _crop_overlap()}:all"
+    # v1 grids include gray-stained histology slides that are now tissue regions.
+    return f"v2:{CROP_SIZE}:{CROP_SIZE - _crop_overlap()}:all"
 
 
 def _crop_overlap() -> int:
@@ -82,16 +83,14 @@ def _build(item: dict) -> tuple[Slide, list[tuple[int, int, int, int]]]:
         tile_height=int(info.get("tileHeight", tile)),
         levels=int(levels),
     )
-    rgb = None
     nm_per_px = None if is_elmi_folder(item.get("folderId")) else ome_nm_per_px(item_id)
     if nm_per_px:
-        rgb = _rgb(item_id)
-        if is_colored(rgb):
-            slide.histo, slide.nm_per_px = True, nm_per_px
+        slide.histo, slide.nm_per_px = True, nm_per_px
     slide.grid = _signature(slide)
     width, height = slide.width, slide.height
     if slide.histo:
         um_per_px = slide.nm_per_px / 1000
+        rgb = _rgb(item_id)
         scale = rgb.shape[1] / width
         mask = tissue_mask(rgb, um_per_px / scale, TISSUE_MIN_AREA_UM2)
         merge = round(REGION_MERGE_UM / um_per_px * scale)

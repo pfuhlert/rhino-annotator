@@ -16,7 +16,8 @@ from simple_annotator.models import Patch, Slide
 IMAGES = {
     "histo": {"sizeX": 8000, "sizeY": 6000},
     "big": {"sizeX": 40000, "sizeY": 30000},
-    "gray": {"sizeX": 4200, "sizeY": 4200},
+    "gray": {"sizeX": 8000, "sizeY": 6000},
+    "grid": {"sizeX": 4200, "sizeY": 4200},
     "small": {"sizeX": 900, "sizeY": 700},
 }
 NM_PER_PX = {"histo": 2500, "big": 2500, "gray": 2500}
@@ -53,7 +54,9 @@ def _walk(client: TestClient, n: int) -> list[dict]:
     return [client.get("/patches/next").json() for _ in range(n)]
 
 
-def test_histology_patch_is_the_padded_tissue_region_with_slide_view(auth, girder):
+@pytest.mark.parametrize("item", ["histo", "gray"])
+def test_histology_patch_is_the_padded_tissue_region_with_slide_view(auth, girder, item):
+    girder[0] = {"_id": item, "name": "slide.svs"}
     patch = auth.get("/patches/current").json()
     assert patch["nm_per_px"] == 2500
     image = patch["image"]
@@ -65,7 +68,7 @@ def test_histology_patch_is_the_padded_tissue_region_with_slide_view(auth, girde
     box = [image[k] for k in ("left", "top", "width", "height")]
     assert [t[:4] for t in slide["tiles"]] == [box]
     assert slide["tiles"][slide["current"]][4] is True
-    assert auth.get(f"/patches/{patch['id']}/slide-thumbnail").content == _png("histo")
+    assert auth.get(f"/patches/{patch['id']}/slide-thumbnail").content == _png(item)
 
 
 def test_tiles_pass_through_for_the_patch_item(auth, girder, monkeypatch):
@@ -100,7 +103,7 @@ def test_large_regions_prepare_ai_tiles_around_the_view(auth, girder):
 def _three_images(girder: list[dict]) -> None:
     girder[:] = [
         {"_id": "histo", "name": "a.svs", "folder_name": "zz", "meta": {"staining": "PAS"}},
-        {"_id": "gray", "name": "b.tif", "meta": {"case_id": "case-10", "staining": "HE"}},
+        {"_id": "grid", "name": "b.tif", "meta": {"case_id": "case-10", "staining": "HE"}},
         {"_id": "small", "name": "c.png", "meta": {"case_id": "case-2", "staining": "PAS"}},
     ]
 
@@ -112,10 +115,10 @@ def _at(patch: dict) -> tuple[str, int]:
 def test_next_walks_regions_then_images_in_case_order_and_wraps(auth, girder):
     _three_images(girder)
     walk = [_at(p) for p in [auth.get("/patches/current").json(), *_walk(auth, 39)]]
-    gray = [("gray", i) for i in range(36)]
-    assert walk == [("small", 0), *gray, ("histo", 0), ("small", 0), ("gray", 0)]
+    grid = [("grid", i) for i in range(36)]
+    assert walk == [("small", 0), *grid, ("histo", 0), ("small", 0), ("grid", 0)]
     back = [_at(auth.get("/patches/prev").json()) for _ in range(4)]
-    assert back == [("small", 0), ("histo", 0), ("gray", 35), ("gray", 34)]
+    assert back == [("small", 0), ("histo", 0), ("grid", 35), ("grid", 34)]
 
 
 def test_stain_filter_skips_other_images(auth, girder):
@@ -131,11 +134,11 @@ def test_stain_filter_skips_other_images(auth, girder):
 
 def test_open_image_starts_at_its_first_unvisited_region(auth, girder):
     _three_images(girder)
-    opened = auth.post("/patches/open", json={"item_id": "gray"}).json()
-    assert _at(opened) == ("gray", 0)
-    assert _at(auth.get("/patches/next").json()) == ("gray", 1)
+    opened = auth.post("/patches/open", json={"item_id": "grid"}).json()
+    assert _at(opened) == ("grid", 0)
+    assert _at(auth.get("/patches/next").json()) == ("grid", 1)
     auth.post("/patches/open", json={"item_id": "small"})
-    assert _at(auth.post("/patches/open", json={"item_id": "gray"}).json()) == ("gray", 2)
+    assert _at(auth.post("/patches/open", json={"item_id": "grid"}).json()) == ("grid", 2)
     assert auth.post("/patches/open", json={"item_id": "elsewhere"}).status_code == 404
 
 
@@ -149,7 +152,7 @@ def test_next_skips_a_current_image_that_became_unreadable(auth, girder, monkeyp
         db.commit()
     ok = slides.image_info
     monkeypatch.setattr(slides, "image_info", lambda i: (None, "gone") if i == "small" else ok(i))
-    assert _at(auth.get("/patches/next").json()) == ("gray", 0)
+    assert _at(auth.get("/patches/next").json()) == ("grid", 0)
 
 
 def test_empty_dataset_is_a_clear_400_everywhere(auth, girder, monkeypatch):
@@ -169,7 +172,7 @@ def test_image_list_groups_by_case_with_stains_and_progress(auth, girder):
     girder[1]["meta"]["image_magnification"] = 412.31209375
     girder[2]["meta"]["image_magnification"] = 206.156046875
     auth.get("/patches/current")
-    auth.post("/patches/open", json={"item_id": "gray"})
+    auth.post("/patches/open", json={"item_id": "grid"})
     patch_id = auth.get("/patches/next").json()["id"]
     dots = [{"id": i, "jobId": 1, "type": "point", "points": [[5.0, 5.0]]} for i in "ab"]
     auth.patch(f"/patches/{patch_id}/annotations", json={"upsert": dots})
@@ -191,14 +194,14 @@ def test_image_list_groups_by_case_with_stains_and_progress(auth, girder):
     ]
     assert rows == [
         ("small", "case-2", "PAS", 20, 1, 1, 0),
-        ("gray", "case-10", "HE", 40, 36, 2, 2),
+        ("grid", "case-10", "HE", 40, 36, 2, 2),
         ("histo", "zz", "PAS", None, None, 0, 0),
     ]
     assert listing["stains"] == [{"name": "PAS", "count": 2}, {"name": "HE", "count": 1}]
 
 
 def test_users_walk_shared_tiles_row_by_row_with_own_annotations(auth, client, girder):
-    girder[0] = {"_id": "gray", "name": "gray.tif"}
+    girder[0] = {"_id": "grid", "name": "grid.tif"}
     ada = _walk(auth, 36)
     with session_factory()() as db:
         origins = [(db.get(Patch, p["id"]).top, db.get(Patch, p["id"]).left) for p in ada]

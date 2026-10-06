@@ -13,11 +13,17 @@ def is_colored(rgb: np.ndarray) -> bool:
 
 
 def tissue_mask(rgb: np.ndarray, um_per_px: float, min_area_um2: float) -> np.ndarray:
-    saturation = cv2.cvtColor(np.ascontiguousarray(rgb), cv2.COLOR_RGB2HSV)[..., 1]
-    saturation = cv2.medianBlur(saturation, 7)
-    otsu, _ = cv2.threshold(saturation, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    # Otsu splits noise on blank glass; such low saturation is never stained tissue.
-    _, mask = cv2.threshold(saturation, max(otsu, 15), 255, cv2.THRESH_BINARY)
+    rgb = np.ascontiguousarray(rgb)
+    if is_colored(rgb):
+        stain = cv2.cvtColor(rgb, cv2.COLOR_RGB2HSV)[..., 1]
+    else:
+        # Gray stains show as darker than glass; black is padding beyond the scanned area.
+        gray = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY)
+        stain = np.where(gray < 10, 0, 255 - gray).astype(np.uint8)
+    stain = cv2.medianBlur(stain, 7)
+    otsu, _ = cv2.threshold(stain, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    # Otsu splits noise on blank glass; such a faint signal is never stained tissue.
+    _, mask = cv2.threshold(stain, max(otsu, 15), 255, cv2.THRESH_BINARY)
     size = max(3, round(500 / um_per_px) | 1)
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (size, size))
     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)

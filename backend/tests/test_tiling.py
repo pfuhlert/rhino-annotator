@@ -78,3 +78,11 @@ def test_colored_detection_ignores_grayscale_stored_as_rgb():
     assert is_colored(tissue_image())
     gray = cv2.cvtColor(tissue_image(), cv2.COLOR_RGB2GRAY)
     assert not is_colored(np.repeat(gray[..., None], 3, axis=2))
+
+
+def test_gray_stains_are_tissue_but_black_padding_is_not():
+    gray = cv2.cvtColor(tissue_image(), cv2.COLOR_RGB2GRAY)
+    rgb = np.repeat(gray[..., None], 3, axis=2)
+    rgb[250:] = 0
+    mask = tissue_mask(rgb, um_per_px=25, min_area_um2=1_000_000)
+    assert mask[150, 100] and not mask[250:].any()
