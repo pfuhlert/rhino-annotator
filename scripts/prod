@@ -16,7 +16,7 @@ const venv = path.join(homedir(), ".uv-local/venvs/simple-annotator-prod");
 const sqlite = path.join(data, "annotator.sqlite");
 const webPort = "3300";
 const apiPort = "8300";
-const keepBackups = 20;
+const keepBackups = 5;
 
 function loadDotenv(file) {
   const out = {};

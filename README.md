@@ -39,7 +39,7 @@ npm run prod -- deploy <sha>    # deploy or roll back to any local commit
 npm run prod -- status | logs | start | stop | restart
 ```
 
-Only committed code is deployed. A failed deploy rolls back to the previous commit, and `status` shows the failure. Database backups go to `~/simple-annotator-prod/data/backups/` (last 20). Nothing restarts the processes after a pod restart; run `npm run prod -- start`.
+Only committed code is deployed. A failed deploy rolls back to the previous commit, and `status` shows the failure. Database backups go to `~/simple-annotator-prod/data/backups/` (last 5). Nothing restarts the processes after a pod restart; run `npm run prod -- start`.
 
 To deploy automatically after each successful push to `main`, install the hook once:
 
