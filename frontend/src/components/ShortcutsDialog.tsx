@@ -45,7 +45,7 @@ const SECTIONS: [string, [string[][], string][]][] = [
     "View",
     [
       [[[MOD, "Scroll"]], "Zoom"],
-      [[["Scroll"]], "Pan when zoomed in"],
+      [[["Scroll"], ["Middle-drag"]], "Pan when zoomed in"],
       [[["?"]], "Show this list"],
     ],
   ],

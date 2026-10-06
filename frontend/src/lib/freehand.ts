@@ -112,6 +112,7 @@ export function useFreehand(opts: {
       | { kind: "vertex"; id: string; ring: number; index: number }
       | null = null;
     let insertAt: [number, number] | null = null;
+    let pan: { pointerId: number; x: number; y: number } | null = null;
     let dirty = false;
     const stroke: [number, number][] = [];
     const draft: [number, number][] = [];
@@ -251,6 +252,7 @@ export function useFreehand(opts: {
     }
 
     function cursorAt() {
+      if (pan) return "grabbing";
       const tool = latest.current.tool;
       if (tool === "brush")
         return brushCursor.update(
@@ -273,7 +275,7 @@ export function useFreehand(opts: {
     }
 
     function cursor() {
-      if (!brushing()) brushCursor.update(null, space);
+      if (!brushing() || pan) brushCursor.update(null, space);
       const next = cursorAt();
       if (root.style.cursor !== next) root.style.cursor = next;
     }
@@ -441,7 +443,15 @@ export function useFreehand(opts: {
     }
 
     function onDown(e: PointerEvent) {
-      if (boxDrag) return;
+      if (e.button === 1) {
+        e.preventDefault();
+        if (busy() || pan) return;
+        pan = { pointerId: e.pointerId, x: e.clientX, y: e.clientY };
+        root.setPointerCapture(e.pointerId);
+        cursor();
+        return;
+      }
+      if (boxDrag || pan) return;
       pointer = e;
       if (brushing()) {
         if (e.button !== 0 && e.button !== 2) return;
@@ -527,6 +537,16 @@ export function useFreehand(opts: {
 
     function onMove(e: PointerEvent) {
       pointer = e;
+      if (pan) {
+        if (e.pointerId !== pan.pointerId) return;
+        if ((e.buttons & 4) === 0) return finishGesture(e);
+        view.x += e.clientX - pan.x;
+        view.y += e.clientY - pan.y;
+        pan.x = e.clientX;
+        pan.y = e.clientY;
+        applyView();
+        return;
+      }
       if (boxDrag && space) {
         if (e.pointerId !== boxDrag.pointerId) return;
         boxDrag.end = clampToImage(imagePoint(e, space), space);
@@ -606,6 +626,13 @@ export function useFreehand(opts: {
     }
 
     function finishGesture(e: PointerEvent) {
+      if (pan) {
+        if (e.pointerId !== pan.pointerId) return;
+        pan = null;
+        release(e);
+        cursor();
+        return;
+      }
       if (boxDrag) {
         if (e.pointerId !== boxDrag.pointerId) return;
         const gesture = boxDrag;
@@ -671,7 +698,7 @@ export function useFreehand(opts: {
     }
 
     function onLeave() {
-      if (drawing || boxDrag || painting || drag) return;
+      if (drawing || boxDrag || painting || drag || pan) return;
       pointer = null;
       brushCursor.update(null, space);
       const clearHover = !brushing() && (hover !== null || insertAt !== null);
