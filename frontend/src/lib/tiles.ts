@@ -55,7 +55,7 @@ export function createTileLayer(
   canvas: HTMLCanvasElement,
   root: HTMLElement,
   image: PatchImage,
-  events: { onLoad: () => void; onError: () => void },
+  events: { onLoad: () => void; onError: () => void; onDraw?: () => void },
 ) {
   const cache = new Map<string, HTMLImageElement>();
   let space: Space | null = null;
@@ -131,6 +131,7 @@ export function createTileLayer(
     }
     ctx.restore();
     evict(cache, needed, CACHE_SIZE);
+    events.onDraw?.();
     if (complete && (!loaded || broken)) {
       loaded = true;
       broken = false;

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { measureScaleBar } from "../src/lib/scale-bar";
+import { isLightBackground, measureScaleBar } from "../src/lib/scale-bar";
 import { measureSpace } from "../src/lib/draw";
 
 function viewer({ imageWidth = 2000, imageHeight = 1000, width = 1000, height = 800, zoom = 1, x = 0, y = 0 } = {}) {
@@ -63,4 +63,10 @@ test("bar sits a gap above the controls even below a letterboxed image, and hide
   assert.equal(scaleBar(viewer(), 2, 740)!.y, 728);
   assert.equal(scaleBar(viewer(), 2, 790)!.y, 778);
   assert.equal(scaleBar(viewer(), 2, 200), null);
+});
+
+test("picks ink from the average brightness behind the bar", () => {
+  const px = (...rgba: number[][]) => new Uint8ClampedArray(rgba.flat());
+  assert.equal(isLightBackground(px([240, 230, 235, 255], [200, 200, 200, 255])), true);
+  assert.equal(isLightBackground(px([60, 20, 80, 255], [240, 230, 235, 255])), false);
 });

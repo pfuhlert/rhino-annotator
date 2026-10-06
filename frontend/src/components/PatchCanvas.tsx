@@ -5,7 +5,7 @@ import type { AiPrompt, AiTask, Element, Job, PatchImage, ViewRect } from "@/lib
 import { measureSpace, type Mark, type Tool } from "@/lib/draw";
 import { useFreehand } from "@/lib/freehand";
 import { createHistory } from "@/lib/history";
-import { measureScaleBar } from "@/lib/scale-bar";
+import { isLightBackground, measureScaleBar, sampleBehind } from "@/lib/scale-bar";
 import { createTileLayer, visibleRect } from "@/lib/tiles";
 
 type Props = {
@@ -70,9 +70,13 @@ export default function PatchCanvas({
   const visibleTimer = useRef(0);
   const cursorRef = useRef<HTMLDivElement>(null);
   const [scaleBar, setScaleBar] = useState<ReturnType<typeof measureScaleBar>>(null);
+  const scaleBarRef = useRef(scaleBar);
+  const toneTimer = useRef(0);
+  const [lightBehindBar, setLightBehindBar] = useState(false);
   const persistRef = useRef(onChange);
   const [history] = useState(() => createHistory(initial));
   useEffect(() => {
+    scaleBarRef.current = scaleBar;
     persistRef.current = onChange;
     imageEvents.current = { onImageLoad, onImageError, onVisibleChange };
   });
@@ -85,12 +89,24 @@ export default function PatchCanvas({
         imageEvents.current.onImageLoad?.();
       },
       onError: () => imageEvents.current.onImageError?.(),
+      onDraw: () => {
+        window.clearTimeout(toneTimer.current);
+        toneTimer.current = window.setTimeout(() => {
+          const bar = scaleBarRef.current;
+          const canvas = tileCanvasRef.current;
+          if (!bar || !canvas) return;
+          const viewer = root.parentElement ?? root;
+          const pixels = sampleBehind(canvas, bar, getComputedStyle(viewer).backgroundColor);
+          if (pixels) setLightBehindBar(isLightBackground(pixels));
+        }, 100);
+      },
     });
     tiles.update(measureSpace(root));
     tilesRef.current = tiles;
     return () => {
       tiles.destroy();
       window.clearTimeout(visibleTimer.current);
+      window.clearTimeout(toneTimer.current);
     };
   }, [image]);
   const commitRef = useRef(() => {
@@ -194,7 +210,11 @@ export default function PatchCanvas({
       {scaleBar && (
         <div
           data-testid="scale-bar"
-          className="pointer-events-none absolute z-10 text-center text-xs leading-5 font-medium text-white drop-shadow-[0_1px_2px_#000]"
+          className={`pointer-events-none absolute z-10 text-center text-xs leading-5 font-medium ${
+            lightBehindBar
+              ? "text-black drop-shadow-[0_1px_2px_#fff]"
+              : "text-white drop-shadow-[0_1px_2px_#000]"
+          }`}
           style={{
             left: scaleBar.x,
             top: scaleBar.y,
@@ -203,7 +223,7 @@ export default function PatchCanvas({
           }}
         >
           {scaleBar.label}
-          <div className="h-2 border-x-2 border-b-2 border-white" />
+          <div className="h-2 border-x-2 border-b-2 border-current" />
         </div>
       )}
     </div>
