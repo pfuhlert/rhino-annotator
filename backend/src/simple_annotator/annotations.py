@@ -1,4 +1,5 @@
 import json
+import time
 from uuid import uuid4
 
 from fastapi import HTTPException
@@ -66,9 +67,9 @@ def element_row(item_id: str, user_id: int, job_id: int, el: dict) -> dict:
     }
 
 
-def elements(db: Session, user_id: int, patch: Patch) -> list[dict]:
+def visible(db: Session, user_id: int, patch: Patch) -> list[Annotation]:
     right, bottom = patch.left + patch.width, patch.top + patch.height
-    rows = db.scalars(
+    return db.scalars(
         select(Annotation)
         .where(
             Annotation.item_id == patch.girder_item_id,
@@ -86,19 +87,25 @@ def elements(db: Session, user_id: int, patch: Patch) -> list[dict]:
             ),
         )
         .order_by(Annotation.id)
-    )
-    return [
-        {
-            "id": a.element_id,
-            "type": a.type,
-            **shift(json.loads(a.geometry), -patch.left, -patch.top),
-            "jobId": a.job_id,
-        }
-        for a in rows
-    ]
+    ).all()
 
 
-def apply_changes(db: Session, user_id: int, patch: Patch, changes: Changes) -> None:
+def element_json(a: Annotation, patch: Patch) -> dict:
+    return {
+        "id": a.element_id,
+        "type": a.type,
+        **shift(json.loads(a.geometry), -patch.left, -patch.top),
+        "jobId": a.job_id,
+    }
+
+
+def times(rows: list[Annotation]) -> dict[str, list[float | None]]:
+    return {a.element_id: [a.created, a.updated] for a in rows}
+
+
+def apply_changes(
+    db: Session, user_id: int, patch: Patch, changes: Changes
+) -> dict[str, list[float | None]]:
     # Caller holds BEGIN IMMEDIATE: worker completion and manual edits share this transaction.
     for el in changes.upsert:
         if el.type not in {"point", "polygon"}:
@@ -108,24 +115,32 @@ def apply_changes(db: Session, user_id: int, patch: Patch, changes: Changes) -> 
     # A repeated id in one save keeps its last version.
     upserts = {el.id: el for el in changes.upsert}
     removed = set(changes.delete) | set(upserts)
-    db.execute(
-        delete(Annotation).where(
-            Annotation.item_id == patch.girder_item_id,
-            Annotation.user_id == user_id,
-            Annotation.element_id.in_(removed),
-        )
+    mine = (Annotation.item_id == patch.girder_item_id, Annotation.user_id == user_id)
+    # Edits replace the row, so carry over when the annotation was first saved.
+    created = dict(
+        db.execute(
+            select(Annotation.element_id, Annotation.created).where(
+                *mine, Annotation.element_id.in_(upserts)
+            )
+        ).all()
     )
-    db.add_all(
+    db.execute(delete(Annotation).where(*mine, Annotation.element_id.in_(removed)))
+    now = time.time()
+    rows = [
         Annotation(
             **element_row(
                 patch.girder_item_id,
                 user_id,
                 el.jobId,
                 shift(el.model_dump(exclude={"jobId"}), patch.left, patch.top),
-            )
+            ),
+            created=created.get(el.id, now),
+            updated=now,
         )
         for el in upserts.values()
-    )
+    ]
+    db.add_all(rows)
+    return times(rows)
 
 
 def lock(db: Session) -> None:

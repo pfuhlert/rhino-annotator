@@ -125,6 +125,9 @@ def _migrate(engine: Engine) -> None:
         cols = {row[1] for row in conn.execute(text("PRAGMA table_info(annotations)"))}
         if "elements" in cols:
             _annotations_to_rows(conn, cols)
+        elif "created" not in cols:
+            conn.execute(text("ALTER TABLE annotations ADD COLUMN created FLOAT"))
+            conn.execute(text("ALTER TABLE annotations ADD COLUMN updated FLOAT"))
         ai_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(ai_tasks)"))}
         if ai_cols and "finished" not in ai_cols:
             conn.execute(text("ALTER TABLE ai_tasks ADD COLUMN finished FLOAT"))

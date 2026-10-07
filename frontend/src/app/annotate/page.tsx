@@ -17,7 +17,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { api, type Element, type Job, type Me, type Patch, type ViewRect } from "@/lib/api";
+import {
+  api,
+  type Element,
+  type Job,
+  type Me,
+  type Patch,
+  type Times,
+  type ViewRect,
+} from "@/lib/api";
 import type { Tool } from "@/lib/draw";
 import { createAnnotationSync } from "@/lib/annotation-sync";
 import { useAi } from "@/lib/use-ai";
@@ -84,6 +92,7 @@ export default function AnnotatePage() {
     return () => window.clearTimeout(timer);
   }, [view]);
   const [marks, setMarks] = useState<Element[]>([]);
+  const [times, setTimes] = useState<Times>({});
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selectAfterSwitch = useRef<string | null>(null);
   const [chosenTool, setTool] = useState<Tool>("polygon");
@@ -107,8 +116,10 @@ export default function AnnotatePage() {
   // The address bar already shows the fallback patch, so reloading cannot retry a failed link.
   const [linkFailed, setLinkFailed] = useState(false);
   const [brokenImage, setBrokenImage] = useState<number | null>(null);
-  const ai = useAi(patch?.id, (elements, sourcePatchId) => {
-    if (patchRef.current?.id === sourcePatchId) annoRef.current?.add(elements);
+  const ai = useAi(patch?.id, (elements, sourcePatchId, added) => {
+    if (patchRef.current?.id !== sourcePatchId) return;
+    annoRef.current?.add(elements);
+    setTimes((t) => ({ ...t, ...added }));
   });
   const pending = useMemo(
     () => ai.tasks.filter((t) => t.patch_id === patch?.id && t.status !== "failed"),
@@ -135,10 +146,15 @@ export default function AnnotatePage() {
     patchRef.current = next;
     setInitialView(initial);
     annoRef.current = null;
-    sync.current = createAnnotationSync(next.elements, (changes) => api.edit(next.id, changes));
+    sync.current = createAnnotationSync(next.elements, (changes) =>
+      api.edit(next.id, changes).then(({ times: saved }) => {
+        if (patchRef.current?.id === next.id) setTimes((t) => ({ ...t, ...saved }));
+      }),
+    );
     setOpenCount((n) => n + 1);
     setPatch(next);
     setMarks(next.elements);
+    setTimes(next.times);
     setSelectedId(null);
     setLoadError(null);
     setLinkFailed(false);
@@ -419,6 +435,7 @@ export default function AnnotatePage() {
       loadFailed={!patch && !!loadError}
       marks={marks}
       selectedId={selectedId}
+      times={times}
       onUseFolder={(id) => void switchFolder(id)}
       onOpenImage={(id) => void go(() => api.openImage(id))}
       onStains={setStains}

@@ -17,6 +17,7 @@ import {
   type Job,
   type Me,
   type Patch,
+  type Times,
 } from "@/lib/api";
 import { groupImages, strongest } from "@/lib/images";
 
@@ -96,6 +97,7 @@ export default function Sidebar({
   loadFailed,
   marks,
   selectedId,
+  times,
   onUseFolder,
   onOpenImage,
   onStains,
@@ -113,6 +115,7 @@ export default function Sidebar({
   loadFailed: boolean;
   marks: Element[];
   selectedId: string | null;
+  times: Times;
   onUseFolder: (id: string) => void;
   onOpenImage: (itemId: string) => void;
   onStains: (stains: (string | null)[]) => void;
@@ -216,6 +219,7 @@ export default function Sidebar({
             marks={marks}
             jobs={jobs}
             selectedId={selectedId}
+            times={times}
             nmPerPx={patch.nm_per_px}
             onHover={onHoverMark}
             onSelect={onSelectMark}

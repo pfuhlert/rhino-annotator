@@ -74,13 +74,76 @@ function ringArea(ring: [number, number][]) {
   return Math.abs(sum) / 2;
 }
 
+function ringLength(ring: [number, number][]) {
+  let sum = 0;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++)
+    sum += Math.hypot(ring[i][0] - ring[j][0], ring[i][1] - ring[j][1]);
+  return sum;
+}
+
+// Monotone chain; returns the hull counter-clockwise without repeating the first point.
+function convexHull(points: [number, number][]) {
+  const sorted = [...points].sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const cross = (o: number[], a: number[], b: number[]) =>
+    (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  const half = (pts: [number, number][]) => {
+    const out: [number, number][] = [];
+    for (const p of pts) {
+      while (out.length >= 2 && cross(out[out.length - 2], out[out.length - 1], p) <= 0) out.pop();
+      out.push(p);
+    }
+    return out.slice(0, -1);
+  };
+  return [...half(sorted), ...half(sorted.reverse())];
+}
+
+// Caliper widths: the longest is between two hull vertices, the narrowest lies against a hull edge.
+function feret(points: [number, number][]) {
+  const hull = convexHull(points);
+  let max = 0;
+  let min = hull.length > 2 ? Infinity : 0;
+  for (let i = 0; i < hull.length; i++) {
+    const a = hull[i];
+    const b = hull[(i + 1) % hull.length];
+    const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    let width = 0;
+    for (const p of hull) {
+      max = Math.max(max, Math.hypot(p[0] - a[0], p[1] - a[1]));
+      if (len)
+        width = Math.max(
+          width,
+          Math.abs((b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0])) / len,
+        );
+    }
+    if (hull.length > 2) min = Math.min(min, width);
+  }
+  return { min, max };
+}
+
+export type Measures = {
+  area: number;
+  perimeter: number;
+  feretMin: number;
+  feretMax: number;
+};
+
 // Normalize first: marks are filled even-odd, and self-crossing lobes would cancel in a raw sum.
-export function polygonArea(m: Mark) {
-  return normalize(m).reduce(
+export function measurePolygon(m: Mark): Measures {
+  const pieces = normalize(m);
+  const rings = pieces.flatMap((p) => [p.points, ...(p.holes ?? [])]);
+  const area = pieces.reduce(
     (sum, p) =>
       sum + ringArea(p.points) - (p.holes ?? []).reduce((h, hole) => h + ringArea(hole), 0),
     0,
   );
+  const perimeter = rings.reduce((sum, r) => sum + ringLength(r), 0);
+  const { min, max } = feret(pieces.flatMap((p) => p.points));
+  return {
+    area,
+    perimeter,
+    feretMin: min,
+    feretMax: max,
+  };
 }
 
 export function pointInPoly(pt: [number, number], poly: [number, number][]) {

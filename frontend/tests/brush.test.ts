@@ -134,6 +134,29 @@ test("a local edit preserves distant geometry to floating-point precision and ke
   assert.deepEqual(original, saved);
 });
 
+test("erasing a hole or splitting a polygon keeps the original id on one piece", () => {
+  const mark: Mark = { ...square(0, 0, 100), id: "keep", type: "polygon", jobId: 1 };
+  const brush = createBrush(200, 200);
+  brush.enter([mark]);
+  brush.stamp([[50, 50]], 10, true);
+  const holed = applyPolys([mark], 1, brush.toPolygons());
+  assert.deepEqual(
+    holed.map((m) => [m.id, m.holes?.length]),
+    [["keep", 1]],
+  );
+  brush.stamp(
+    [
+      [50, -10],
+      [50, 110],
+    ],
+    5,
+    true,
+  );
+  const split = applyPolys(holed, 1, brush.toPolygons());
+  assert.equal(split.length, 2);
+  assert.equal(split.filter((m) => m.id === "keep").length, 1);
+});
+
 test("unaffected annotations retain their coordinates, identity, and job", () => {
   const near: Mark = { ...square(10, 10, 30), id: "near", type: "polygon", jobId: 1 };
   const far: Mark = { ...square(100, 100, 30), id: "far", type: "polygon", jobId: 1 };
@@ -149,6 +172,8 @@ test("unaffected annotations retain their coordinates, identity, and job", () =>
       next.find((n) => n.id === m.id),
       m,
     );
+  const edited = next.find((n) => n.id === "near");
+  assert.ok(edited && edited !== near, "an edited polygon keeps its id");
   const entered = jobPolys(next, 1);
   brush.enter(entered);
   assert.equal(brush.toPolygons(), entered);

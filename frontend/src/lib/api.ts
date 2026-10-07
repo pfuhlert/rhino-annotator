@@ -35,6 +35,8 @@ export type AiTask = AiPrompt & {
   status: string;
   error: string | null;
 };
+// Annotation id -> [created, updated] in epoch seconds; null when saved before timestamps existed.
+export type Times = Record<string, [number | null, number | null]>;
 export type Element = {
   id: string;
   type: "point" | "polygon";
@@ -76,6 +78,7 @@ export type Patch = {
   image: PatchImage;
   nm_per_px: number | null;
   elements: Element[];
+  times: Times;
   slide: SlideView | null;
 };
 
@@ -145,10 +148,14 @@ export const api = {
       worker: AiWorkerState;
       tasks: AiTask[];
       elements: Element[];
+      times: Times;
     }>(`/patches/ai?patch_id=${patchId}&after=${after}`, { signal }),
   aiSubmit: (patchId: number, prompt: AiPrompt & { id: string; job_id: number }) =>
     req<AiTask>(`/patches/${patchId}/ai`, { method: "POST", body: JSON.stringify(prompt) }),
   aiCancel: (id: string) => req(`/patches/ai/${id}`, { method: "DELETE" }),
   edit: (patchId: number, changes: { upsert: Element[]; delete: string[] }) =>
-    req(`/patches/${patchId}/annotations`, { method: "PATCH", body: JSON.stringify(changes) }),
+    req<{ times: Times }>(`/patches/${patchId}/annotations`, {
+      method: "PATCH",
+      body: JSON.stringify(changes),
+    }),
 };

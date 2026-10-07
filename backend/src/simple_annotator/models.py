@@ -80,6 +80,9 @@ class Annotation(Base):
     y0: Mapped[float]
     x1: Mapped[float]
     y1: Mapped[float]
+    # Epoch seconds; null for annotations saved before timestamps were recorded.
+    created: Mapped[float | None]
+    updated: Mapped[float | None]
 
 
 class PatchVisit(Base):

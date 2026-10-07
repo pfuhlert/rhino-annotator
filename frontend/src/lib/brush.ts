@@ -13,13 +13,22 @@ export function applyPolys(marks: Mark[], jobId: number, polys: BrushPoly[]): Ma
   const existing = new Map(
     marks.filter((m) => m.jobId === jobId && m.type === "polygon").map((m) => [m.points, m]),
   );
+  const kept = new Set(polys.map((p) => p.points));
+  // Edited polygons come back as new shapes; reusing an overlapping old id keeps the annotation's
+  // identity (and its creation time) across brush edits.
+  const replaced = [...existing.values()].filter((m) => !kept.has(m.points));
+  const idFor = (points: Pair[]) => {
+    const box = bounds(points);
+    const i = replaced.findIndex((m) => overlaps(box, bounds(m.points)));
+    return i < 0 ? crypto.randomUUID() : replaced.splice(i, 1)[0].id;
+  };
   return [
     ...marks.filter((m) => m.jobId !== jobId || m.type !== "polygon"),
     ...polys.map(
       (p) =>
         existing.get(p.points) ??
         withHoles(
-          { id: crypto.randomUUID(), type: "polygon" as const, points: p.points, jobId },
+          { id: idFor(p.points), type: "polygon" as const, points: p.points, jobId },
           p.holes,
         ),
     ),

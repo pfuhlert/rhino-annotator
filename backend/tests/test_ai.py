@@ -138,7 +138,7 @@ def test_worker_without_the_job_model_fails_the_prompt_clearly(queued):
 
 def test_idle_poll_skips_annotation_geometry(auth, queued, monkeypatch):
     patch, _ = queued
-    monkeypatch.setattr(ai, "elements", lambda *_: pytest.fail("idle poll read annotations"))
+    monkeypatch.setattr(ai, "visible", lambda *_: pytest.fail("idle poll read annotations"))
     status = auth.get(f"/patches/ai?patch_id={patch}").json()
     assert status["elements"] == []
     assert status["worker"] == "ready"
@@ -195,10 +195,10 @@ def test_worker_recovers_from_busy_database_without_repeating_prediction(queued,
     with session_factory()() as db:
         task = db.get(AiTask, prompt["id"])
         assert task.status == {"fail": "failed", "cancel": "cancelled"}.get(stage, "done")
-        from simple_annotator.annotations import elements
+        from simple_annotator.annotations import visible
 
         patch = db.get(Patch, task.patch_id)
-        assert len(elements(db, task.user_id, patch)) == (stage not in ("fail", "cancel"))
+        assert len(visible(db, task.user_id, patch)) == (stage not in ("fail", "cancel"))
 
 
 def test_competing_claims_only_start_a_task_once(queued):

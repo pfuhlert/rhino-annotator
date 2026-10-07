@@ -6,7 +6,15 @@ from pydantic import BaseModel, NonNegativeInt, PositiveInt
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from simple_annotator.annotations import Changes, apply_changes, elements, lock, require_patch
+from simple_annotator.annotations import (
+    Changes,
+    apply_changes,
+    element_json,
+    lock,
+    require_patch,
+    times,
+    visible,
+)
 from simple_annotator.auth import current_user, set_folder, user_stains
 from simple_annotator.config import FULL_IMAGE_MAX, job_ai_model
 from simple_annotator.db import get_db
@@ -22,6 +30,7 @@ router = APIRouter(prefix="/patches")
 def _dump(
     db: Session, user: User, patch: Patch, visit: PatchVisit, slide: Slide, nm_per_px: float | None
 ) -> dict:
+    rows = visible(db, user.id, patch)
     return {
         "id": patch.id,
         "item_id": patch.girder_item_id,
@@ -41,7 +50,8 @@ def _dump(
             "prepare_view": _prepares_view(patch),
         },
         "nm_per_px": nm_per_px,
-        "elements": elements(db, user.id, patch),
+        "elements": [element_json(a, patch) for a in rows],
+        "times": times(rows),
         "slide": slide_view(db, user, patch),
     }
 
@@ -240,6 +250,6 @@ def edit_annotations(
 ) -> dict:
     require_patch(db, user.id, patch_id)
     lock(db)
-    apply_changes(db, user.id, db.get(Patch, patch_id), body)
+    saved = apply_changes(db, user.id, db.get(Patch, patch_id), body)
     db.commit()
-    return {"ok": True}
+    return {"ok": True, "times": saved}

@@ -1,11 +1,12 @@
 import csv
 import io
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, tzinfo
 from itertools import groupby
 from urllib.parse import quote
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+import numpy as np
 import shapely
 from fastapi import APIRouter, Depends, Response
 from sqlalchemy import select
@@ -29,8 +30,20 @@ COLUMNS = [
     "y",
     "area_px",
     "area_um2",
+    "perimeter_px",
+    "perimeter_um",
+    "feret_max_px",
+    "feret_max_um",
+    "feret_min_px",
+    "feret_min_um",
+    "created",
+    "updated",
     "geometry",
 ]
+
+
+def local_time(t: float | None, zone: tzinfo) -> str:
+    return datetime.fromtimestamp(t, zone).isoformat(timespec="seconds") if t else ""
 
 
 def shape(kind: str, geometry: dict) -> shapely.Geometry:
@@ -44,7 +57,32 @@ def shape(kind: str, geometry: dict) -> shapely.Geometry:
     return polygon if polygon.is_valid else shapely.make_valid(polygon, method="structure")
 
 
-def rows(db: Session, user_id: int):
+def feret(geometry: shapely.Geometry) -> tuple[float, float]:
+    hull = geometry.convex_hull
+    if not isinstance(hull, shapely.Polygon):
+        return 0.0, hull.length
+    pts = shapely.get_coordinates(hull.exterior)[:-1]
+    longest = np.max(np.linalg.norm(pts[:, None] - pts[None], axis=-1))
+    edges = np.roll(pts, -1, axis=0) - pts
+    normals = np.stack([-edges[:, 1], edges[:, 0]], axis=1) / np.linalg.norm(edges, axis=1)[:, None]
+    # Rotating calipers: the narrowest width lies against one of the hull's edges.
+    widths = np.abs(np.einsum("ijk,ik->ij", pts[None] - pts[:, None], normals)).max(axis=1)
+    return float(widths.min()), float(longest)
+
+
+def measures(geometry: shapely.Geometry, um_per_px: float | None) -> dict:
+    area, perimeter = geometry.area, geometry.length
+    fmin, fmax = feret(geometry)
+    lengths = {"perimeter": perimeter, "feret_max": fmax, "feret_min": fmin}
+    return {
+        "area_px": round(area, 2),
+        "area_um2": round(area * um_per_px**2, 4) if um_per_px else "",
+        **{f"{k}_px": round(v, 2) for k, v in lengths.items()},
+        **{f"{k}_um": round(v * um_per_px, 4) if um_per_px else "" for k, v in lengths.items()},
+    }
+
+
+def rows(db: Session, user_id: int, zone: tzinfo):
     jobs = dict(db.execute(select(Job.id, Job.name)).all())
     annotations = db.scalars(
         select(Annotation)
@@ -54,7 +92,7 @@ def rows(db: Session, user_id: int):
     for item_id, group in groupby(annotations, key=lambda a: a.item_id):
         slide = db.get(Slide, item_id)
         nm_per_px = slide and (slide.nm_per_px if slide.histo else image_nm_per_px(item_id))
-        um2_per_px = nm_per_px**2 / 1e6 if nm_per_px else None
+        um_per_px = nm_per_px / 1e3 if nm_per_px else None
         image = {
             "folder": item_folder_path(item_id),
             "image": slide.name if slide else "",
@@ -62,7 +100,6 @@ def rows(db: Session, user_id: int):
         }
         for a in group:
             geometry = shape(a.type, json.loads(a.geometry))
-            area = geometry.area if a.type == "polygon" else None
             yield {
                 **image,
                 "job": jobs.get(a.job_id, ""),
@@ -70,8 +107,9 @@ def rows(db: Session, user_id: int):
                 "annotation_id": a.element_id,
                 "x": round(geometry.centroid.x, 2),
                 "y": round(geometry.centroid.y, 2),
-                "area_px": "" if area is None else round(area, 2),
-                "area_um2": round(area * um2_per_px, 4) if area is not None and um2_per_px else "",
+                **(measures(geometry, um_per_px) if a.type == "polygon" else {}),
+                "created": local_time(a.created, zone),
+                "updated": local_time(a.updated, zone),
                 "geometry": shapely.to_wkt(geometry, rounding_precision=-1),
             }
 
@@ -80,14 +118,14 @@ def rows(db: Session, user_id: int):
 def export_csv(
     tz: str = "UTC", user: User = Depends(current_user), db: Session = Depends(get_db)
 ) -> Response:
-    out = io.StringIO()
-    writer = csv.DictWriter(out, COLUMNS)
-    writer.writeheader()
-    writer.writerows(rows(db, user.id))
     try:
         zone = ZoneInfo(tz)
     except (ZoneInfoNotFoundError, ValueError):
         zone = UTC
+    out = io.StringIO()
+    writer = csv.DictWriter(out, COLUMNS, restval="")
+    writer.writeheader()
+    writer.writerows(rows(db, user.id, zone))
     stamp = datetime.now(zone).strftime("%Y-%m-%d_%H-%M-%S")
     filename = f"annotations-{user.username}-{stamp}.csv"
     return Response(

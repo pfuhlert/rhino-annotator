@@ -496,6 +496,9 @@ def test_export_lists_every_annotation_with_its_folder_and_measurements(auth, mo
     assert (point["type"], point["x"], point["y"]) == ("point", str(left + 5.0), str(top + 6.0))
     assert point["area_px"] == ""
     assert polygon["area_px"] == "9600.0"
+    assert (polygon["perimeter_px"], polygon["feret_min_px"]) == ("480.0", "100.0")
+    assert polygon["feret_max_px"] == "141.42"
+    assert polygon["created"] and polygon["created"] == polygon["updated"]
     # The hole up and left of centre pushes the centroid down and right.
     assert (float(polygon["x"]), float(polygon["y"])) == (
         pytest.approx(left + 50.83, abs=0.01),
@@ -505,6 +508,23 @@ def test_export_lists_every_annotation_with_its_folder_and_measurements(auth, mo
     assert polygon["geometry"].count("(") == 3
     # Both lobes count, as in the viewer's even-odd fill.
     assert crossed["area_px"] == "20000.0"
+    assert (crossed["feret_min_px"], crossed["feret_max_px"]) == ("200.0", "282.84")
+
+
+def test_edit_keeps_creation_time_and_bumps_update_time(auth, monkeypatch):
+    from types import SimpleNamespace
+
+    from simple_annotator import annotations
+
+    patch = auth.get("/patches/next").json()
+    url = f"/patches/{patch['id']}/annotations"
+    element = {"id": "e", "jobId": 1, "type": "polygon", "points": [[0, 0], [9, 0], [0, 9]]}
+    monkeypatch.setattr(annotations, "time", SimpleNamespace(time=lambda: 100.0))
+    assert auth.patch(url, json={"upsert": [element]}).json()["times"] == {"e": [100.0, 100.0]}
+    monkeypatch.setattr(annotations, "time", SimpleNamespace(time=lambda: 250.0))
+    element["points"][1] = [12, 0]
+    assert auth.patch(url, json={"upsert": [element]}).json()["times"] == {"e": [100.0, 250.0]}
+    assert auth.get("/patches/current").json()["times"] == {"e": [100.0, 250.0]}
 
 
 def test_export_is_limited_to_the_signed_in_user(auth):

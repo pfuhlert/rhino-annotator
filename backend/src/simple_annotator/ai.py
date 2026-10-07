@@ -12,9 +12,11 @@ from simple_annotator.annotations import (
     Changes,
     ai_element_id,
     apply_changes,
-    elements,
+    element_json,
     lock,
     require_patch,
+    times,
+    visible,
 )
 from simple_annotator.auth import current_user
 from simple_annotator.config import job_ai_model
@@ -83,11 +85,13 @@ def status(
         .order_by(AiTask.created)
     ).all()
     done = {ai_element_id(t.id) for t in tasks if t.status == "done"}
+    rows = [a for a in visible(db, user.id, patch) if a.element_id in done] if done else []
     return {
         "cursor": max((t.finished or 0 for t in tasks), default=after),
         "worker": worker.status if available else "offline",
         "tasks": [task_json(t) for t in tasks if t.status != "done"],
-        "elements": [el for el in elements(db, user.id, patch) if el["id"] in done] if done else [],
+        "elements": [element_json(a, patch) for a in rows],
+        "times": times(rows),
     }
 
 

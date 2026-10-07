@@ -1,9 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { aiTaskId, api, type AiPrompt, type AiTask, type AiWorkerState, type Element } from "./api";
+import {
+  aiTaskId,
+  api,
+  type AiPrompt,
+  type AiTask,
+  type AiWorkerState,
+  type Element,
+  type Times,
+} from "./api";
 
 export function useAi(
   patchId: number | undefined,
-  onResult: (elements: Element[], patchId: number) => void,
+  onResult: (elements: Element[], patchId: number, times: Times) => void,
 ) {
   const [tasks, setTasks] = useState<AiTask[]>([]);
   const [worker, setWorker] = useState<AiWorkerState>("offline");
@@ -60,7 +68,7 @@ export function useAi(
             ? previous
             : next,
         );
-        if (elements.length) result.current(elements, patchId!);
+        if (elements.length) result.current(elements, patchId!, status.times);
         if (next.some((task) => task.status !== "failed")) delay = 200;
       } catch {
         if (!signal.aborted) setWorker("offline");

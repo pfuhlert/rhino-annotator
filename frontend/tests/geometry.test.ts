@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { hasPolygonArea, polygonArea } from "../src/lib/geometry";
+import { hasPolygonArea, measurePolygon } from "../src/lib/geometry";
 
 test("edge-only strokes are discarded without rejecting self-crossing outlines", () => {
   assert.equal(
@@ -44,8 +44,12 @@ test("polygon area subtracts holes", () => {
     [4, 2],
   ];
   const mark = { id: "a", type: "polygon" as const, points: square, jobId: 1 };
-  assert.equal(polygonArea(mark), 100);
-  assert.equal(polygonArea({ ...mark, holes: [hole] }), 96);
+  assert.equal(measurePolygon(mark).area, 100);
+  const m = measurePolygon({ ...mark, holes: [hole] });
+  assert.equal(m.area, 96);
+  // Same shape, scaled, as the CSV export test.
+  assert.equal(m.perimeter, 48);
+  assert.deepEqual([m.feretMin, Math.round(m.feretMax * 100) / 100], [10, 14.14]);
 });
 
 test("polygon area counts both lobes of a self-crossing outline", () => {
@@ -55,5 +59,7 @@ test("polygon area counts both lobes of a self-crossing outline", () => {
     [200, 0],
     [0, 200],
   ];
-  assert.equal(polygonArea({ id: "b", type: "polygon", points: bowTie, jobId: 1 }), 20000);
+  const m = measurePolygon({ id: "b", type: "polygon", points: bowTie, jobId: 1 });
+  assert.equal(m.area, 20000);
+  assert.deepEqual([m.feretMin, Math.round(m.feretMax * 100) / 100], [200, 282.84]);
 });
