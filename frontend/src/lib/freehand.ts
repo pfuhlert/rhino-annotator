@@ -216,12 +216,25 @@ export function useFreehand(opts: {
       redraw();
     }
 
-    // Brush mode has no selection; sidebar hover still highlights through highlight().
+    // Brush mode has no selection, but still brings the mark into view.
     function select(id: string) {
-      if (busy() || brushing() || !marksRef.current.some((m) => m.id === id)) return;
-      selected = id;
+      const mark = marksRef.current.find((m) => m.id === id);
+      if (busy() || !mark) return;
+      if (!brushing()) selected = id;
+      if (space && revealMark(mark, space)) return applyView();
       cursor();
       redraw();
+    }
+
+    // Pans an off-screen or partly hidden mark to the center, keeping the zoom.
+    function revealMark(mark: Mark, s: Space) {
+      const xs = mark.points.map((p) => imageToScreen(p, s));
+      const [x0, x1] = [Math.min(...xs.map((p) => p[0])), Math.max(...xs.map((p) => p[0]))];
+      const [y0, y1] = [Math.min(...xs.map((p) => p[1])), Math.max(...xs.map((p) => p[1]))];
+      if (x0 >= 0 && y0 >= 0 && x1 <= root.clientWidth && y1 <= root.clientHeight) return false;
+      view.x += root.clientWidth / 2 - (x0 + x1) / 2;
+      view.y += root.clientHeight / 2 - (y0 + y1) / 2;
+      return true;
     }
 
     function remove(id: string) {
