@@ -461,3 +461,17 @@ def test_corrupt_cached_checkpoint_is_downloaded_again(tmp_path, monkeypatch):
     model = AiModel("remote", "vit_l", "https://example.invalid/w.pt", digest)
     (tmp_path / "remote.pt").write_bytes(b"trunc")
     assert segmenter.checkpoint(model).read_bytes() == b"weights"
+
+
+def test_pinched_masks_become_the_largest_valid_polygon():
+    import shapely
+
+    mask = np.zeros((40, 40), np.uint8)
+    mask[5:25, 5:25] = 1
+    mask[25:29, 25:29] = 1
+    mask[10:15, 5:12] = 0
+    outline = segmenter.mask_polygon(mask, (100, 200))
+    shape = shapely.Polygon(outline["points"], outline["holes"])
+    assert shape.is_valid
+    assert shape.bounds == (105, 205, 124, 224)
+    assert shape.area == pytest.approx(19 * 19 - 5 * 7, abs=8)

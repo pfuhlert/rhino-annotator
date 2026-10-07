@@ -7,6 +7,7 @@ from pathlib import Path
 import cv2
 import httpx
 import numpy as np
+import shapely
 import torch
 import xxhash
 from PIL import Image
@@ -195,7 +196,17 @@ def mask_polygon(mask: np.ndarray, origin: tuple[int, int]) -> dict:
     outer = next((i for i, info in enumerate(hierarchy[0]) if info[3] < 0 and rings[i]), None)
     if outer is None:
         raise ValueError("Structure is too small to outline.")
+    holes = [rings[i] for i, info in enumerate(hierarchy[0]) if info[3] == outer and rings[i]]
+    shape = shapely.Polygon(rings[outer], holes)
+    if shape.is_valid:
+        return {"points": rings[outer], "holes": holes}
+    # Traced pixel outlines can cross at one-pixel pinches; keep the largest repaired piece.
+    repaired = shapely.make_valid(shape, method="structure", keep_collapsed=False)
+    pieces = [g for g in getattr(repaired, "geoms", [repaired]) if g.geom_type == "Polygon"]
+    if not pieces:
+        raise ValueError("Structure is too small to outline.")
+    largest = max(pieces, key=lambda g: g.area)
     return {
-        "points": rings[outer],
-        "holes": [rings[i] for i, info in enumerate(hierarchy[0]) if info[3] == outer and rings[i]],
+        "points": [list(xy) for xy in largest.exterior.coords[:-1]],
+        "holes": [[list(xy) for xy in ring.coords[:-1]] for ring in largest.interiors],
     }

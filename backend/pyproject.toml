@@ -9,6 +9,7 @@ dependencies = [
     "opencv-python-headless>=4.10",
     "pillow>=11",
     "python-dotenv>=1.2.3",
+    "shapely>=2.1",
     "sqlalchemy>=2.0",
     "uvicorn[standard]>=0.34",
 ]
