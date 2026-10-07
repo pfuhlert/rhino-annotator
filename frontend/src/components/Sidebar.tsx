@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { DownloadIcon } from "lucide-react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { cn } from "cn";
 import AnnotationList from "@/components/AnnotationList";
 import FolderPicker from "@/components/FolderPicker";
@@ -33,6 +34,16 @@ function readTab(): Tab | null {
   } catch {
     return null;
   }
+}
+
+// The server render can't know the viewer's timezone, which names the downloaded file.
+function useExportUrl() {
+  const tz = useSyncExternalStore(
+    () => () => {},
+    () => Intl.DateTimeFormat().resolvedOptions().timeZone,
+    () => null,
+  );
+  return `/annotations/export.csv${tz ? `?tz=${encodeURIComponent(tz)}` : ""}`;
 }
 
 function useFolderPath(folderId: string | null) {
@@ -122,6 +133,7 @@ export default function Sidebar({
       localStorage.setItem(TAB_KEY, next);
     } catch {}
   };
+  const exportUrl = useExportUrl();
   // The last loaded path, possibly for the previous folder while the new one loads.
   const { path: lastPath, failed: pathFailed } = useFolderPath(folderId);
   const { catalog, failed: catalogFailed } = useCatalog(
@@ -211,7 +223,19 @@ export default function Sidebar({
           />
         )}
       </MarkedScroll>
-      <UserMenu username={me.username} onShortcuts={onShortcuts} onLogout={onLogout} />
+      <div className="flex items-center">
+        <UserMenu username={me.username} onShortcuts={onShortcuts} onLogout={onLogout} />
+        <a
+          href={exportUrl}
+          download
+          data-testid="export-annotations"
+          aria-label="Export all annotations as CSV"
+          title="Export all annotations as CSV"
+          className="mr-2 flex size-10 shrink-0 items-center justify-center rounded-lg text-muted-foreground outline-hidden hover:bg-sidebar-accent hover:text-sidebar-foreground focus-visible:ring-2 focus-visible:ring-sidebar-ring"
+        >
+          <DownloadIcon className="size-4" />
+        </a>
+      </div>
     </>
   );
 }

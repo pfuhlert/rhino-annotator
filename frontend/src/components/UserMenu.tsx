@@ -81,7 +81,7 @@ export default function UserMenu({
       <DropdownMenu.Trigger
         ref={trigger}
         data-testid="user-menu"
-        className="m-2 flex items-center gap-2 rounded-lg p-1.5 text-left outline-hidden hover:bg-sidebar-accent focus-visible:ring-2 focus-visible:ring-sidebar-ring data-[state=open]:bg-sidebar-accent"
+        className="m-2 mr-0 flex min-w-0 flex-1 items-center gap-2 rounded-lg p-1.5 text-left outline-hidden hover:bg-sidebar-accent focus-visible:ring-2 focus-visible:ring-sidebar-ring data-[state=open]:bg-sidebar-accent"
       >
         {avatar}
         <span className="min-w-0 flex-1 truncate text-sm font-medium">{username}</span>
@@ -92,7 +92,7 @@ export default function UserMenu({
         side="top"
         align="start"
         sideOffset={4}
-        className="z-50 w-(--radix-dropdown-menu-trigger-width) rounded-lg bg-popover p-1 text-popover-foreground shadow-md ring-1 ring-foreground/10 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95"
+        className="z-50 w-[calc(var(--radix-dropdown-menu-trigger-width)+2.5rem)] rounded-lg bg-popover p-1 text-popover-foreground shadow-md ring-1 ring-foreground/10 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95"
       >
         <div className="flex items-center gap-2 py-1 pr-1 pl-1">
           <DropdownMenu.Label className="flex min-w-0 flex-1 items-center gap-2">

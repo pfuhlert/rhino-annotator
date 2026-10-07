@@ -1,3 +1,5 @@
+import csv
+import io
 import json
 import sqlite3
 
@@ -468,3 +470,49 @@ def test_unreadable_dataset_explains_why(auth, monkeypatch):
         "None of the 2 images in this dataset can be read by the image server. "
         "Girder says: This assetstore does not expose file paths."
     )
+
+
+def test_export_lists_every_annotation_with_its_folder_and_measurements(auth, monkeypatch):
+    from simple_annotator import export
+
+    monkeypatch.setattr(export, "item_folder_path", lambda _: "/collection/Kidney/batch-1")
+    patch = auth.get("/patches/next").json()
+    left, top = patch["image"]["left"], patch["image"]["top"]
+    square = [[0.0, 0.0], [100.0, 0.0], [100.0, 100.0], [0.0, 100.0]]
+    hole = [[20.0, 20.0], [40.0, 20.0], [40.0, 40.0], [20.0, 40.0]]
+    bow_tie = [[0.0, 0.0], [200.0, 200.0], [200.0, 0.0], [0.0, 200.0]]
+    elements = [
+        {"id": "p", "jobId": 1, "type": "point", "points": [[5.0, 6.0]]},
+        {"id": "s", "jobId": 2, "type": "polygon", "points": square, "holes": [hole]},
+        {"id": "b", "jobId": 2, "type": "polygon", "points": bow_tie},
+    ]
+    auth.patch(f"/patches/{patch['id']}/annotations", json={"upsert": elements})
+
+    response = auth.get("/annotations/export.csv")
+    disposition = response.headers["content-disposition"]
+    assert disposition.startswith("attachment; filename*=UTF-8''annotations-ada-")
+    point, polygon, crossed = csv.DictReader(io.StringIO(response.text))
+    assert point["folder"] == polygon["folder"] == "/collection/Kidney/batch-1"
+    assert (point["type"], point["x"], point["y"]) == ("point", str(left + 5.0), str(top + 6.0))
+    assert point["area_px"] == ""
+    assert polygon["area_px"] == "9600.0"
+    # The hole up and left of centre pushes the centroid down and right.
+    assert (float(polygon["x"]), float(polygon["y"])) == (
+        pytest.approx(left + 50.83, abs=0.01),
+        pytest.approx(top + 50.83, abs=0.01),
+    )
+    assert polygon["geometry"].startswith(f"POLYGON (({left:g} {top:g}, {left + 100:g} {top:g}")
+    assert polygon["geometry"].count("(") == 3
+    # Both lobes count, as in the viewer's even-odd fill.
+    assert crossed["area_px"] == "20000.0"
+
+
+def test_export_is_limited_to_the_signed_in_user(auth):
+    patch_id = auth.get("/patches/next").json()["id"]
+    element = {"id": "p", "jobId": 1, "type": "point", "points": [[1.0, 1.0]]}
+    auth.patch(f"/patches/{patch_id}/annotations", json={"upsert": [element]})
+    auth.post("/auth/logout")
+    auth.post("/auth/register", json={"username": "张伟", "password": "secret"})
+    response = auth.get("/annotations/export.csv")
+    assert response.status_code == 200
+    assert list(csv.DictReader(io.StringIO(response.text))) == []

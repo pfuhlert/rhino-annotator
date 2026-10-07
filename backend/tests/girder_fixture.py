@@ -137,6 +137,10 @@ class Handler(BaseHTTPRequestHandler):
             )
         elif path == "/item/tem":
             data = {"folderId": "elmi", "meta": {"nm_per_px": args.nm_per_px}}
+        elif path.startswith("/resource/") and path.endswith("/path"):
+            item = path.split("/")[2]
+            name, folder = (HISTO[item][0], "Histology") if item in HISTO else ("TEM.png", "ELMI")
+            data = f"/collection/Verification images/{folder}/{name}"
         elif path.removeprefix("/item/") in HISTO:
             data = _histo_item(path.removeprefix("/item/"))
         elif path.endswith("/tiles") and path.split("/")[2] in {"tem", *HISTO}:
