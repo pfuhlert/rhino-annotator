@@ -114,7 +114,7 @@ export default async function (page, state) {
       oversized ? current.css === "none" : current.css.startsWith('url("data:'),
       label,
     );
-    near(current.radius, radius * current.scale);
+    near(current.radius, radius);
     if (oversized) {
       near(current.center[0], x);
       near(current.center[1], y);
@@ -246,8 +246,8 @@ export default async function (page, state) {
   assert.equal((await read()).transform, beforeResizeWheel);
   for (let i = 0; i < 7; i++) await page.keyboard.press("[");
   await root.dispatchEvent("wheel", { clientX: x, clientY: y, deltaY: 100, shiftKey: true });
-  await check("Shift wheel clamps at minimum", false, 2);
-  for (let i = 0; i < 7; i++) await page.keyboard.press("]");
+  await check("Shift wheel clamps at minimum", false, 10);
+  for (let i = 0; i < 3; i++) await page.keyboard.press("]");
   await moveWithoutRedraw();
   await leaveAndReenter();
   await wheel(0, -400, "Control");
@@ -312,6 +312,8 @@ export default async function (page, state) {
   // A wheel event can have fresher coordinates than the last pointermove.
   x += 18;
   await root.dispatchEvent("wheel", { clientX: x, clientY: y, deltaY: -50 });
+  // Wheel panning applies on the next animation frame.
+  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
   await check("wheel coordinates", true, 80);
   await page.mouse.move(x, y);
   const beforeResize = (await read()).redraws;

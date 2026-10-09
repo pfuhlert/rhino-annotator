@@ -35,6 +35,11 @@ export function applyPolys(marks: Mark[], jobId: number, polys: BrushPoly[]): Ma
   ];
 }
 
+// Brush radius limits and step, in screen pixels.
+export const BRUSH_MIN = 10;
+export const BRUSH_MAX = 80;
+export const BRUSH_STEP = 2;
+
 // Maximum approximation error in image pixels, independent of brush size.
 const STROKE_ERROR = 1;
 type Bounds = [number, number, number, number];

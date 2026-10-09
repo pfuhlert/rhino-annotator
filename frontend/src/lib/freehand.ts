@@ -1,6 +1,14 @@
 import { useEffect, useRef, type RefObject } from "react";
 import type { AiPrompt, AiTask, Job, ViewRect } from "@/lib/api";
-import { applyPolys, createBrush, jobPolys, type Brush } from "./brush";
+import {
+  applyPolys,
+  BRUSH_MAX,
+  BRUSH_MIN,
+  BRUSH_STEP,
+  createBrush,
+  jobPolys,
+  type Brush,
+} from "./brush";
 import { createBrushCursor } from "./brush-cursor";
 import { TOOL_CURSORS } from "./tool-cursors";
 import {
@@ -97,6 +105,8 @@ export function useFreehand(opts: {
     } | null = null;
     let painting = false;
     let erasing = false;
+    // Image-space radius, fixed when a stroke starts so zooming mid-stroke cannot change its width.
+    let strokeRadius = 0;
     let brush: Brush | null = null;
     let brushJobId = latest.current.jobId;
     let stampedPoints = 0;
@@ -271,6 +281,17 @@ export function useFreehand(opts: {
       return space !== null && contains(point, space);
     }
 
+    // The radius is in screen pixels, so the brush keeps its on-screen size at every zoom;
+    // below 2 image pixels the stroke outline degenerates, so it stops shrinking there.
+    function brushRadius(s: Space) {
+      return Math.max(2, latest.current.radius / s.scale);
+    }
+
+    function resizeBrush(steps: number) {
+      const next = latest.current.radius + steps * BRUSH_STEP;
+      latest.current.onRadiusChange(Math.min(BRUSH_MAX, Math.max(BRUSH_MIN, next)));
+    }
+
     function cursorAt() {
       if (pan) return "grabbing";
       const tool = latest.current.tool;
@@ -279,7 +300,7 @@ export function useFreehand(opts: {
         return brushCursor.update(
           pointer,
           space,
-          space ? latest.current.radius * space.scale : null,
+          space ? (painting ? strokeRadius : brushRadius(space)) * space.scale : null,
         );
       if (drag?.kind === "vertex") return "move";
       if (drag) return "grabbing";
@@ -321,7 +342,7 @@ export function useFreehand(opts: {
         brush:
           painting && stroke.length && brushing()
             ? {
-                r: latest.current.radius,
+                r: strokeRadius,
                 color: job?.color || "#fafafa",
                 points: stroke,
                 erase: erasing,
@@ -399,9 +420,7 @@ export function useFreehand(opts: {
         zoom(e.deltaY, e.clientX - r.left, e.clientY - r.top);
       } else if (e.shiftKey && brushing()) {
         const delta = e.deltaY || e.deltaX;
-        latest.current.onRadiusChange(
-          Math.min(80, Math.max(2, latest.current.radius - Math.sign(delta) * 2)),
-        );
+        resizeBrush(-Math.sign(delta));
         cursor();
         return;
       } else if (view.z > 1) {
@@ -454,7 +473,7 @@ export function useFreehand(opts: {
       const b = ensureBrush();
       if (!b || stroke.length <= stampedPoints) return;
       const a = stroke.slice(Math.max(0, stampedPoints - 1));
-      b.stamp(a, latest.current.radius, erasing);
+      b.stamp(a, strokeRadius, erasing);
       stampedPoints = stroke.length;
     }
 
@@ -496,7 +515,8 @@ export function useFreehand(opts: {
       if (brushing()) {
         if (e.button !== 0 && e.button !== 2) return;
         if (!primed(e) || !space) return;
-        if (!brushTouchesImage(imagePoint(e, space), latest.current.radius, space)) {
+        strokeRadius = brushRadius(space);
+        if (!brushTouchesImage(imagePoint(e, space), strokeRadius, space)) {
           cursor();
           return;
         }
@@ -674,9 +694,7 @@ export function useFreehand(opts: {
         return;
       }
       if (e.key === "[" || e.key === "]") {
-        latest.current.onRadiusChange(
-          Math.min(80, Math.max(2, latest.current.radius + (e.key === "]" ? 2 : -2))),
-        );
+        resizeBrush(e.key === "]" ? 1 : -1);
         return;
       }
       if (e.key !== "Delete" && e.key !== "Backspace") return;

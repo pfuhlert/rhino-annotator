@@ -2,6 +2,7 @@
 
 import { Popover, Slider } from "radix-ui";
 import { Button } from "@/components/ui/button";
+import { BRUSH_MAX, BRUSH_MIN, BRUSH_STEP } from "@/lib/brush";
 
 export function BrushSizeControl({
   value,
@@ -32,9 +33,9 @@ export function BrushSizeControl({
           <Slider.Root
             data-testid="brush-size-slider"
             orientation="vertical"
-            min={2}
-            max={80}
-            step={2}
+            min={BRUSH_MIN}
+            max={BRUSH_MAX}
+            step={BRUSH_STEP}
             value={[value]}
             onValueChange={([n]) => onChange(n)}
             className="relative h-40 w-3 touch-none"
