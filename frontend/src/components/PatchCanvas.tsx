@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { AiPrompt, AiTask, Element, Job, PatchImage, ViewRect } from "@/lib/api";
 import { measureSpace, type Mark, type Tool } from "@/lib/draw";
+import { useFillOpacity } from "@/lib/fill-opacity";
 import { useFreehand } from "@/lib/freehand";
 import { createHistory } from "@/lib/history";
 import { isLightBackground, measureScaleBar, sampleBehind } from "@/lib/scale-bar";
@@ -115,6 +116,7 @@ export default function PatchCanvas({
     history.commit(marksRef.current);
     persistRef.current?.();
   });
+  const fillOpacity = useFillOpacity();
   const brush = useFreehand({
     rootRef,
     pending,
@@ -128,6 +130,7 @@ export default function PatchCanvas({
     marksRef,
     jobs,
     radius,
+    fillOpacity,
     onRadiusChange,
     onChangeRef: commitRef,
     onSelect,

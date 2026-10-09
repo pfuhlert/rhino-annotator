@@ -50,6 +50,7 @@ export function useFreehand(opts: {
   marksRef: RefObject<Mark[]>;
   jobs: Job[];
   radius: number;
+  fillOpacity: number;
   onRadiusChange: (radius: number) => void;
   onChangeRef: RefObject<(() => void) | undefined>;
   pending?: AiTask[];
@@ -316,6 +317,7 @@ export function useFreehand(opts: {
         selectedId: selected,
         insertAt,
         tool: latest.current.tool,
+        fillOpacity: latest.current.fillOpacity,
         brush:
           painting && stroke.length && brushing()
             ? {
@@ -822,7 +824,7 @@ export function useFreehand(opts: {
 
   useEffect(() => {
     ctl.current.redraw();
-  }, [opts.pending]);
+  }, [opts.pending, opts.fillOpacity]);
 
   useEffect(() => {
     ctl.current.cursor();

@@ -107,12 +107,13 @@ function poly(
   ctx: CanvasRenderingContext2D,
   rings: [number, number][][],
   color: string,
+  fillOpacity: number,
   highlight = false,
   fillOnly = false,
 ) {
   ctx.beginPath();
   for (const pts of rings) addRing(ctx, pts);
-  ctx.globalAlpha = 0.08;
+  ctx.globalAlpha = fillOpacity;
   ctx.fillStyle = color;
   ctx.fill("evenodd");
   ctx.globalAlpha = 1;
@@ -167,6 +168,7 @@ export type SceneOpts = {
   selectedId?: string | null;
   insertAt?: [number, number] | null;
   tool?: Tool;
+  fillOpacity: number;
   brush?: {
     r: number;
     color: string;
@@ -192,6 +194,7 @@ function brushStroke(
   s: Space,
   color: string,
   erase: boolean,
+  fillOpacity: number,
 ) {
   if (!pts.length) return;
   ctx.save();
@@ -208,7 +211,7 @@ function brushStroke(
     ctx.globalAlpha = 1;
   } else {
     ctx.strokeStyle = ctx.fillStyle = color;
-    ctx.globalAlpha = 0.28;
+    ctx.globalAlpha = fillOpacity;
   }
   const p0 = imageToScreen(pts[0], s);
   if (pts.length === 1) {
@@ -232,7 +235,7 @@ export function paintScene(
   root: HTMLElement,
   marks: Mark[],
   jobs: Job[],
-  opts: SceneOpts = {},
+  opts: SceneOpts,
 ) {
   const draft = opts.draft ?? [];
   const fillOnly = opts.tool === "brush";
@@ -263,7 +266,7 @@ export function paintScene(
       const rings = polyRings(m).map((ring) => ring.map((p) => imageToScreen(p, s)));
       // Brush mode only fills, except for the mark hovered in the sidebar.
       const halo = m.id === opts.hoverId && m.id !== opts.selectedId;
-      poly(ctx, rings, color, halo, fillOnly && m.id !== opts.hoverId);
+      poly(ctx, rings, color, opts.fillOpacity, halo, fillOnly && m.id !== opts.hoverId);
       if (!fillOnly && m.id === opts.selectedId) {
         for (const ring of rings) handles(ctx, ring, color);
       }
@@ -287,7 +290,8 @@ export function paintScene(
     ctx.fillRect(x - 2, y - 2, 4, 4);
   }
   const brush = opts.brush;
-  if (brush?.points.length) brushStroke(ctx, brush.points, brush.r, s, brush.color, !!brush.erase);
+  if (brush?.points.length)
+    brushStroke(ctx, brush.points, brush.r, s, brush.color, !!brush.erase, opts.fillOpacity);
   if (!fillOnly && opts.insertAt) {
     const [x, y] = imageToScreen(opts.insertAt, s);
     ctx.beginPath();

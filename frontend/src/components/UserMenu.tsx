@@ -16,9 +16,10 @@ import {
   SunIcon,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { DropdownMenu } from "radix-ui";
+import { DropdownMenu, Slider } from "radix-ui";
 import { useOverlay } from "@/components/Overlay";
 import type { Tool } from "@/lib/draw";
+import { MIN_FILL_OPACITY, setFillOpacity, useFillOpacity } from "@/lib/fill-opacity";
 import { setTheme, type Theme, useTheme } from "@/lib/theme";
 import { setToolEnabled, TOOLS, useEnabledTools } from "@/lib/tools";
 
@@ -50,6 +51,7 @@ export default function UserMenu({
 }) {
   const theme = useTheme();
   const enabledTools = useEnabledTools();
+  const fillOpacity = useFillOpacity();
   const { expanded } = useOverlay();
   const [open, setOpen] = useState(false);
   if (open && !expanded) setOpen(false);
@@ -133,6 +135,34 @@ export default function UserMenu({
           </DropdownMenu.Item>
         </div>
         <DropdownMenu.Separator className="-mx-1 my-1 h-px bg-border" />
+        <div className="flex items-center gap-2 px-2 py-1.5 text-sm">
+          <PentagonIcon
+            fill="currentColor"
+            fillOpacity={0.35}
+            className="size-4 shrink-0 text-muted-foreground"
+          />
+          <span>Fill</span>
+          <Slider.Root
+            data-testid="fill-opacity"
+            min={MIN_FILL_OPACITY}
+            max={1}
+            step={0.01}
+            value={[fillOpacity]}
+            onValueChange={([n]) => setFillOpacity(n)}
+            className="relative ml-1 flex h-4 flex-1 touch-none items-center"
+          >
+            <Slider.Track className="relative h-1 grow rounded-full bg-muted">
+              <Slider.Range className="absolute h-full rounded-full bg-primary" />
+            </Slider.Track>
+            <Slider.Thumb
+              aria-label="Fill opacity"
+              className="block size-3 rounded-full border border-ring bg-white outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+            />
+          </Slider.Root>
+          <span className="w-8 text-right text-xs text-muted-foreground tabular-nums">
+            {Math.round(fillOpacity * 100)}%
+          </span>
+        </div>
         <DropdownMenu.Sub>
           <DropdownMenu.SubTrigger
             data-testid="tools-menu"

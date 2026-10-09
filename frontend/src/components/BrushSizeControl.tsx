@@ -38,12 +38,14 @@ export function BrushSizeControl({
             value={[value]}
             onValueChange={([n]) => onChange(n)}
             className="relative h-40 w-3 touch-none"
-            aria-label="Brush size"
           >
             <Slider.Track className="absolute inset-y-0 left-1/2 w-1 -translate-x-1/2 rounded-full bg-muted">
               <Slider.Range className="absolute w-full bg-primary" />
             </Slider.Track>
-            <Slider.Thumb className="block size-3 rounded-full border border-ring bg-white" />
+            <Slider.Thumb
+              aria-label="Brush size"
+              className="block size-3 rounded-full border border-ring bg-white"
+            />
           </Slider.Root>
         </Popover.Content>
       </Popover.Portal>
