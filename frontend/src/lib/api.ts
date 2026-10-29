@@ -93,6 +93,8 @@ export type ImageRow = {
   visited: number;
   annotations: number;
 };
+export const imageThumbnailUrl = (id: string, side: number) =>
+  `/images/${encodeURIComponent(id)}/thumbnail?side=${side}`;
 export type ImageCatalog = {
   items: ImageRow[];
   stains: { name: string | null; count: number }[];

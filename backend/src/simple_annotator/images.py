@@ -1,9 +1,11 @@
 import math
 import re
 from collections import Counter
+from functools import lru_cache
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import Response
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -15,6 +17,7 @@ from simple_annotator.girder import (
     get_item,
     girder_enabled,
     item_path,
+    thumbnail,
 )
 from simple_annotator.models import Annotation, Patch, PatchVisit, Slide, User
 
@@ -126,3 +129,26 @@ def image_path(item_id: str, _: User = Depends(current_user)) -> dict:
         if e.response.status_code >= 500:
             raise
         raise HTTPException(404, "Image not found") from e
+
+
+@lru_cache(maxsize=2048)
+def _list_thumbnail(item_id: str, side: int) -> bytes:
+    return thumbnail(item_id, side, "JPEG")
+
+
+# The size is in the URL, so the immutable header stays correct if the list's size changes.
+@router.get("/{item_id}/thumbnail")
+def list_thumbnail(
+    item_id: str, side: int = Query(ge=16, le=512), _user: User = Depends(current_user)
+) -> Response:
+    try:
+        content = _list_thumbnail(item_id, side)
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code >= 500:
+            raise
+        raise HTTPException(404, "Image not found") from e
+    return Response(
+        content=content,
+        media_type="image/jpeg",
+        headers={"Cache-Control": "private, max-age=2592000, immutable"},
+    )

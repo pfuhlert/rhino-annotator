@@ -536,3 +536,20 @@ def test_export_is_limited_to_the_signed_in_user(auth):
     response = auth.get("/annotations/export.csv")
     assert response.status_code == 200
     assert list(csv.DictReader(io.StringIO(response.text))) == []
+
+
+def test_list_thumbnail_is_a_small_cached_jpeg(auth, client, monkeypatch):
+    from simple_annotator import images
+
+    calls = []
+    monkeypatch.setattr(images, "thumbnail", lambda *args: calls.append(args) or b"jpeg")
+    images._list_thumbnail.cache_clear()
+    for _ in range(2):
+        response = auth.get("/images/item-1/thumbnail?side=80")
+        assert response.content == b"jpeg"
+    assert response.headers["content-type"] == "image/jpeg"
+    assert "immutable" in response.headers["cache-control"]
+    assert calls == [("item-1", 80, "JPEG")]
+    assert auth.get("/images/item-1/thumbnail?side=4096").status_code == 422
+    client.cookies.clear()
+    assert client.get("/images/item-1/thumbnail?side=80").status_code == 401

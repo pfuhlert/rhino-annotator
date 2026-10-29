@@ -102,7 +102,7 @@ def _encode(img: Image.Image, fmt: str) -> bytes:
     return output.getvalue()
 
 
-thumbnails: dict[tuple[str, int, int], bytes] = {}
+thumbnails: dict[tuple[str, int, int, str], bytes] = {}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -163,12 +163,13 @@ class Handler(BaseHTTPRequestHandler):
                 x, y, w, h = (int(query[key][0]) for key in ("left", "top", "width", "height"))
                 body, content_type = _encode(_render(item, x, y, w, h, w, h), "PNG"), "image/png"
             elif path.endswith("/thumbnail"):
-                key = (item, int(query["width"][0]), int(query["height"][0]))
+                fmt = query.get("encoding", ["PNG"])[0]
+                key = (item, int(query["width"][0]), int(query["height"][0]), fmt)
                 if key not in thumbnails:
                     scale = min(key[1] / width, key[2] / height)
                     out = (round(width * scale), round(height * scale))
-                    thumbnails[key] = _encode(_render(item, 0, 0, width, height, *out), "PNG")
-                body, content_type = thumbnails[key], "image/png"
+                    thumbnails[key] = _encode(_render(item, 0, 0, width, height, *out), fmt)
+                body, content_type = thumbnails[key], f"image/{fmt.lower()}"
             else:
                 z, tx, ty = (int(part) for part in path.split("/")[-3:])
                 down = 2 ** (_levels(item) - 1 - z)

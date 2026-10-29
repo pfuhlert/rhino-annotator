@@ -14,7 +14,7 @@ _IMAGE_EXT = {".png", ".tif", ".tiff", ".svs", ".jpg", ".jpeg", ".bmp"}
 _OME_UNIT_NM = {"nm": 1.0, "µm": 1e3, "μm": 1e3, "um": 1e3, "mm": 1e6}
 
 _gc: httpx.Client | None = None
-_placeholders: dict[tuple[int, int], bytes] = {}
+_placeholders: dict[tuple[int, int, str], bytes] = {}
 _images_cache: dict[str, list[dict]] = {}
 _kids_cache: dict[tuple[str, str], list[dict]] = {}
 
@@ -219,12 +219,12 @@ def tile(item_id: str, z: int, x: int, y: int) -> tuple[bytes, str]:
     return resp.content, resp.headers.get("content-type", "image/jpeg")
 
 
-def thumbnail(item_id: str, max_side: int) -> bytes:
+def thumbnail(item_id: str, max_side: int, encoding: str = "PNG") -> bytes:
     if not girder_enabled() or item_id == PLACEHOLDER_FOLDER:
-        return _placeholder(max_side, max_side)
+        return _placeholder(max_side, max_side, encoding)
     resp = _client().get(
         f"/item/{item_id}/tiles/thumbnail",
-        params={"width": max_side, "height": max_side, "encoding": "PNG"},
+        params={"width": max_side, "height": max_side, "encoding": encoding},
     )
     return resp.raise_for_status().content
 
@@ -288,8 +288,8 @@ def fetch_image(item_id: str, left: int, top: int, width: int, height: int) -> b
     return resp.content
 
 
-def _placeholder(width: int, height: int) -> bytes:
-    key = (width, height)
+def _placeholder(width: int, height: int, encoding: str = "PNG") -> bytes:
+    key = (width, height, encoding)
     cached = _placeholders.get(key)
     if cached:
         return cached
@@ -300,6 +300,6 @@ def _placeholder(width: int, height: int) -> bytes:
     for i in range(0, height, 64):
         draw.line([(0, i), (width, i)], fill=(39, 39, 42), width=1)
     buf = io.BytesIO()
-    img.save(buf, format="PNG")
+    img.save(buf, format=encoding)
     _placeholders[key] = buf.getvalue()
     return _placeholders[key]

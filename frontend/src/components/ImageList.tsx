@@ -1,15 +1,87 @@
 "use client";
 
 import { type RefObject, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { CheckIcon, ChevronDownIcon, ChevronRightIcon } from "lucide-react";
 import { cn } from "cn";
-import { api, type ImageCatalog, type ImageRow } from "@/lib/api";
+import { api, type ImageCatalog, type ImageRow, imageThumbnailUrl } from "@/lib/api";
 import { copyText } from "@/lib/clipboard";
 import MarkDot from "@/components/MarkDot";
 import { type ImageGroup, isDone, rowMark } from "@/lib/images";
 
 type Stain = string | null;
 const stainLabel = (stain: Stain) => stain ?? "No stain";
+
+const PREVIEW_DELAY_MS = 250;
+const PREVIEW_MARGIN = 8;
+type Preview = { row: ImageRow; left: number; mid: number };
+
+function Thumbnail({
+  id,
+  onEnter,
+  onLeave,
+}: {
+  id: string;
+  onEnter: (thumb: HTMLElement) => void;
+  onLeave: () => void;
+}) {
+  // A removed thumbnail never gets pointerleave, so hide its preview on unmount.
+  useEffect(() => onLeave, [onLeave]);
+  return (
+    // eslint-disable-next-line @next/next/no-img-element -- served by the API, not Next's optimizer
+    <img
+      src={imageThumbnailUrl(id, 80)}
+      onPointerEnter={(e) => onEnter(e.currentTarget)}
+      onPointerLeave={onLeave}
+      alt=""
+      width={40}
+      height={24}
+      loading="lazy"
+      decoding="async"
+      draggable={false}
+      className="h-6 w-10 shrink-0 rounded-sm bg-muted object-contain"
+      onError={(e) => (e.currentTarget.style.visibility = "hidden")}
+    />
+  );
+}
+
+// Portaled with fixed positioning so the sidebar's overflow and clip-path don't cut it off.
+function ThumbnailPreview({ preview }: { preview: Preview }) {
+  const root = useRef<HTMLDivElement>(null);
+  const [image, setImage] = useState<"loading" | "loaded" | "failed">("loading");
+  useLayoutEffect(() => {
+    const card = root.current!;
+    const max = window.innerHeight - card.offsetHeight - PREVIEW_MARGIN;
+    const top = Math.min(preview.mid - card.offsetHeight / 2, max);
+    card.style.top = `${Math.max(PREVIEW_MARGIN, top)}px`;
+    const right = window.innerWidth - card.offsetWidth - PREVIEW_MARGIN;
+    card.style.left = `${Math.max(PREVIEW_MARGIN, Math.min(preview.left, right))}px`;
+  }, [preview.left, preview.mid, image]);
+  return createPortal(
+    <div
+      ref={root}
+      data-testid="image-preview"
+      className="pointer-events-none fixed z-50 w-67 rounded-lg bg-popover p-1.5 text-popover-foreground shadow-md ring-1 ring-foreground/10"
+    >
+      {image !== "failed" && (
+        // eslint-disable-next-line @next/next/no-img-element -- served by the API, not Next's optimizer
+        <img
+          src={imageThumbnailUrl(preview.row.id, 512)}
+          alt=""
+          decoding="async"
+          className={cn(
+            "mx-auto mb-1 max-h-64 max-w-64 rounded-sm object-contain",
+            image === "loading" && "h-48 w-64 bg-muted",
+          )}
+          onLoad={() => setImage("loaded")}
+          onError={() => setImage("failed")}
+        />
+      )}
+      <p className="text-xs break-words">{preview.row.name}</p>
+    </div>,
+    document.body,
+  );
+}
 
 function Progress({ row }: { row: ImageRow }) {
   if (row.regions === null) return null;
@@ -214,6 +286,20 @@ export default function ImageList({
   const list = useRef<HTMLDivElement>(null);
   const [menu, setMenu] = useState<RowMenu | null>(null);
   const closeMenu = useCallback(() => setMenu(null), []);
+  const [preview, setPreview] = useState<Preview | null>(null);
+  const previewTimer = useRef(0);
+  const hidePreview = useCallback(() => {
+    window.clearTimeout(previewTimer.current);
+    setPreview(null);
+  }, []);
+  useEffect(() => {
+    // Capture catches the sidebar scroller, whose scroll events don't bubble.
+    document.addEventListener("scroll", hidePreview, true);
+    return () => {
+      document.removeEventListener("scroll", hidePreview, true);
+      window.clearTimeout(previewTimer.current);
+    };
+  }, [hidePreview]);
   const currentOpen = currentGroup !== null && expanded.has(currentGroup);
   const loaded = groups !== null;
   // Not on every regroup: edits and saves would pull the list back to the current image.
@@ -277,6 +363,7 @@ export default function ImageList({
                     onClick={() => !current && onOpen(row.id)}
                     onContextMenu={(e) => {
                       e.preventDefault();
+                      hidePreview();
                       const box = list.current!.getBoundingClientRect();
                       setMenu({
                         row,
@@ -288,6 +375,23 @@ export default function ImageList({
                     {current && (
                       <span className="absolute inset-y-1.5 left-0 w-0.5 rounded-full bg-sidebar-primary" />
                     )}
+                    <Thumbnail
+                      id={row.id}
+                      onEnter={(thumb) => {
+                        if (menu) return;
+                        window.clearTimeout(previewTimer.current);
+                        previewTimer.current = window.setTimeout(() => {
+                          const box = thumb.getBoundingClientRect();
+                          const panel = thumb.closest("[data-slot=overlay-panel]") ?? thumb;
+                          setPreview({
+                            row,
+                            left: panel.getBoundingClientRect().right + PREVIEW_MARGIN,
+                            mid: (box.top + box.bottom) / 2,
+                          });
+                        }, PREVIEW_DELAY_MS);
+                      }}
+                      onLeave={hidePreview}
+                    />
                     <span className="min-w-0 flex-1 truncate">{row.name}</span>
                     <span className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
                       {row.staining && <span className="max-w-16 truncate">{row.staining}</span>}
@@ -301,6 +405,7 @@ export default function ImageList({
         );
       })}
       {menu && <ImageRowMenu key={menu.row.id} menu={menu} onClose={closeMenu} />}
+      {preview && <ThumbnailPreview key={preview.row.id} preview={preview} />}
     </div>
   );
 }
