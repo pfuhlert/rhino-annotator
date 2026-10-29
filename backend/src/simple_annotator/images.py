@@ -2,13 +2,20 @@ import math
 import re
 from collections import Counter
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from simple_annotator.auth import current_user
 from simple_annotator.db import get_db
-from simple_annotator.girder import PLACEHOLDER_FOLDER, folder_images, get_item, girder_enabled
+from simple_annotator.girder import (
+    PLACEHOLDER_FOLDER,
+    folder_images,
+    get_item,
+    girder_enabled,
+    item_path,
+)
 from simple_annotator.models import Annotation, Patch, PatchVisit, Slide, User
 
 router = APIRouter(prefix="/images")
@@ -107,3 +114,15 @@ def list_images(user: User = Depends(current_user), db: Session = Depends(get_db
         ],
         "stains": [{"name": name, "count": n} for name, n in stains.most_common()],
     }
+
+
+@router.get("/{item_id}/path")
+def image_path(item_id: str, _: User = Depends(current_user)) -> dict:
+    if not girder_enabled() or item_id == PLACEHOLDER_FOLDER:
+        return {"path": get_item(item_id)["name"]}
+    try:
+        return {"path": item_path(item_id)}
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code >= 500:
+            raise
+        raise HTTPException(404, "Image not found") from e

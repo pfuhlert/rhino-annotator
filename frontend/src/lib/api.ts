@@ -135,6 +135,8 @@ export const api = {
   openImage: (item_id: string, link?: { folder_id: string; view: ViewRect }) =>
     req<Patch>("/patches/open", { method: "POST", body: JSON.stringify({ item_id, ...link }) }),
   images: () => req<ImageCatalog>("/images"),
+  imagePath: (item_id: string) =>
+    req<{ path: string }>(`/images/${encodeURIComponent(item_id)}/path`),
   setStains: (stain_filter: (string | null)[]) =>
     req<Me>("/me", { method: "PATCH", body: JSON.stringify({ stain_filter }) }),
   prepare: (patchId: number, view: ViewRect) =>

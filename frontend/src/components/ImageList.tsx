@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { type RefObject, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { CheckIcon, ChevronDownIcon, ChevronRightIcon } from "lucide-react";
 import { cn } from "cn";
-import type { ImageCatalog, ImageRow } from "@/lib/api";
+import { api, type ImageCatalog, type ImageRow } from "@/lib/api";
+import { copyText } from "@/lib/clipboard";
 import MarkDot from "@/components/MarkDot";
 import { type ImageGroup, isDone, rowMark } from "@/lib/images";
 
@@ -21,6 +22,27 @@ function Progress({ row }: { row: ImageRow }) {
   );
 }
 
+function useDismiss(root: RefObject<HTMLElement | null>, onClose: () => void, enabled = true) {
+  useEffect(() => {
+    if (!enabled) return;
+    const outside = (e: Event) => {
+      if (!root.current?.contains(e.target as Node)) onClose();
+    };
+    const escape = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    // Wheel too: an unpinned sidebar collapses on outside wheel and would reopen with the menu up.
+    document.addEventListener("pointerdown", outside);
+    document.addEventListener("wheel", outside, { passive: true });
+    document.addEventListener("keydown", escape);
+    return () => {
+      document.removeEventListener("pointerdown", outside);
+      document.removeEventListener("wheel", outside);
+      document.removeEventListener("keydown", escape);
+    };
+  }, [root, onClose, enabled]);
+}
+
 // Renders inside the sidebar instead of a portal: the overlay closes on any outside pointerdown.
 export function StainFilter({
   catalog,
@@ -33,21 +55,11 @@ export function StainFilter({
 }) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const outside = (e: PointerEvent) => {
-      if (!root.current?.contains(e.target as Node)) setOpen(false);
-    };
-    const escape = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
-    };
-    document.addEventListener("pointerdown", outside);
-    document.addEventListener("keydown", escape);
-    return () => {
-      document.removeEventListener("pointerdown", outside);
-      document.removeEventListener("keydown", escape);
-    };
-  }, [open]);
+  useDismiss(
+    root,
+    useCallback(() => setOpen(false), []),
+    open,
+  );
 
   if (!catalog?.stains.some((s) => s.name !== null)) return null;
   const toggle = (stain: Stain) =>
@@ -115,6 +127,71 @@ export function StainFilter({
   );
 }
 
+const MENU_WIDTH = 144;
+type RowMenu = { row: ImageRow; x: number; y: number };
+
+// Positioned inside the list, not portaled, so it stays within an unpinned sidebar overlay.
+// Fetches the path on open so the copy click stays synchronous and keeps clipboard permission.
+function ImageRowMenu({ menu, onClose }: { menu: RowMenu; onClose: () => void }) {
+  // null while loading, false if it could not be loaded.
+  const [path, setPath] = useState<string | null | false>(null);
+  const root = useRef<HTMLDivElement>(null);
+  const [above, setAbove] = useState(false);
+  useDismiss(root, onClose);
+  useLayoutEffect(() => {
+    // Flip above the cursor near the bottom, where the sidebar scroller would clip it.
+    let scroller = root.current!.parentElement;
+    while (scroller && getComputedStyle(scroller).overflowY === "visible")
+      scroller = scroller.parentElement;
+    const bottom = scroller?.getBoundingClientRect().bottom ?? window.innerHeight;
+    setAbove(root.current!.getBoundingClientRect().bottom > bottom);
+  }, []);
+  useEffect(() => {
+    let live = true;
+    api.imagePath(menu.row.id).then(
+      (r) => live && setPath(r.path),
+      () => live && setPath(false),
+    );
+    return () => {
+      live = false;
+    };
+  }, [menu.row.id]);
+
+  const copy = (text: string) => {
+    copyText(text);
+    onClose();
+  };
+  const item =
+    "w-full rounded-md px-2 py-1 text-left text-sm hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:text-muted-foreground";
+  return (
+    <div
+      ref={root}
+      role="menu"
+      data-testid="image-row-menu"
+      style={{ left: menu.x, top: menu.y, width: MENU_WIDTH }}
+      className={cn(
+        "absolute z-50 rounded-lg bg-popover p-1 text-popover-foreground shadow-md ring-1 ring-foreground/10",
+        above && "-translate-y-full",
+      )}
+      onContextMenu={(e) => e.preventDefault()}
+    >
+      <button type="button" role="menuitem" className={item} onClick={() => copy(menu.row.name)}>
+        Copy name
+      </button>
+      <button
+        type="button"
+        role="menuitem"
+        disabled={!path}
+        title={path || undefined}
+        className={item}
+        onClick={() => path && copy(path)}
+      >
+        {path === false ? "Path unavailable" : "Copy path"}
+      </button>
+    </div>
+  );
+}
+
 export default function ImageList({
   groups,
   failed,
@@ -134,6 +211,9 @@ export default function ImageList({
     if (currentGroup !== null) setExpanded((open) => new Set(open).add(currentGroup));
   }
   const currentRow = useRef<HTMLButtonElement>(null);
+  const list = useRef<HTMLDivElement>(null);
+  const [menu, setMenu] = useState<RowMenu | null>(null);
+  const closeMenu = useCallback(() => setMenu(null), []);
   const currentOpen = currentGroup !== null && expanded.has(currentGroup);
   const loaded = groups !== null;
   // Not on every regroup: edits and saves would pull the list back to the current image.
@@ -155,7 +235,7 @@ export default function ImageList({
       return next;
     });
   return (
-    <div data-testid="image-list" className="flex flex-col gap-0.5">
+    <div ref={list} data-testid="image-list" className="relative flex flex-col gap-0.5">
       {groups.length === 0 && (
         <p className="px-2 py-1 text-xs text-muted-foreground">No images match this filter.</p>
       )}
@@ -195,6 +275,15 @@ export default function ImageList({
                       current && "bg-sidebar-accent font-medium",
                     )}
                     onClick={() => !current && onOpen(row.id)}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      const box = list.current!.getBoundingClientRect();
+                      setMenu({
+                        row,
+                        x: Math.min(e.clientX - box.left, box.width - MENU_WIDTH),
+                        y: e.clientY - box.top,
+                      });
+                    }}
                   >
                     {current && (
                       <span className="absolute inset-y-1.5 left-0 w-0.5 rounded-full bg-sidebar-primary" />
@@ -211,6 +300,7 @@ export default function ImageList({
           </div>
         );
       })}
+      {menu && <ImageRowMenu key={menu.row.id} menu={menu} onClose={closeMenu} />}
     </div>
   );
 }

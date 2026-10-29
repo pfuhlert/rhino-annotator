@@ -200,16 +200,16 @@ def item_folder_path(item_id: str) -> str:
     if not girder_enabled() or item_id == PLACEHOLDER_FOLDER:
         return ""
     try:
-        return _item_folder_path(item_id)
+        return item_path(item_id).rsplit("/", 1)[0]
     except httpx.HTTPError:
         # Deleted or no longer shared: export the annotations without a folder.
         return ""
 
 
 @lru_cache(maxsize=4096)
-def _item_folder_path(item_id: str) -> str:
+def item_path(item_id: str) -> str:
     path = _client().get(f"/resource/{item_id}/path", params={"type": "item"})
-    return path.raise_for_status().json().rsplit("/", 1)[0]
+    return path.raise_for_status().json()
 
 
 def tile(item_id: str, z: int, x: int, y: int) -> tuple[bytes, str]:
