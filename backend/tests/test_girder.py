@@ -26,69 +26,47 @@ def test_girder_client_bypasses_http_proxy(monkeypatch):
 
 
 @pytest.mark.parametrize("selected_id", ["dataset", "folder"])
-def test_folder_images_from_folder_or_collection(selected_id, monkeypatch):
+def test_walk_lists_images_under_a_folder_or_collection(selected_id, monkeypatch):
     monkeypatch.setenv("GIRDER_TOKEN", "test")
-    monkeypatch.setattr(girder, "_images_cache", {})
-    monkeypatch.setattr(girder, "_kids_cache", {})
+    kind = "collection" if selected_id == "dataset" else "folder"
+    meta = {"staining": "PAS", "scanner": "unused"}
+    items = [
+        {"_id": "file", "name": "Slide.dat", "folderId": "nested"},
+        {"_id": "image", "name": "sample.tif", "folderId": "nested", "meta": meta},
+    ]
 
     def respond(request):
-        path = request.url.path
+        path, params = request.url.path, request.url.params
         if path == "/folder/dataset":
             return httpx.Response(400, json={"message": "Folder not found."})
         if path in {"/collection/dataset", "/folder/folder"}:
             return httpx.Response(200, json={"_id": selected_id})
-        if path == "/folder":
-            parent = (request.url.params["parentType"], request.url.params["parentId"])
-            children = {
-                ("collection", "dataset"): [{"_id": "folder", "name": "Folder"}],
-                ("folder", "folder"): [{"_id": "nested", "name": "N2768-13"}],
-                ("folder", "nested"): [],
-            }
-            return httpx.Response(200, json=children[parent])
-        if path == "/item":
-            folder_id = request.url.params["folderId"]
-            assert folder_id in {"folder", "nested"}
-            items = [{"_id": "image", "name": "sample.tif"}] if folder_id == "nested" else []
-            return httpx.Response(200, json=items)
+        if path == "/folder/nested":
+            return httpx.Response(200, json={"_id": "nested", "name": "N2768-13"})
+        if path == f"/resource/{selected_id}/items" and params["type"] == kind:
+            offset, limit = int(params["offset"]), int(params["limit"])
+            return httpx.Response(200, json=items[offset : offset + limit])
         pytest.fail(f"Unexpected request: {request.url}")
 
     with httpx.Client(base_url="https://girder.test", transport=httpx.MockTransport(respond)) as gc:
         monkeypatch.setattr(girder, "_gc", gc)
-        images = girder.folder_images(selected_id)
-    assert [(image["_id"], image["folder_name"]) for image in images] == [("image", "N2768-13")]
-
-
-def test_subfolders_are_listed_past_one_page(monkeypatch):
-    monkeypatch.setenv("GIRDER_TOKEN", "test")
-    monkeypatch.setattr(girder, "_kids_cache", {})
-    cases = [{"_id": f"case{i}", "name": f"N{i}"} for i in range(1203)]
-
-    def respond(request):
-        assert request.url.path == "/folder"
-        offset, limit = int(request.url.params["offset"]), int(request.url.params["limit"])
-        return httpx.Response(200, json=cases[offset : offset + limit])
-
-    with httpx.Client(base_url="https://girder.test", transport=httpx.MockTransport(respond)) as gc:
-        monkeypatch.setattr(girder, "_gc", gc)
-        assert girder._kids("folder", "year") == cases
-
-
-def test_item_errors_are_not_cached_as_images(monkeypatch):
-    monkeypatch.setattr(girder, "_images_cache", {})
-    transport = httpx.MockTransport(
-        lambda request: httpx.Response(403, json={"message": "Access denied."})
-    )
-    with httpx.Client(base_url="https://girder.test", transport=transport) as gc:
-        monkeypatch.setattr(girder, "_gc", gc)
-        with pytest.raises(httpx.HTTPStatusError):
-            girder._images("denied")
-    assert "denied" not in girder._images_cache
+        images = girder.walk_images(selected_id)
+    assert images == [
+        {
+            "_id": "image",
+            "name": "sample.tif",
+            "folderId": "nested",
+            "folder_name": "N2768-13",
+            "meta": {"staining": "PAS"},
+        }
+    ]
 
 
 @pytest.fixture
 def calibration_client(monkeypatch):
     monkeypatch.setenv("GIRDER_TOKEN", "test")
     girder._image_nm_per_px.cache_clear()
+    girder._kinds.clear()
     responses = {
         "/item/a": {"folderId": "tem", "meta": {"nm_per_px": 0.48828125}},
         "/item/b": {"folderId": "tem", "meta": {"nm_per_px": 4.8828125}},
@@ -119,6 +97,17 @@ def test_is_elmi_folder_returns_false_on_girder_failure(calibration_client):
     responses, _ = calibration_client
     responses["/folder/tem"] = 503
     assert girder.is_elmi_folder("tem") is False
+
+
+def test_folder_kind_is_cached_but_failures_are_retried(calibration_client):
+    responses, calls = calibration_client
+    responses["/folder/tem"] = 503
+    assert girder.folder_kind("tem") == "histo"
+    responses["/folder/tem"] = {"name": "TEM", "parentId": "elmi"}
+    assert girder.folder_kind("tem") == "elmi"
+    assert girder.folder_kind("tem") == "elmi"
+    assert girder.folder_kind("histo") == "histo"
+    assert calls.count("/folder/tem") == 2
 
 
 def test_tem_calibration_is_per_image_and_cached(calibration_client):

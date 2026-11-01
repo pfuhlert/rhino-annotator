@@ -6,15 +6,34 @@ import time
 from collections.abc import Generator
 from functools import wraps
 
-from sqlalchemy import create_engine, event, select, text
-from sqlalchemy.engine import Engine
+from sqlalchemy import (
+    ColumnElement,
+    bindparam,
+    create_engine,
+    event,
+    func,
+    insert,
+    select,
+    text,
+    update,
+)
+from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 
 from simple_annotator.annotations import element_row, shift
 from simple_annotator.config import sqlite_path
 from simple_annotator.girder import PLACEHOLDER_FOLDER
-from simple_annotator.models import Annotation, Base, Job
+from simple_annotator.models import (
+    LOCKED_PASSWORD,
+    Annotation,
+    Base,
+    Job,
+    PatchVisit,
+    Project,
+    ProjectJob,
+    User,
+)
 
 SEED_JOBS = (
     ("Glomerulus", "#e11d48"),
@@ -118,6 +137,30 @@ def _annotations_to_rows(conn, columns: set[str]) -> None:
         conn.execute(Annotation.__table__.insert(), list(rows.values()))
 
 
+def _columns(conn, table: str) -> set[str]:
+    return {row[1] for row in conn.execute(text(f"PRAGMA table_info({table})"))}
+
+
+def _add_columns(conn, table: str, columns: dict[str, str]) -> None:
+    existing = _columns(conn, table)
+    for name, kind in columns.items():
+        if existing and name not in existing:
+            conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {kind}"))
+
+
+def _jobs_without_unique_name(conn) -> None:
+    sql = conn.scalar(text("SELECT sql FROM sqlite_master WHERE type='table' AND name='jobs'"))
+    if not sql or "UNIQUE" not in sql.upper():
+        return
+    # Annotations reference jobs; deferred checks pass once the same ids are back at commit.
+    conn.execute(text("PRAGMA defer_foreign_keys=ON"))
+    conn.execute(text("CREATE TEMP TABLE jobs_old AS SELECT id, name, color FROM jobs"))
+    conn.execute(text("DROP TABLE jobs"))
+    Job.__table__.create(conn)
+    conn.execute(text("INSERT INTO jobs (id, name, color) SELECT id, name, color FROM jobs_old"))
+    conn.execute(text("DROP TABLE jobs_old"))
+
+
 def _migrate(engine: Engine) -> None:
     with engine.begin() as conn:
         # pysqlite leaves schema changes outside a transaction unless one is opened explicitly.
@@ -128,9 +171,22 @@ def _migrate(engine: Engine) -> None:
         elif "created" not in cols:
             conn.execute(text("ALTER TABLE annotations ADD COLUMN created FLOAT"))
             conn.execute(text("ALTER TABLE annotations ADD COLUMN updated FLOAT"))
-        ai_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(ai_tasks)"))}
-        if ai_cols and "finished" not in ai_cols:
-            conn.execute(text("ALTER TABLE ai_tasks ADD COLUMN finished FLOAT"))
+        _add_columns(conn, "annotations", {"created_by": "INTEGER", "edited_by": "INTEGER"})
+        _add_columns(conn, "ai_tasks", {"finished": "FLOAT", "layer_id": "INTEGER"})
+        before_projects = "last_project_id" not in _columns(conn, "users")
+        _add_columns(conn, "users", {"last_project_id": "INTEGER"})
+        _add_columns(conn, "patch_visits", {"project_id": "INTEGER"})
+        _add_columns(conn, "project_jobs", {"color": "VARCHAR(16)"})
+        had_kind = "kind" in _columns(conn, "jobs")
+        _jobs_without_unique_name(conn)
+        if not had_kind:
+            _add_columns(conn, "jobs", {"kind": "VARCHAR(8) NOT NULL DEFAULT 'histo'"})
+            conn.execute(
+                text("UPDATE jobs SET kind = 'elmi' WHERE name IN :names").bindparams(
+                    bindparam("names", expanding=True)
+                ),
+                {"names": [name for name, _ in ELMI_JOBS]},
+            )
         user_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(users)"))}
         if "current_visit_id" not in user_cols:
             conn.execute(text("ALTER TABLE users ADD COLUMN current_visit_id INTEGER"))
@@ -185,6 +241,40 @@ def _migrate(engine: Engine) -> None:
                     ) WHERE last_folder_id IS NULL
                 """)
             )
+        if before_projects:
+            _default_projects(conn)
+        # Replaced by folder_images before release.
+        conn.execute(text("DROP TABLE IF EXISTS project_images"))
+
+
+def preset_ids(db: Session | Connection) -> dict[str, int]:
+    # Classes may share a name; the preset is the first class with its name.
+    names = [name for name, _ in SEED_JOBS + ELMI_JOBS]
+    query = select(Job.name, func.min(Job.id)).where(Job.name.in_(names)).group_by(Job.name)
+    return dict(db.execute(query).all())
+
+
+def add_default_project(db: Session | Connection, user_id: int, job_ids=frozenset()) -> int:
+    project = insert(Project).values(name="All annotations", owner_id=user_id, created=time.time())
+    project_id = db.execute(project).inserted_primary_key[0]
+    for job_id in sorted(job_ids | set(preset_ids(db).values())):
+        db.execute(insert(ProjectJob).values(project_id=project_id, job_id=job_id))
+    return project_id
+
+
+def _default_projects(conn: Connection) -> None:
+    _seed_presets(conn)
+    users = conn.scalars(select(User.id).where(User.password_hash != LOCKED_PASSWORD)).all()
+    for user_id in users:
+        # The classes of the user's own annotations stay in their project; other people's don't.
+        used = conn.scalars(select(Annotation.job_id).where(Annotation.user_id == user_id))
+        project_id = add_default_project(conn, user_id, frozenset(used))
+        conn.execute(update(User).where(User.id == user_id).values(last_project_id=project_id))
+        conn.execute(
+            update(PatchVisit)
+            .where(PatchVisit.user_id == user_id, PatchVisit.project_id.is_(None))
+            .values(project_id=project_id)
+        )
 
 
 def init_db() -> None:
@@ -193,16 +283,20 @@ def init_db() -> None:
         engine = get_engine()
         Base.metadata.create_all(engine)
         _migrate(engine)
-        with session_factory()() as db:
-            jobs = {j.name: j for j in db.scalars(select(Job)).all()}
-            for name, color in (*SEED_JOBS, *ELMI_JOBS):
-                if name in jobs:
-                    continue
-                if name.lower() in jobs:
-                    jobs[name.lower()].name = name
-                else:
-                    db.add(Job(name=name, color=color))
-            db.commit()
+        with engine.begin() as conn:
+            _seed_presets(conn)
+
+
+def _seed_presets(conn: Connection) -> None:
+    jobs = dict(conn.execute(select(Job.name, Job.id)).all())
+    presets = [(*job, "histo") for job in SEED_JOBS] + [(*job, "elmi") for job in ELMI_JOBS]
+    for name, color, kind in presets:
+        if name in jobs:
+            continue
+        if name.lower() in jobs:
+            conn.execute(update(Job).where(Job.id == jobs[name.lower()]).values(name=name))
+        else:
+            conn.execute(insert(Job).values(name=name, color=color, kind=kind))
 
 
 def get_db() -> Generator[Session]:
@@ -211,3 +305,8 @@ def get_db() -> Generator[Session]:
         yield db
     finally:
         db.close()
+
+
+def among(column: ColumnElement, values: list[str]) -> ColumnElement[bool]:
+    # One JSON parameter: a large project's image ids exceed SQLite's limit on parameters.
+    return column.in_(select(func.json_each(json.dumps(values)).table_valued("value").c.value))

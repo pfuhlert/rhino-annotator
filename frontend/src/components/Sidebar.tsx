@@ -1,6 +1,6 @@
 "use client";
 
-import { DownloadIcon } from "lucide-react";
+import { ChevronsUpDownIcon, DownloadIcon, UsersIcon } from "lucide-react";
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { cn } from "cn";
 import AnnotationList from "@/components/AnnotationList";
@@ -14,10 +14,12 @@ import {
   type Element,
   type FolderLevel,
   type ImageCatalog,
-  type Job,
   type Me,
   type Patch,
+  type Project,
+  type ProjectJob,
   type Times,
+  withProject,
 } from "@/lib/api";
 import { groupImages, strongest } from "@/lib/images";
 
@@ -44,7 +46,7 @@ function useExportUrl() {
     () => Intl.DateTimeFormat().resolvedOptions().timeZone,
     () => null,
   );
-  return `/annotations/export.csv${tz ? `?tz=${encodeURIComponent(tz)}` : ""}`;
+  return withProject(`/annotations/export.csv${tz ? `?tz=${encodeURIComponent(tz)}` : ""}`);
 }
 
 function useFolderPath(folderId: string | null) {
@@ -54,8 +56,8 @@ function useFolderPath(folderId: string | null) {
     if (!folderId) return;
     let live = true;
     (async () => {
-      const folder = await api.folders(folderId);
-      const parent = await api.folders(folder.parent_id);
+      const folder = await api.folders(folderId, true);
+      const parent = await api.folders(folder.parent_id, true);
       if (live) setPath({ folder, parent });
     })().catch(() => {
       if (live) setFailedId(folderId);
@@ -68,30 +70,53 @@ function useFolderPath(folderId: string | null) {
 }
 
 // Refetched per image (not per region) so images left behind show their final progress, and after
-// each save so annotation marks follow edits.
+// each save so annotation marks follow edits. Polled while the server indexes the folder.
 function useCatalog(folderId: string | null, itemId: string | null, saves: number) {
   const [catalog, setCatalog] = useState<{ folderId: string; data: ImageCatalog } | null>(null);
-  const [failedId, setFailedId] = useState<string | null>(null);
+  const [error, setError] = useState<{ folderId: string; message: string } | null>(null);
+  const [refreshes, setRefreshes] = useState(0);
   useEffect(() => {
     if (!folderId) return;
     let live = true;
-    api.images().then(
-      (data) => live && setCatalog({ folderId, data }),
-      () => live && setFailedId(folderId),
-    );
+    let timer = 0;
+    const load = () =>
+      api.images().then(
+        (data) => {
+          if (!live) return;
+          setCatalog({ folderId, data });
+          setError(null);
+          if (data.indexing) timer = window.setTimeout(load, 3000);
+        },
+        (e: Error) =>
+          live && setError({ folderId, message: e.message || "Could not load images." }),
+      );
+    void load();
     return () => {
       live = false;
+      window.clearTimeout(timer);
     };
-  }, [folderId, itemId, saves]);
+  }, [folderId, itemId, saves, refreshes]);
+  const refresh = (then: () => void) =>
+    void api.refreshImages().then(
+      () => {
+        setRefreshes((n) => n + 1);
+        then();
+      },
+      () => {},
+    );
   return {
     catalog: catalog?.folderId === folderId ? catalog.data : null,
-    failed: failedId === folderId,
+    error: error?.folderId === folderId ? error.message : null,
+    refresh,
   };
 }
 
 export default function Sidebar({
   me,
+  project,
   jobs,
+  hideOther,
+  onHideOther,
   folderId,
   patch,
   loadFailed,
@@ -100,16 +125,23 @@ export default function Sidebar({
   times,
   onUseFolder,
   onOpenImage,
+  onRefreshed,
   onStains,
   onHoverMark,
   onSelectMark,
   onDeleteMark,
+  onRelabelMark,
+  onOpenProjects,
+  onCopied,
   saves,
   onShortcuts,
   onLogout,
 }: {
   me: Me;
-  jobs: Job[];
+  project: Project;
+  jobs: ProjectJob[];
+  hideOther: boolean;
+  onHideOther: (hide: boolean) => void;
   folderId: string | null;
   patch: Patch | null;
   loadFailed: boolean;
@@ -118,10 +150,14 @@ export default function Sidebar({
   times: Times;
   onUseFolder: (id: string) => void;
   onOpenImage: (itemId: string) => void;
+  onRefreshed: () => void;
   onStains: (stains: (string | null)[]) => void;
   onHoverMark: (id: string | null) => void;
   onSelectMark: (mark: Element) => void;
   onDeleteMark: (id: string) => void;
+  onRelabelMark: (id: string, jobId: number) => void;
+  onOpenProjects: () => void;
+  onCopied: (project: Project) => void;
   // Bumped after each save.
   saves: number;
   onShortcuts: () => void;
@@ -137,15 +173,35 @@ export default function Sidebar({
     } catch {}
   };
   const exportUrl = useExportUrl();
+  const [exportError, setExportError] = useState<string | null>(null);
+  // Fetched rather than followed, so a refusal (e.g. still indexing) is shown instead of downloaded.
+  async function exportCsv() {
+    setExportError(null);
+    const res = await fetch(exportUrl, { credentials: "include" });
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      setExportError(body?.detail ?? "Could not export the annotations.");
+      return;
+    }
+    const name = res.headers.get("Content-Disposition")?.split("''")[1];
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(await res.blob());
+    link.download = name ? decodeURIComponent(name) : "annotations.csv";
+    link.click();
+    URL.revokeObjectURL(link.href);
+  }
   // The last loaded path, possibly for the previous folder while the new one loads.
   const { path: lastPath, failed: pathFailed } = useFolderPath(folderId);
-  const { catalog, failed: catalogFailed } = useCatalog(
-    me.last_folder_id === folderId ? folderId : null,
-    patch?.item_id ?? null,
-    saves,
-  );
+  const {
+    catalog,
+    error: catalogError,
+    refresh,
+  } = useCatalog(me.last_folder_id === folderId ? folderId : null, patch?.item_id ?? null, saves);
+  // A failed listing keeps the last catalog, which may still say it was indexing.
+  const indexing = !catalogError && !!catalog?.indexing;
   const groups = useMemo(
-    () => (catalog ? groupImages(catalog.items, me.stain_filter, patch) : null),
+    // Empty only while a folder is indexed for the first time.
+    () => (catalog?.items.length ? groupImages(catalog.items, me.stain_filter, patch) : null),
     [catalog, me.stain_filter, patch],
   );
   const progress = groups && {
@@ -155,9 +211,26 @@ export default function Sidebar({
 
   return (
     <>
-      <div className="flex items-center justify-between p-2 pb-0">
-        <span className="size-(--overlay-trigger-size) shrink-0" aria-hidden />
+      <div className="flex items-center gap-2 p-2 pb-0">
+        {/* Room for the fixed sidebar toggle, which sits at the row's left edge. */}
+        <span
+          className="w-[calc(var(--overlay-trigger-left)+var(--overlay-trigger-size)-0.5rem)] shrink-0"
+          aria-hidden
+        />
         <OverlayTrigger />
+        <button
+          type="button"
+          data-testid="project-header"
+          title="Switch project"
+          className="flex h-7 min-w-0 flex-1 items-center gap-1.5 rounded-lg px-2 text-left text-sm leading-none font-medium outline-hidden hover:bg-sidebar-accent focus-visible:ring-2 focus-visible:ring-sidebar-ring"
+          onClick={onOpenProjects}
+        >
+          <span className="min-w-0 truncate">{project.name}</span>
+          {project.visibility !== "private" && (
+            <UsersIcon aria-label="Shared" className="size-3.5 shrink-0 text-muted-foreground" />
+          )}
+          <ChevronsUpDownIcon className="ml-auto size-3.5 shrink-0 text-muted-foreground" />
+        </button>
         <OverlayPin />
       </div>
       <div
@@ -194,6 +267,8 @@ export default function Sidebar({
               selectedId={folderId}
               initialLevel={lastPath?.parent ?? null}
               onUse={onUseFolder}
+              indexing={indexing}
+              onRefresh={() => refresh(onRefreshed)}
               progress={progress}
               mark={groups && strongest(groups.map((g) => g.mark))}
               pinned={
@@ -202,7 +277,8 @@ export default function Sidebar({
               selected={
                 <ImageList
                   groups={groups}
-                  failed={catalogFailed}
+                  error={catalogError ?? catalog?.listing_error ?? null}
+                  indexing={indexing}
                   currentId={patch?.item_id ?? null}
                   onOpen={onOpenImage}
                 />
@@ -218,23 +294,41 @@ export default function Sidebar({
           <AnnotationList
             marks={marks}
             jobs={jobs}
+            hideOther={hideOther}
+            onHideOther={onHideOther}
             selectedId={selectedId}
             times={times}
             nmPerPx={patch.nm_per_px}
             onHover={onHoverMark}
             onSelect={onSelectMark}
             onDelete={onDeleteMark}
+            onRelabel={onRelabelMark}
           />
         )}
       </MarkedScroll>
+      {exportError && (
+        <p role="alert" className="px-4 text-xs text-destructive">
+          {exportError}
+        </p>
+      )}
       <div className="flex items-center">
-        <UserMenu username={me.username} onShortcuts={onShortcuts} onLogout={onLogout} />
+        <UserMenu
+          username={me.username}
+          project={project}
+          onCopied={onCopied}
+          onShortcuts={onShortcuts}
+          onLogout={onLogout}
+        />
         <a
           href={exportUrl}
           download
+          onClick={(e) => {
+            e.preventDefault();
+            void exportCsv();
+          }}
           data-testid="export-annotations"
-          aria-label="Export all annotations as CSV"
-          title="Export all annotations as CSV"
+          aria-label="Export this project's annotations as CSV"
+          title="Export this project's annotations as CSV"
           className="mr-2 flex size-10 shrink-0 items-center justify-center rounded-lg text-muted-foreground outline-hidden hover:bg-sidebar-accent hover:text-sidebar-foreground focus-visible:ring-2 focus-visible:ring-sidebar-ring"
         >
           <DownloadIcon className="size-4" />

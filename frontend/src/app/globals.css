@@ -118,7 +118,8 @@ body {
 }
 
 [data-slot="overlay"] {
-  --overlay-trigger-top: 0.5rem;
+  /* Centers the trigger on the sidebar header row: 0.5rem padding around 1.75rem controls. */
+  --overlay-trigger-top: 0.875rem;
   --overlay-trigger-left: 1rem;
   --overlay-trigger-size: 1rem;
   --overlay-ease-out: cubic-bezier(0.32, 0.72, 0, 1);
@@ -169,5 +170,46 @@ body {
   [data-slot="overlay-inner"] > *,
   [data-slot="overlay-inner"] > :first-child > :not([data-slot="sidebar-trigger"]) {
     transition: none !important;
+  }
+}
+
+/* React runs view transitions on navigation. Expanding the projects overlay grows its card
+   (projects-card) into the projects page while the list (projects-panel) moves along; leaving
+   the page shrinks it away over the editor. */
+::view-transition-group(*),
+::view-transition-old(*),
+::view-transition-new(*) {
+  animation-duration: 300ms;
+  animation-timing-function: ease-out;
+}
+/* React hides the old root unless it sits in a <ViewTransition>; fade the editor and its
+   backdrop out instead of dropping them at once. */
+::view-transition-group(root) {
+  opacity: 1 !important;
+}
+::view-transition-old(projects-card),
+::view-transition-new(projects-card) {
+  height: 100%;
+}
+/* The page fits more rows than the overlay; reveal them as the panel grows. The margin keeps
+   the row highlights, which reach 0.75rem past the panel. */
+::view-transition-group(projects-panel) {
+  overflow: clip;
+  overflow-clip-margin: 0.75rem;
+}
+::view-transition-old(projects-card):only-child {
+  animation-name: projects-leave;
+}
+@keyframes projects-leave {
+  to {
+    opacity: 0;
+    scale: 0.97;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation-duration: 0s !important;
   }
 }

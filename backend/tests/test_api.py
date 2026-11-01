@@ -2,6 +2,7 @@ import csv
 import io
 import json
 import sqlite3
+import time
 
 import httpx
 import pytest
@@ -49,17 +50,6 @@ def test_sticky_job_and_annotations(auth: TestClient):
     nxt2 = auth.get("/patches/next")
     assert nxt2.status_code == 200
     assert nxt2.json()["id"] != patch_id
-
-
-def test_current_and_prev_patch(auth: TestClient):
-    a = auth.get("/patches/next").json()
-    b = auth.get("/patches/next").json()
-    assert a["id"] != b["id"]
-    assert auth.get("/patches/current").json()["id"] == b["id"]
-    back = auth.get("/patches/prev").json()
-    assert back["id"] == a["id"]
-    assert auth.get("/patches/current").json()["id"] == a["id"]
-    assert auth.get("/patches/next").json()["id"] == b["id"]
 
 
 def test_annotation_polygon_holes(auth: TestClient):
@@ -155,26 +145,6 @@ def test_shared_link_switches_dataset_and_opens_the_tile_at_its_point(auth: Test
     assert auth.post("/patches/open", json=link).json()["id"] == opened["id"]
     with session_factory()() as db:
         assert db.query(PatchVisit).count() == visits
-
-
-def test_elmi_jobs(auth: TestClient, monkeypatch: pytest.MonkeyPatch):
-    from simple_annotator import girder
-    from simple_annotator.db import ELMI_JOBS, SEED_JOBS
-
-    monkeypatch.setenv("GIRDER_TOKEN", "test")
-
-    def respond(request):
-        if request.url.path == "/folder/elmi":
-            return httpx.Response(400, json={})
-        if request.url.path == "/collection/elmi":
-            return httpx.Response(200, json={"name": "ELMI"})
-        pytest.fail(f"Unexpected request: {request.url}")
-
-    with httpx.Client(base_url="https://girder.test", transport=httpx.MockTransport(respond)) as gc:
-        monkeypatch.setattr(girder, "_gc", gc)
-        assert [j["name"] for j in auth.get("/jobs").json()] == [n for n, _ in SEED_JOBS]
-        auth.patch("/me", json={"last_folder_id": "elmi"})
-        assert [j["name"] for j in auth.get("/jobs").json()] == [n for n, _ in ELMI_JOBS]
 
 
 def test_new_girder_user_can_load_folder_picker(auth, monkeypatch):
@@ -440,21 +410,18 @@ def test_folder_rows_count_own_images_next_to_subfolders(auth, monkeypatch):
 
 def test_unreadable_dataset_explains_why(auth, monkeypatch):
     from simple_annotator import girder
+    from simple_annotator.db import session_factory
+    from simple_annotator.models import FolderImages
 
     monkeypatch.setenv("GIRDER_TOKEN", "test")
-    monkeypatch.setattr(girder, "_kids_cache", {})
-    monkeypatch.setattr(girder, "_images_cache", {})
     missing = {"message": "This assetstore does not expose file paths."}
+    items = [{"_id": i, "name": f"{i}.tif", "folderId": "broken"} for i in "ab"]
+    with session_factory()() as db:
+        db.add(FolderImages(folder_id="broken", images=json.dumps(items), scanned=time.time()))
+        db.commit()
 
     def respond(request):
         path = request.url.path
-        if path == "/folder/broken":
-            return httpx.Response(200, json={"_id": "broken", "name": "Lupus", "parentId": "em"})
-        if path == "/folder":
-            return httpx.Response(200, json=[])
-        if path == "/item":
-            items = [{"_id": "a", "name": "a.tif"}, {"_id": "b", "name": "b.tif"}]
-            return httpx.Response(200, json=items if request.url.params["offset"] == "0" else [])
         if path.endswith("/tiles"):
             return httpx.Response(500, json=missing)
         if path.startswith("/collection/") or path.startswith("/folder/"):
@@ -490,7 +457,7 @@ def test_export_lists_every_annotation_with_its_folder_and_measurements(auth, mo
 
     response = auth.get("/annotations/export.csv")
     disposition = response.headers["content-disposition"]
-    assert disposition.startswith("attachment; filename*=UTF-8''annotations-ada-")
+    assert disposition.startswith("attachment; filename*=UTF-8''annotations-All%20annotations-ada-")
     point, polygon, crossed = csv.DictReader(io.StringIO(response.text))
     assert point["folder"] == polygon["folder"] == "/collection/Kidney/batch-1"
     assert (point["type"], point["x"], point["y"]) == ("point", str(left + 5.0), str(top + 6.0))

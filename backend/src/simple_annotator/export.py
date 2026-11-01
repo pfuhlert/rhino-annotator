@@ -13,9 +13,11 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from simple_annotator.auth import current_user
-from simple_annotator.db import get_db
+from simple_annotator.db import among, get_db
 from simple_annotator.girder import image_nm_per_px, item_folder_path
-from simple_annotator.models import Annotation, Job, Slide, User
+from simple_annotator.models import Annotation, Job, Project, Slide, User
+from simple_annotator.projects import indexed_ids
+from simple_annotator.scope import current_project, layer_id
 
 router = APIRouter(prefix="/annotations")
 
@@ -38,6 +40,8 @@ COLUMNS = [
     "feret_min_um",
     "created",
     "updated",
+    "created_by",
+    "edited_by",
     "geometry",
 ]
 
@@ -82,13 +86,13 @@ def measures(geometry: shapely.Geometry, um_per_px: float | None) -> dict:
     }
 
 
-def rows(db: Session, user_id: int, zone: tzinfo):
+def rows(db: Session, layer: int, item_ids: list[str] | None, zone: tzinfo):
     jobs = dict(db.execute(select(Job.id, Job.name)).all())
-    annotations = db.scalars(
-        select(Annotation)
-        .where(Annotation.user_id == user_id)
-        .order_by(Annotation.item_id, Annotation.id)
-    )
+    users = dict(db.execute(select(User.id, User.username)).all())
+    query = select(Annotation).where(Annotation.user_id == layer)
+    if item_ids is not None:
+        query = query.where(among(Annotation.item_id, item_ids))
+    annotations = db.scalars(query.order_by(Annotation.item_id, Annotation.id))
     for item_id, group in groupby(annotations, key=lambda a: a.item_id):
         slide = db.get(Slide, item_id)
         nm_per_px = slide and (slide.nm_per_px if slide.histo else image_nm_per_px(item_id))
@@ -110,13 +114,18 @@ def rows(db: Session, user_id: int, zone: tzinfo):
                 **(measures(geometry, um_per_px) if a.type == "polygon" else {}),
                 "created": local_time(a.created, zone),
                 "updated": local_time(a.updated, zone),
+                "created_by": users.get(a.created_by, ""),
+                "edited_by": users.get(a.edited_by, ""),
                 "geometry": shapely.to_wkt(geometry, rounding_precision=-1),
             }
 
 
 @router.get("/export.csv")
 def export_csv(
-    tz: str = "UTC", user: User = Depends(current_user), db: Session = Depends(get_db)
+    tz: str = "UTC",
+    user: User = Depends(current_user),
+    project: Project = Depends(current_project),
+    db: Session = Depends(get_db),
 ) -> Response:
     try:
         zone = ZoneInfo(tz)
@@ -125,9 +134,9 @@ def export_csv(
     out = io.StringIO()
     writer = csv.DictWriter(out, COLUMNS, restval="")
     writer.writeheader()
-    writer.writerows(rows(db, user.id, zone))
+    writer.writerows(rows(db, layer_id(project, user), indexed_ids(db, project), zone))
     stamp = datetime.now(zone).strftime("%Y-%m-%d_%H-%M-%S")
-    filename = f"annotations-{user.username}-{stamp}.csv"
+    filename = f"annotations-{project.name}-{user.username}-{stamp}.csv"
     return Response(
         out.getvalue(),
         media_type="text/csv",

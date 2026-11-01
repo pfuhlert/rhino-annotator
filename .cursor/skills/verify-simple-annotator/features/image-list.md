@@ -2,6 +2,8 @@
 
 The Images tab is the folder tree; the selected folder's images expand beneath its row (or beneath the level header when the selected folder is the open level). They are grouped by case (`meta.case_id`, otherwise the parent folder name) and sorted naturally. Each row shows stain, magnification (Girder's `image_magnification / 10`, snapped to an objective power) and progress: `visited/regions` for multi-region images, ✓ for visited single-region images, nothing for images that have not been opened yet. Clicking a row opens its first unvisited region. Next and Prev walk regions, then images, in list order, and wrap at both ends. The stain filter is stored in `users.stain_filter`, applies to the list and to Next/Prev, and is cleared when the folder changes.
 
+Images come from the `folder_images` table: each folder's listing is walked from Girder in the background and stored, so no request waits on Girder. Until a folder's first listing lands, the list shows "Indexing folder…" (`images-indexing`), the editor waits instead of erroring, and project counts stay empty. A listing is redone only when the refresh button on the selected folder (`folder-refresh`) is clicked. The fixture's `--tree-delay` slows each tree listing to watch this.
+
 ## Sub-features
 
 - `image-groups` shows the current image's group expanded and the others collapsed.

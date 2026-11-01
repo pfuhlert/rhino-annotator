@@ -104,7 +104,7 @@ def times(rows: list[Annotation]) -> dict[str, list[float | None]]:
 
 
 def apply_changes(
-    db: Session, user_id: int, patch: Patch, changes: Changes
+    db: Session, layer_id: int, actor_id: int, patch: Patch, changes: Changes
 ) -> dict[str, list[float | None]]:
     # Caller holds BEGIN IMMEDIATE: worker completion and manual edits share this transaction.
     for el in changes.upsert:
@@ -115,27 +115,30 @@ def apply_changes(
     # A repeated id in one save keeps its last version.
     upserts = {el.id: el for el in changes.upsert}
     removed = set(changes.delete) | set(upserts)
-    mine = (Annotation.item_id == patch.girder_item_id, Annotation.user_id == user_id)
-    # Edits replace the row, so carry over when the annotation was first saved.
-    created = dict(
-        db.execute(
-            select(Annotation.element_id, Annotation.created).where(
+    mine = (Annotation.item_id == patch.girder_item_id, Annotation.user_id == layer_id)
+    # Edits replace the row, so carry over when and by whom the annotation was first saved.
+    created = {
+        row.element_id: row
+        for row in db.execute(
+            select(Annotation.element_id, Annotation.created, Annotation.created_by).where(
                 *mine, Annotation.element_id.in_(upserts)
             )
-        ).all()
-    )
+        )
+    }
     db.execute(delete(Annotation).where(*mine, Annotation.element_id.in_(removed)))
     now = time.time()
     rows = [
         Annotation(
             **element_row(
                 patch.girder_item_id,
-                user_id,
+                layer_id,
                 el.jobId,
                 shift(el.model_dump(exclude={"jobId"}), patch.left, patch.top),
             ),
-            created=created.get(el.id, now),
+            created=created[el.id].created if el.id in created else now,
             updated=now,
+            created_by=created[el.id].created_by if el.id in created else actor_id,
+            edited_by=actor_id,
         )
         for el in upserts.values()
     ]

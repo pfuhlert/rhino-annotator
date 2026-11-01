@@ -10,6 +10,9 @@ const nextConfig: NextConfig = {
       { source: "/auth/:path*", destination: `${api}/auth/:path*` },
       { source: "/me", destination: `${api}/me` },
       { source: "/folders", destination: `${api}/folders` },
+      { source: "/folders/:path*", destination: `${api}/folders/:path*` },
+      // /projects itself is the projects page, so the project API lives under /api.
+      { source: "/api/:path*", destination: `${api}/api/:path*` },
       { source: "/images/:path*", destination: `${api}/images/:path*` },
       { source: "/annotations/:path*", destination: `${api}/annotations/:path*` },
       { source: "/jobs", destination: `${api}/jobs` },

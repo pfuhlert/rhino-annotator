@@ -7,7 +7,7 @@ Login lets a user register or sign in from `/` and then reach the annotate loop 
 - `login-register` creates an account from the register button.
 - `login-signin` signs in an existing account from Log in.
 - `login-session` can call `/me` with the browser cookie.
-- `login-redirect` shows `annotate-app` after success.
+- `login-redirect` shows `project-list` after success; `login-proof` then opens `/annotate` and waits for `annotate-app`.
 
 ## How to get to it (user POV)
 

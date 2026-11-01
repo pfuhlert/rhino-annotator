@@ -23,7 +23,7 @@ export function shareLinkQuery({ dataset, image, view }: ShareLink): string {
 // Only same-app paths, so a crafted login link cannot redirect elsewhere.
 export function safeNext(search: string): string | null {
   const next = new URLSearchParams(search).get("next");
-  return next?.startsWith("/annotate") ? next : null;
+  return next && /^\/(annotate|projects)([?/]|$)/.test(next) ? next : null;
 }
 
 // Zoom and pan of the top-left-origin image plane that fit `rect` (patch pixels) in the root.

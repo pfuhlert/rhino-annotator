@@ -26,6 +26,8 @@ test("links without a usable view are ignored", () => {
 
 test("login only returns to app paths", () => {
   assert.equal(safeNext(`?next=${encodeURIComponent("/annotate?image=i")}`), "/annotate?image=i");
+  assert.equal(safeNext("?next=/projects"), "/projects");
+  assert.equal(safeNext("?next=/projectsevil"), null);
   assert.equal(safeNext("?next=https://evil.test"), null);
 });
 

@@ -40,6 +40,7 @@ export type AnnotatorApi = {
   highlight: (id: string | null) => void;
   select: (id: string) => void;
   remove: (id: string) => void;
+  relabel: (id: string, jobId: number) => void;
 };
 
 export default function PatchCanvas({
@@ -179,6 +180,7 @@ export default function PatchCanvas({
       highlight: (id) => brush.highlight(id),
       select: (id) => brush.select(id),
       remove: (id) => brush.remove(id),
+      relabel: (id, jobId) => brush.relabel(id, jobId),
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- bind once; brush/history are ref wrappers
   }, [onReady]);

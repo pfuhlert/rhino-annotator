@@ -266,12 +266,14 @@ function ImageRowMenu({ menu, onClose }: { menu: RowMenu; onClose: () => void })
 
 export default function ImageList({
   groups,
-  failed,
+  error,
+  indexing,
   currentId,
   onOpen,
 }: {
   groups: ImageGroup[] | null;
-  failed: boolean;
+  error: string | null;
+  indexing: boolean;
   currentId: string | null;
   onOpen: (itemId: string) => void;
 }) {
@@ -309,8 +311,11 @@ export default function ImageList({
 
   if (!groups)
     return (
-      <p className="px-2 text-xs text-muted-foreground">
-        {failed ? "Could not load images." : "Loading images"}
+      <p
+        data-testid={indexing ? "images-indexing" : undefined}
+        className="px-2 text-xs text-muted-foreground"
+      >
+        {error ?? (indexing ? "Indexing folder…" : "Loading images")}
       </p>
     );
 
@@ -322,6 +327,12 @@ export default function ImageList({
     });
   return (
     <div ref={list} data-testid="image-list" className="relative flex flex-col gap-0.5">
+      {indexing && (
+        <p data-testid="images-indexing" className="px-2 py-1 text-xs text-muted-foreground">
+          Indexing folder…
+        </p>
+      )}
+      {error && <p className="px-2 py-1 text-xs text-destructive">{error}</p>}
       {groups.length === 0 && (
         <p className="px-2 py-1 text-xs text-muted-foreground">No images match this filter.</p>
       )}

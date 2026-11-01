@@ -1,14 +1,16 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type RefObject, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AiCursorStatus } from "@/components/AiCursorStatus";
 import { BrushSizeControl } from "@/components/BrushSizeControl";
 import PatchCanvas, { type AnnotatorApi } from "@/components/PatchCanvas";
+import ProjectsPanel, { expanded } from "@/components/ProjectsPanel";
 import Sidebar from "@/components/Sidebar";
 import ShortcutsDialog from "@/components/ShortcutsDialog";
 import SlideMap from "@/components/SlideMap";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Overlay } from "@/components/Overlay";
 import {
   Select,
@@ -20,13 +22,16 @@ import {
 import {
   api,
   type Element,
-  type Job,
   type Me,
   type Patch,
+  type Project,
+  type ProjectJob,
   type Times,
   type ViewRect,
+  setRequestProject,
 } from "@/lib/api";
 import type { Tool } from "@/lib/draw";
+import { pickerJobs } from "@/lib/projects";
 import { createAnnotationSync } from "@/lib/annotation-sync";
 import { useAi } from "@/lib/use-ai";
 import { isTypingTarget } from "@/lib/keys";
@@ -39,6 +44,11 @@ type Menu = "job" | "tool" | "size";
 
 function errorMessage(error: unknown) {
   return error instanceof Error && error.message ? error.message : "Something went wrong.";
+}
+
+// The server is still listing the folder's images.
+function isIndexing(error: unknown) {
+  return (error as { status?: number }).status === 503;
 }
 
 function LoadError({
@@ -62,10 +72,27 @@ function LoadError({
   );
 }
 
-export default function AnnotatePage() {
+// Remounted per project, so nothing from one project's session leaks into the next.
+function Editor({
+  projectId,
+  paused,
+  leaveRef,
+  onOpenProjects,
+  onNoProject,
+}: {
+  projectId: number;
+  // The projects overlay is open; editor shortcuts stay off.
+  paused: boolean;
+  // Saves pending edits before switching; false when the save failed.
+  leaveRef: RefObject<() => Promise<boolean>>;
+  onOpenProjects: () => void;
+  onNoProject: () => void;
+}) {
   const router = useRouter();
   const [me, setMe] = useState<Me | null>(null);
-  const [jobs, setJobs] = useState<Job[]>([]);
+  const [project, setProject] = useState<Project | null>(null);
+  const [allJobs, setJobs] = useState<ProjectJob[]>([]);
+  const [hideOther, setHideOther] = useState(false);
   const [jobId, setJobId] = useState<number | null>(null);
   const [folderId, setFolderId] = useState<string | null>(null);
   const [patch, setPatch] = useState<Patch | null>(null);
@@ -76,6 +103,11 @@ export default function AnnotatePage() {
   const [openCount, setOpenCount] = useState(0);
   // A shared link opens zoomed to the sender's view (patch pixels).
   const [initialView, setInitialView] = useState<ViewRect | null>(null);
+  // First, so every request this editor makes names its project.
+  useEffect(() => {
+    setRequestProject(projectId);
+    return () => setRequestProject(null);
+  }, [projectId]);
   useEffect(() => {
     if (!view?.prepare) return;
     // Large tissue regions prepare AI tiles for what the user is looking at once the view settles.
@@ -108,11 +140,11 @@ export default function AnnotatePage() {
   const keyHandler = useRef<(e: KeyboardEvent) => void>(() => {});
   const annoRef = useRef<AnnotatorApi | null>(null);
   const patchRef = useRef<Patch | null>(null);
-  const jobIdRef = useRef<number | null>(null);
   const saveTimer = useRef<number>(0);
   const sync = useRef<ReturnType<typeof createAnnotationSync> | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [indexing, setIndexing] = useState(false);
   // The address bar already shows the fallback patch, so reloading cannot retry a failed link.
   const [linkFailed, setLinkFailed] = useState(false);
   const [brokenImage, setBrokenImage] = useState<number | null>(null);
@@ -124,6 +156,24 @@ export default function AnnotatePage() {
   const pending = useMemo(
     () => ai.tasks.filter((t) => t.patch_id === patch?.id && t.status !== "failed"),
     [ai.tasks, patch?.id],
+  );
+  // The project's classes for another image kind join the other labels on this image.
+  const kind = patch?.kind;
+  const jobs = useMemo(
+    () => allJobs.map((j) => ({ ...j, in_project: j.in_project && (!kind || j.kind === kind) })),
+    [allJobs, kind],
+  );
+  // Each image starts on a class of its kind, unless the project has none for it.
+  useEffect(() => {
+    const own = jobs.filter((j) => j.in_project);
+    if (jobId != null && own.length && !own.some((j) => j.id === jobId)) void switchJob(own[0].id);
+    // Only on opening an image: selecting an old annotation may pick a class of another kind.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [patch]);
+  // Hidden classes are not drawn; the one being edited always is.
+  const canvasJobs = useMemo(
+    () => (hideOther ? pickerJobs(jobs, jobId) : jobs),
+    [hideOther, jobs, jobId],
   );
   const failed = ai.tasks.filter((t) => t.status === "failed");
   const failedIds = failed.map((t) => t.id).join(",");
@@ -139,8 +189,7 @@ export default function AnnotatePage() {
 
   useEffect(() => {
     patchRef.current = patch;
-    jobIdRef.current = jobId;
-  }, [patch, jobId]);
+  }, [patch]);
 
   const showPatch = useCallback((next: Patch, initial: ViewRect | null = null) => {
     patchRef.current = next;
@@ -157,6 +206,7 @@ export default function AnnotatePage() {
     setTimes(next.times);
     setSelectedId(null);
     setLoadError(null);
+    setIndexing(false);
     setLinkFailed(false);
     if (next.job_id) setJobId(next.job_id);
     if (next.folder_id) setFolderId(next.folder_id);
@@ -180,10 +230,36 @@ export default function AnnotatePage() {
     [showPatch],
   );
 
+  // Without an image the sidebar learns the browsed folder from its listing instead.
+  const waitForIndex = useCallback(async () => {
+    setIndexing(true);
+    const { folder_id } = await api.images();
+    setFolderId(folder_id);
+    setMe((cur) => cur && { ...cur, last_folder_id: folder_id });
+  }, []);
+  // Opens the folder's first image once the server has listed them.
+  useEffect(() => {
+    if (patch || !indexing) return;
+    const poll = () =>
+      loadLatest(api.currentPatch).catch((error) => {
+        if (isIndexing(error)) return;
+        setIndexing(false);
+        setLoadError(errorMessage(error));
+      });
+    const timer = window.setInterval(() => void poll(), 3000);
+    return () => window.clearInterval(timer);
+  }, [patch, indexing, loadLatest]);
+
   useEffect(() => {
     (async () => {
       try {
-        // Opening a link may switch the dataset, which changes the jobs and folder fetched below.
+        const opening = await api.openProject(projectId).catch((error) => {
+          if ((error as { status?: number }).status === 404) return null;
+          throw error;
+        });
+        if (!opening) return onNoProject();
+        setProject(opening);
+        // Opening a link may switch the dataset, which changes the folder fetched below.
         const link = parseShareLink(window.location.search);
         let linkError: string | null = null;
         const opened = link
@@ -201,7 +277,8 @@ export default function AnnotatePage() {
         const [who, jobList] = await Promise.all([api.me(), api.jobs()]);
         setMe(who);
         setJobs(jobList);
-        const job = jobList.find((j) => j.id === who.last_job_id)?.id ?? jobList[0]?.id ?? null;
+        const own = jobList.filter((j) => j.in_project);
+        const job = own.find((j) => j.id === who.last_job_id)?.id ?? own[0]?.id ?? null;
         setJobId(job);
         if (job != null && job !== who.last_job_id) setMe(await api.setJob(job));
         setFolderId(who.last_folder_id);
@@ -222,16 +299,22 @@ export default function AnnotatePage() {
           setLinkFailed(true);
         }
       } catch (error) {
-        if ((error as { status?: number }).status === 401)
+        const status = (error as { status?: number }).status;
+        if (status === 401)
           router.replace(`/?next=${encodeURIComponent(location.pathname + location.search)}`);
+        // No project to work in, e.g. it was deleted or unshared.
+        else if (status === 409) onNoProject();
+        else if (isIndexing(error)) void waitForIndex().catch(() => {});
         else setLoadError(errorMessage(error));
       }
     })();
-  }, [loadLatest, showPatch, router]);
+    // Runs once per mount; the parent remounts the editor for another project.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadLatest, showPatch, router, waitForIndex]);
 
   // The address bar always links to the open image and the visible area.
   useEffect(() => {
-    if (!patch) return;
+    if (!patch || !project) return;
     const { image } = patch;
     const rect =
       view?.patchId === patch.id
@@ -242,8 +325,8 @@ export default function AnnotatePage() {
       image: patch.item_id,
       view: { ...rect, left: rect.left + image.left, top: rect.top + image.top },
     });
-    window.history.replaceState(null, "", `/annotate?${query}`);
-  }, [patch, view, initialView]);
+    window.history.replaceState(null, "", `/annotate?project=${project.id}&${query}`);
+  }, [patch, view, initialView, project]);
 
   async function switchJob(id: number) {
     setJobId(id);
@@ -305,6 +388,19 @@ export default function AnnotatePage() {
     );
   }
 
+  // Copied annotations join the open image like AI results. Saving first makes the server's
+  // marks the canvas's plus the copies.
+  async function showCopied(next: Project) {
+    setProject(next);
+    // The copies may bring classes from outside the project.
+    setJobs(await api.jobs());
+    if (!(await saveBeforeLeaving())) return;
+    const current = await api.currentPatch();
+    if (current.id !== patchRef.current?.id) return;
+    annoRef.current?.add(current.elements);
+    setTimes((t) => ({ ...t, ...current.times }));
+  }
+
   // Without a patch there is nothing to save, e.g. after the folder's first image failed to load.
   async function go(load: () => Promise<Patch>) {
     if (jobId == null || busy) return;
@@ -346,13 +442,10 @@ export default function AnnotatePage() {
       setFolderId(id);
       setMe(await api.setFolder(id));
       switched = true;
-      const jobList = await api.jobs();
-      setJobs(jobList);
-      const nextId = jobList.find((j) => j.id === jobIdRef.current)?.id ?? jobList[0]?.id;
-      if (nextId != null && nextId !== jobIdRef.current) await switchJob(nextId);
       await loadLatest(api.currentPatch);
     } catch (error) {
-      setLoadError(`Could not switch datasets. ${errorMessage(error)}`);
+      if (isIndexing(error)) void waitForIndex().catch(() => {});
+      else setLoadError(`Could not switch datasets. ${errorMessage(error)}`);
       // Match the server: keep the old dataset if it was never switched, otherwise drop the old patch.
       if (!switched) setFolderId(previous);
       else {
@@ -369,7 +462,9 @@ export default function AnnotatePage() {
   }
 
   useEffect(() => {
+    leaveRef.current = saveBeforeLeaving;
     keyHandler.current = (e: KeyboardEvent) => {
+      if (paused) return;
       // Keys inside the dialog belong to it; isTypingTarget keeps them from the canvas too.
       if (shortcutsOpen) {
         if (e.key === "?") setShortcutsOpen(false);
@@ -418,7 +513,7 @@ export default function AnnotatePage() {
     return () => window.removeEventListener("keydown", onKey, true);
   }, []);
 
-  if (!me || jobId == null) {
+  if (!me || !project || jobId == null) {
     return (
       <main className="flex min-h-full items-center justify-center text-sm text-muted-foreground">
         {loadError ? <LoadError message={loadError} /> : "Loading"}
@@ -429,19 +524,31 @@ export default function AnnotatePage() {
   const sidebar = (
     <Sidebar
       me={me}
+      project={project}
       jobs={jobs}
+      hideOther={hideOther}
+      onHideOther={setHideOther}
       folderId={folderId}
       patch={patch}
-      loadFailed={!patch && !!loadError}
+      loadFailed={!patch && (!!loadError || indexing)}
       marks={marks}
       selectedId={selectedId}
       times={times}
       onUseFolder={(id) => void switchFolder(id)}
       onOpenImage={(id) => void go(() => api.openImage(id))}
+      // A failed listing stopped the wait for the folder's first image; a refresh resumes it.
+      onRefreshed={() => {
+        if (patch) return;
+        setLoadError(null);
+        setIndexing(true);
+      }}
       onStains={setStains}
       onHoverMark={(id) => annoRef.current?.highlight(id)}
       onSelectMark={selectMark}
       onDeleteMark={(id) => annoRef.current?.remove(id)}
+      onRelabelMark={(id, job) => annoRef.current?.relabel(id, job)}
+      onOpenProjects={onOpenProjects}
+      onCopied={(next) => void showCopied(next)}
       saves={saves}
       onShortcuts={() => setShortcutsOpen(true)}
       onLogout={async () => {
@@ -464,6 +571,8 @@ export default function AnnotatePage() {
               message={`${loadError} Choose another dataset in the sidebar.`}
               className="max-w-md"
             />
+          ) : indexing ? (
+            "Indexing folder…"
           ) : (
             "Loading"
           )}
@@ -485,7 +594,7 @@ export default function AnnotatePage() {
             onRemote={(elements) => sync.current?.accept(elements)}
             nmPerPixel={patch.nm_per_px}
             jobId={jobId}
-            jobs={jobs}
+            jobs={canvasJobs}
             marks={patch.elements}
             tool={tool}
             radius={brushRadius}
@@ -565,7 +674,7 @@ export default function AnnotatePage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent position="popper" align="center" side="top">
-                  {jobs.map((j) => (
+                  {pickerJobs(jobs, jobId).map((j) => (
                     <SelectItem key={j.id} value={String(j.id)} data-testid={`job-${j.name}`}>
                       <span
                         className="h-2.5 w-2.5 shrink-0 rounded-full"
@@ -624,5 +733,83 @@ export default function AnnotatePage() {
         </main>
       )}
     </Overlay>
+  );
+}
+
+// The editor for the current project, with the projects list as an overlay above it.
+export default function AnnotatePage() {
+  const router = useRouter();
+  // undefined until resolved; null when there is no project to open.
+  const [projectId, setProjectId] = useState<number | null | undefined>(undefined);
+  // Bumped to reopen the same project after its settings change.
+  const [generation, setGeneration] = useState(0);
+  const [overlay, setOverlay] = useState(false);
+  const leaveRef = useRef<() => Promise<boolean>>(async () => true);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    (async () => {
+      // The project in the address (a shared link), else the last one opened.
+      const id = Number(params.get("project")) || (await api.me()).last_project_id;
+      setProjectId(id || null);
+      setOverlay(params.has("projects") || !id);
+    })().catch((error) => {
+      if ((error as { status?: number }).status === 401)
+        router.replace(`/?next=${encodeURIComponent(location.pathname + location.search)}`);
+    });
+  }, [router]);
+
+  async function open(id: number | null, stay = false) {
+    if (!(await leaveRef.current())) return;
+    leaveRef.current = async () => true;
+    // A new editor reads the address, so drop the old project's image link first.
+    window.history.replaceState(null, "", id ? `/annotate?project=${id}` : "/annotate?projects");
+    setProjectId(id);
+    setGeneration((n) => n + 1);
+    setOverlay(id === null || stay);
+  }
+
+  return (
+    <>
+      {projectId ? (
+        <Editor
+          key={`${projectId}:${generation}`}
+          projectId={projectId}
+          paused={overlay}
+          leaveRef={leaveRef}
+          onOpenProjects={async () => {
+            // Saved first, before sharing changes in the overlay can move the edits to another
+            // layer; a failed save stays in the editor with its error.
+            if (await leaveRef.current()) setOverlay(true);
+          }}
+          onNoProject={() => void open(null)}
+        />
+      ) : (
+        <main className="min-h-full bg-canvas" data-testid="annotate-app" />
+      )}
+      <Dialog open={overlay} onOpenChange={(o) => !o && projectId && setOverlay(false)}>
+        <DialogContent
+          data-testid="projects-overlay"
+          className="max-w-3xl p-8 sm:p-10"
+          // Grows into the projects page when expanded (see globals.css).
+          style={{ viewTransitionName: "projects-card" }}
+          aria-describedby={undefined}
+        >
+          {projectId !== undefined && (
+            <ProjectsPanel
+              currentId={projectId}
+              onOpen={(p) => (p.id === projectId ? setOverlay(false) : void open(p.id))}
+              onChanged={(p) => p.id === projectId && void open(p.id, true)}
+              onDeleted={(id) => id === projectId && void open(null)}
+              onExpand={async () => {
+                if (await leaveRef.current()) router.push("/projects");
+                else expanded.current = undefined;
+              }}
+              onClose={projectId ? () => setOverlay(false) : undefined}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

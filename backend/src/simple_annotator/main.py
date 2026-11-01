@@ -5,7 +5,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from simple_annotator import ai, auth, export, images, patches
+from simple_annotator import ai, auth, export, images, patches, projects
 from simple_annotator.db import init_db
 from simple_annotator.slides import UnreadableImage
 
@@ -28,6 +28,7 @@ def create_app() -> FastAPI:
     app.include_router(patches.router)
     app.include_router(images.router)
     app.include_router(export.router)
+    app.include_router(projects.router)
 
     @app.exception_handler(httpx.HTTPError)
     def image_server_error(_request: Request, exc: httpx.HTTPError) -> JSONResponse:

@@ -46,6 +46,7 @@ type Ctl = {
   highlight: (id: string | null) => void;
   select: (id: string) => void;
   remove: (id: string) => void;
+  relabel: (id: string, jobId: number) => void;
 };
 
 export function useFreehand(opts: {
@@ -85,6 +86,7 @@ export function useFreehand(opts: {
     highlight() {},
     select() {},
     remove() {},
+    relabel() {},
   });
 
   useEffect(() => {
@@ -194,7 +196,8 @@ export function useFreehand(opts: {
 
     function add(marks: Mark[]) {
       for (const mark of marks) {
-        if (seen.has(mark.id)) continue;
+        // Marks drawn here since are not in `seen` but must not come back twice.
+        if (seen.has(mark.id) || marksRef.current.some((m) => m.id === mark.id)) continue;
         seen.add(mark.id);
         incoming.push(mark);
       }
@@ -264,7 +267,30 @@ export function useFreehand(opts: {
       changed();
     }
 
-    ctl.current = { flush, cancelDraft, reset, redraw, cursor, add, highlight, select, remove };
+    // Moves an annotation to another label class, keeping its id and shape.
+    function relabel(id: string, jobId: number) {
+      if (busy()) return;
+      marksRef.current = marksRef.current.map((m) => (m.id === id ? { ...m, jobId } : m));
+      if (brushing()) {
+        brush = null;
+        ensureBrush();
+      }
+      redraw();
+      changed();
+    }
+
+    ctl.current = {
+      flush,
+      cancelDraft,
+      reset,
+      redraw,
+      cursor,
+      add,
+      highlight,
+      select,
+      remove,
+      relabel,
+    };
 
     function edgeInsert(e: PointerPosition, id: string | null) {
       if (!space || !id) return null;
@@ -842,7 +868,7 @@ export function useFreehand(opts: {
 
   useEffect(() => {
     ctl.current.redraw();
-  }, [opts.pending, opts.fillOpacity]);
+  }, [opts.pending, opts.fillOpacity, opts.jobs]);
 
   useEffect(() => {
     ctl.current.cursor();
@@ -866,5 +892,6 @@ export function useFreehand(opts: {
     highlight: (id) => ctl.current.highlight(id),
     select: (id) => ctl.current.select(id),
     remove: (id) => ctl.current.remove(id),
+    relabel: (id, jobId) => ctl.current.relabel(id, jobId),
   };
 }

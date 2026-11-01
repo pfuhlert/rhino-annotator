@@ -40,7 +40,7 @@ def girder(auth: TestClient, monkeypatch):
     items = [{"_id": "histo", "name": "slide.svs"}]
     monkeypatch.setattr(slides, "girder_enabled", lambda: True)
     monkeypatch.setattr(images, "girder_enabled", lambda: True)
-    monkeypatch.setattr(images, "folder_images", lambda _: list(items))
+    monkeypatch.setattr(images, "folder_listing", lambda _db, _id: list(items))
     monkeypatch.setattr(slides, "image_info", lambda item: (IMAGES[item], ""))
     monkeypatch.setattr(slides, "ome_nm_per_px", NM_PER_PX.get)
     monkeypatch.setattr(slides, "thumbnail", lambda item, _: _png(item))
@@ -140,6 +140,15 @@ def test_open_image_starts_at_its_first_unvisited_region(auth, girder):
     auth.post("/patches/open", json={"item_id": "small"})
     assert _at(auth.post("/patches/open", json={"item_id": "grid"}).json()) == ("grid", 2)
     assert auth.post("/patches/open", json={"item_id": "elsewhere"}).status_code == 404
+    # Visits follow the annotation layer: a shared project skips every member's visits in it.
+    (shared,) = auth.get("/api/projects").json()
+    auth.put(f"/api/projects/{shared['id']}/sharing", json={"visibility": "everyone"})
+    bob = TestClient(auth.app)
+    bob.post("/auth/register", json={"username": "bob", "password": "secret"})
+    bob.patch("/me", json={"last_folder_id": "dataset"})
+    assert _at(bob.post("/patches/open", json={"item_id": "grid"}).json()) == ("grid", 0)
+    bob.post(f"/api/projects/{shared['id']}/open")
+    assert _at(bob.post("/patches/open", json={"item_id": "grid"}).json()) == ("grid", 3)
 
 
 def test_next_skips_a_current_image_that_became_unreadable(auth, girder, monkeypatch):
@@ -158,10 +167,7 @@ def test_next_skips_a_current_image_that_became_unreadable(auth, girder, monkeyp
 def test_empty_dataset_is_a_clear_400_everywhere(auth, girder, monkeypatch):
     from simple_annotator import images
 
-    def empty(_):
-        raise RuntimeError("This dataset contains no images.")
-
-    monkeypatch.setattr(images, "folder_images", empty)
+    monkeypatch.setattr(images, "folder_listing", lambda _db, _id: [])
     for response in [auth.get("/images"), auth.post("/patches/open", json={"item_id": "x"})]:
         assert response.status_code == 400
         assert response.json()["detail"] == "This dataset contains no images."
@@ -240,7 +246,12 @@ def test_old_patch_of_an_unreadable_image_reports_why(auth, girder, monkeypatch)
         legacy = Patch(girder_item_id="gone", left=0, top=0, width=900, height=700)
         db.add(legacy)
         db.flush()
-        visit = PatchVisit(user_id=user.id, patch_id=legacy.id, folder_id="dataset")
+        visit = PatchVisit(
+            user_id=user.id,
+            patch_id=legacy.id,
+            folder_id="dataset",
+            project_id=user.last_project_id,
+        )
         db.add(visit)
         db.flush()
         user.current_visit_id = visit.id

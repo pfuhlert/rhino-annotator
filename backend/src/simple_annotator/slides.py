@@ -5,7 +5,7 @@ from typing import Literal
 
 import numpy as np
 from PIL import Image
-from sqlalchemy import select, update
+from sqlalchemy import ColumnElement, select, update
 from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.orm import Session
 
@@ -29,8 +29,8 @@ from simple_annotator.girder import (
     ome_nm_per_px,
     thumbnail,
 )
-from simple_annotator.images import matches, ordered_items
-from simple_annotator.models import Patch, PatchVisit, Slide, User
+from simple_annotator.images import matches
+from simple_annotator.models import Patch, PatchVisit, Slide
 from simple_annotator.tiling import grid, split, tissue_mask, tissue_regions
 
 PLACEHOLDER_SIZE = FULL_IMAGE_MAX + CROP_SIZE
@@ -148,24 +148,21 @@ def _tiles(db: Session, slide: Slide) -> list[Patch]:
     ).all()
 
 
-def _visited(db: Session, user: User, tiles: list[Patch]) -> set[int]:
+def _visited(db: Session, seen: ColumnElement[bool], tiles: list[Patch]) -> set[int]:
     return set(
         db.scalars(
-            select(PatchVisit.patch_id).where(
-                PatchVisit.user_id == user.id, PatchVisit.patch_id.in_([t.id for t in tiles])
-            )
+            select(PatchVisit.patch_id).where(seen, PatchVisit.patch_id.in_([t.id for t in tiles]))
         )
     )
 
 
 def step(
     db: Session,
-    folder_id: str,
+    items: list[dict],
     current: Patch | None,
     direction: Literal[1, -1],
     stains: list[str | None],
 ) -> Patch:
-    items = ordered_items(folder_id)
     ids = [item["_id"] for item in items]
     pos = ids.index(current.girder_item_id) if current and current.girder_item_id in ids else None
     if pos is not None and matches(items[pos], stains):
@@ -200,9 +197,9 @@ def step(
     )
 
 
-def open_item(db: Session, user: User, item: dict) -> Patch:
+def open_item(db: Session, seen: ColumnElement[bool], item: dict) -> Patch:
     tiles = _tiles(db, ensure_slide(db, item))
-    visited = _visited(db, user, tiles)
+    visited = _visited(db, seen, tiles)
     return next((t for t in tiles if t.id not in visited), tiles[0])
 
 
@@ -228,14 +225,14 @@ def patch_scale(db: Session, patch: Patch) -> tuple[Slide, float | None]:
     return slide, slide.nm_per_px if slide.histo else image_nm_per_px(patch.girder_item_id)
 
 
-def slide_view(db: Session, user: User, patch: Patch) -> dict | None:
+def slide_view(db: Session, seen: ColumnElement[bool], patch: Patch) -> dict | None:
     slide = db.get(Slide, patch.girder_item_id)
     if not patch.grid or not slide or slide.grid != patch.grid:
         return None
     tiles = _tiles(db, slide)
     if len(tiles) == 1 and (patch.width, patch.height) == (slide.width, slide.height):
         return None
-    visited = _visited(db, user, tiles)
+    visited = _visited(db, seen, tiles)
     return {
         "name": slide.name,
         "width": slide.width,

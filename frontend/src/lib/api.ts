@@ -1,9 +1,42 @@
-export type Job = { id: number; name: string; color: string };
+// Histology slides or electron microscopy (ELMI); each image and label class is one or the other.
+export type Kind = "histo" | "elmi";
+export type Job = { id: number; name: string; color: string; kind: Kind };
+// in_project: one of the project's label classes; the others only name and color old annotations.
+export type ProjectJob = Job & { in_project: boolean };
+export type Visibility = "private" | "people" | "everyone";
+export type ProjectFolder = { id: string; path: string; kind: Kind };
+export type Project = {
+  id: number;
+  name: string;
+  visibility: Visibility;
+  owner: string | null;
+  is_owner: boolean;
+  // Annotations here are the project's shared layer rather than the user's own.
+  shared_layer: boolean;
+  has_layer: boolean;
+  folders: ProjectFolder[];
+  jobs: Job[];
+  members: string[];
+  // null without folders (any folder), while they are indexed, or when listing one failed.
+  image_count: number | null;
+  annotation_count: number | null;
+  my_annotation_count: number | null;
+  // Why a folder's images could not be listed; the counts wait for it to be refreshed.
+  listing_error: string | null;
+  opened: number | null;
+};
+export type ProjectInput = {
+  name?: string;
+  folders?: string[];
+  // Without an id, a new label class.
+  jobs?: (Omit<Job, "id"> & { id?: number })[];
+};
 export type Me = {
   id: number;
   username: string;
   last_job_id: number | null;
   last_folder_id: string | null;
+  last_project_id: number | null;
   // null selects images without a stain.
   stain_filter: (string | null)[];
 };
@@ -19,6 +52,8 @@ export type FolderLevel = {
   parent_id: string | null;
   n_items: number;
   children: FolderChild[];
+  // The top of a project's folders, which the sidebar cannot leave.
+  root?: boolean;
 };
 const AI_ELEMENT_PREFIX = "ai-";
 export function aiTaskId(elementId: string): string | null {
@@ -73,6 +108,8 @@ export type ViewRect = { left: number; top: number; width: number; height: numbe
 export type Patch = {
   id: number;
   item_id: string;
+  // Picks the label classes offered for this image.
+  kind: Kind;
   job_id: number | null;
   folder_id: string;
   image: PatchImage;
@@ -96,12 +133,29 @@ export type ImageRow = {
 export const imageThumbnailUrl = (id: string, side: number) =>
   `/images/${encodeURIComponent(id)}/thumbnail?side=${side}`;
 export type ImageCatalog = {
+  // The browsed folder, or a project's key for all of its folders.
+  folder_id: string;
+  // The folders are being listed; items are empty until their first listing lands.
+  indexing: boolean;
+  // Why the last refresh failed; the items are the listing before it.
+  listing_error: string | null;
   items: ImageRow[];
   stains: { name: string | null; count: number }[];
 };
 
+// The editor's project, named in every request so a second tab opening another project cannot
+// redirect this one's saves.
+let requestProject: number | null = null;
+export function setRequestProject(id: number | null) {
+  requestProject = id;
+}
+export function withProject(path: string) {
+  if (requestProject === null) return path;
+  return `${path}${path.includes("?") ? "&" : "?"}project=${requestProject}`;
+}
+
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path, {
+  const res = await fetch(withProject(path), {
     ...init,
     credentials: "include",
     headers: { "Content-Type": "application/json", ...(init?.headers || {}) },
@@ -128,15 +182,43 @@ export const api = {
     req<Me>("/me", { method: "PATCH", body: JSON.stringify({ last_job_id }) }),
   setFolder: (last_folder_id: string) =>
     req<Me>("/me", { method: "PATCH", body: JSON.stringify({ last_folder_id }) }),
-  jobs: () => req<Job[]>("/jobs"),
-  folders: (parent_id?: string | null) =>
-    req<FolderLevel>(`/folders${parent_id ? `?parent_id=${encodeURIComponent(parent_id)}` : ""}`),
+  jobs: () => req<ProjectJob[]>("/jobs"),
+  jobPresets: () => req<Record<Kind, Job[]>>("/jobs/presets"),
+  // Scoped: limited to the current project's folders, as in the sidebar.
+  folders: (parent_id?: string | null, scoped = false) => {
+    const query = new URLSearchParams();
+    if (parent_id) query.set("parent_id", parent_id);
+    if (scoped) query.set("scoped", "true");
+    return req<FolderLevel>(`/folders${query.size ? `?${query}` : ""}`);
+  },
+  resolveFolders: (folders: string[]) =>
+    req<ProjectFolder[]>("/folders/resolve", {
+      method: "POST",
+      body: JSON.stringify({ folders }),
+    }),
+  projects: () => req<Project[]>("/api/projects"),
+  createProject: (body: ProjectInput) =>
+    req<Project>("/api/projects", { method: "POST", body: JSON.stringify(body) }),
+  updateProject: (id: number, body: ProjectInput) =>
+    req<Project>(`/api/projects/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  deleteProject: (id: number) => req<{ ok: boolean }>(`/api/projects/${id}`, { method: "DELETE" }),
+  shareProject: (id: number, visibility: Visibility, members: string[]) =>
+    req<Project>(`/api/projects/${id}/sharing`, {
+      method: "PUT",
+      body: JSON.stringify({ visibility, members }),
+    }),
+  copyToLayer: (id: number) =>
+    req<{ copied: number; project: Project }>(`/api/projects/${id}/copy-annotations`, {
+      method: "POST",
+    }),
+  openProject: (id: number) => req<Project>(`/api/projects/${id}/open`, { method: "POST" }),
   currentPatch: () => req<Patch>("/patches/current"),
   nextPatch: () => req<Patch>("/patches/next"),
   prevPatch: () => req<Patch>("/patches/prev"),
   openImage: (item_id: string, link?: { folder_id: string; view: ViewRect }) =>
     req<Patch>("/patches/open", { method: "POST", body: JSON.stringify({ item_id, ...link }) }),
   images: () => req<ImageCatalog>("/images"),
+  refreshImages: () => req<{ ok: boolean }>("/images/refresh", { method: "POST" }),
   imagePath: (item_id: string) =>
     req<{ path: string }>(`/images/${encodeURIComponent(item_id)}/path`),
   setStains: (stain_filter: (string | null)[]) =>

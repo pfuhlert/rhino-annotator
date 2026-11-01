@@ -40,7 +40,8 @@ def complete(task_id: str, polygon: dict, elapsed_ms: int) -> None:
         if task.status != "running":
             return
         el = Edit(id=ai_element_id(task.id), jobId=task.job_id, type="polygon", **polygon)
-        apply_changes(db, task.user_id, db.get(Patch, task.patch_id), Changes(upsert=[el]))
+        layer = task.layer_id or task.user_id
+        apply_changes(db, layer, task.user_id, db.get(Patch, task.patch_id), Changes(upsert=[el]))
         task.status = "done"
         task.finished = time.time()
         task.elapsed_ms = elapsed_ms

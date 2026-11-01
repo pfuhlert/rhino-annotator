@@ -5,6 +5,7 @@ import {
   ChevronRightIcon,
   ChevronsUpDownIcon,
   CircleDotIcon,
+  CopyIcon,
   HandIcon,
   KeyboardIcon,
   LogOutIcon,
@@ -18,6 +19,8 @@ import {
 import { useEffect, useRef, useState } from "react";
 import { DropdownMenu, Slider } from "radix-ui";
 import { useOverlay } from "@/components/Overlay";
+import { api, type Project } from "@/lib/api";
+import { plural } from "@/lib/projects";
 import type { Tool } from "@/lib/draw";
 import { MIN_FILL_OPACITY, setFillOpacity, useFillOpacity } from "@/lib/fill-opacity";
 import { setTheme, type Theme, useTheme } from "@/lib/theme";
@@ -42,10 +45,14 @@ const ROW =
 
 export default function UserMenu({
   username,
+  project,
+  onCopied,
   onShortcuts,
   onLogout,
 }: {
   username: string;
+  project: Project;
+  onCopied: (project: Project) => void;
   onShortcuts: () => void;
   onLogout: () => void;
 }) {
@@ -58,6 +65,8 @@ export default function UserMenu({
   const trigger = useRef<HTMLButtonElement>(null);
   const content = useRef<HTMLDivElement>(null);
   const toolsContent = useRef<HTMLDivElement>(null);
+  // The outcome of the last copy, or why it failed.
+  const [copied, setCopied] = useState<string | null>(null);
   // Capture phase: the canvas and shortcuts handle their own events before they would bubble.
   useEffect(() => {
     if (!open) return;
@@ -135,6 +144,27 @@ export default function UserMenu({
           </DropdownMenu.Item>
         </div>
         <DropdownMenu.Separator className="-mx-1 my-1 h-px bg-border" />
+        {project.shared_layer && (
+          <DropdownMenu.Item
+            data-testid="copy-to-layer"
+            className={ROW}
+            title="Adds your own annotations on this project's images that the shared layer lacks"
+            onSelect={(e) => {
+              e.preventDefault();
+              void api.copyToLayer(project.id).then(
+                ({ copied: n, project: next }) => {
+                  setCopied(`Copied ${plural(n, "annotation")}`);
+                  onCopied(next);
+                },
+                (error: Error) => setCopied(error.message),
+              );
+            }}
+          >
+            <CopyIcon className="size-4 text-muted-foreground" />
+            {copied ?? "Copy my annotations to the shared layer"}
+          </DropdownMenu.Item>
+        )}
+        {project.shared_layer && <DropdownMenu.Separator className="-mx-1 my-1 h-px bg-border" />}
         <div className="flex items-center gap-2 px-2 py-1.5 text-sm">
           <PentagonIcon
             fill="currentColor"

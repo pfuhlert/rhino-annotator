@@ -201,7 +201,7 @@ export function OverlayPin() {
     <Button
       data-testid="sidebar-pin"
       variant="ghost"
-      size="icon-xs"
+      size="icon-sm"
       aria-pressed={pinned}
       title={pinned ? "Unpin sidebar" : "Pin sidebar"}
       className={cn("text-muted-foreground hover:text-foreground", pinned && "text-foreground")}

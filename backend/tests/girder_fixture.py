@@ -3,6 +3,7 @@ import io
 import json
 import math
 import random
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
@@ -12,6 +13,8 @@ parser = argparse.ArgumentParser()
 parser.add_argument("image")
 parser.add_argument("--port", type=int, default=8199)
 parser.add_argument("--nm-per-px", type=float, default=1.220703125)
+# Seconds before a folder tree's images are listed, to watch folders while they are indexed.
+parser.add_argument("--tree-delay", type=float, default=0)
 args = parser.parse_args()
 image = Image.open(args.image).convert("RGB")
 
@@ -67,6 +70,12 @@ def _histo_item(item: str) -> dict:
     name, meta = HISTO[item]
     meta = {"image_magnification": 412.312, **meta}
     return {"_id": item, "name": name, "folderId": "histo", "meta": meta}
+
+
+def _folder_items(folder: str) -> list[dict]:
+    if folder == "histo":
+        return [_histo_item(item) for item in HISTO]
+    return [{"_id": "tem", "name": "TEM.png", "folderId": "elmi"}] if folder == "elmi" else []
 
 
 def _render(item: str, x: float, y: float, w: float, h: float, out_w: int, out_h: int):
@@ -130,11 +139,14 @@ class Handler(BaseHTTPRequestHandler):
         elif path in {"/folder/elmi/details", "/folder/histo/details"}:
             data = {"nFolders": 0}
         elif path == "/item":
-            data = (
-                [_histo_item(item) for item in HISTO]
-                if query.get("folderId") == ["histo"]
-                else [{"_id": "tem", "name": "TEM.png", "folderId": "elmi"}]
-            )
+            data = _folder_items(query["folderId"][0])
+        elif path.startswith("/resource/") and path.endswith("/items"):
+            time.sleep(args.tree_delay)
+            parent = path.split("/")[2]
+            folders = ["elmi", "histo"] if parent == "fixtures" else [parent]
+            items = [it for folder in folders for it in _folder_items(folder)]
+            offset, limit = int(query["offset"][0]), int(query["limit"][0])
+            data = items[offset : offset + limit]
         elif path == "/item/tem":
             data = {"folderId": "elmi", "meta": {"nm_per_px": args.nm_per_px}}
         elif path.startswith("/resource/") and path.endswith("/path"):

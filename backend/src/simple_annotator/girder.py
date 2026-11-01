@@ -12,6 +12,8 @@ from simple_annotator.config import GIRDER_API_URL
 PLACEHOLDER_FOLDER = "placeholder"
 _IMAGE_EXT = {".png", ".tif", ".tiff", ".svs", ".jpg", ".jpeg", ".bmp"}
 _OME_UNIT_NM = {"nm": 1.0, "µm": 1e3, "μm": 1e3, "um": 1e3, "mm": 1e6}
+# The metadata the image list reads; the rest of an item is not stored.
+_LISTED_META = ("case_id", "staining", "image_magnification")
 
 _gc: httpx.Client | None = None
 _placeholders: dict[tuple[int, int, str], bytes] = {}
@@ -42,28 +44,30 @@ def _is_image(name: str) -> bool:
     return Path(name).suffix.lower() in _IMAGE_EXT
 
 
-def _paged(path: str, params: dict) -> list[dict]:
+def _is_image_item(item: dict) -> bool:
+    return _is_image(item.get("name", ""))
+
+
+def _paged(path: str, params: dict, size: int = 500, keep=lambda item: True) -> list[dict]:
     out: list[dict] = []
+    offset = 0
     while True:
         batch = (
             _client()
-            .get(path, params={**params, "limit": 500, "offset": len(out)})
+            .get(path, params={**params, "limit": size, "offset": offset})
             .raise_for_status()
             .json()
         )
-        out.extend(batch)
-        if len(batch) < 500:
+        out.extend(filter(keep, batch))
+        offset += len(batch)
+        if len(batch) < size:
             return out
-
-
-def _items(folder_id: str) -> list[dict]:
-    return _paged("/item", {"folderId": folder_id})
 
 
 def _images(folder_id: str) -> list[dict]:
     cached = _images_cache.get(folder_id)
     if cached is None:
-        cached = [it for it in _items(folder_id) if _is_image(it.get("name", ""))]
+        cached = _paged("/item", {"folderId": folder_id}, keep=_is_image_item)
         _images_cache[folder_id] = cached
     return cached
 
@@ -75,14 +79,6 @@ def _kids(parent_type: str, parent_id: str) -> list[dict]:
         cached = _paged("/folder", {"parentType": parent_type, "parentId": parent_id})
         _kids_cache[key] = cached
     return cached
-
-
-def _collect_images(folder_id: str, parent_type: str, folder_name: str) -> list[dict]:
-    images = _images(folder_id) if parent_type == "folder" else []
-    out = [{**it, "folder_name": folder_name} for it in images]
-    for child in _kids(parent_type, folder_id):
-        out.extend(_collect_images(child["_id"], "folder", child.get("name", "")))
-    return out
 
 
 def _child_folders(parent_type: str, parent_id: str) -> list[dict]:
@@ -125,6 +121,69 @@ def _is_elmi_folder(folder_id: str | None) -> bool:
             return True
         pid = info.get("parentId") if kind == "folder" else None
     return False
+
+
+# "elmi" for electron microscopy under an ELMI collection or folder, else "histo".
+# Failures are not cached, so a Girder hiccup only misjudges until the next call.
+_kinds: dict[str, str] = {}
+
+
+def folder_kind(folder_id: str | None) -> str:
+    if folder_id not in _kinds:
+        try:
+            _kinds[folder_id] = "elmi" if _is_elmi_folder(folder_id) else "histo"
+        except httpx.HTTPError:
+            return "histo"
+    return _kinds[folder_id]
+
+
+def image_kind(item_id: str) -> str:
+    try:
+        return folder_kind(item_folder(item_id))
+    except httpx.HTTPError:
+        return "histo"
+
+
+@lru_cache(maxsize=4096)
+def item_folder(item_id: str) -> str | None:
+    return get_item(item_id).get("folderId")
+
+
+@lru_cache(maxsize=4096)
+def ancestors(folder_id: str) -> tuple[str, ...]:
+    if not girder_enabled() or folder_id == PLACEHOLDER_FOLDER:
+        return ()
+    out: list[str] = []
+    kind, info = _resource(folder_id)
+    while kind == "folder" and info.get("parentId") and info["parentId"] not in out:
+        out.append(info["parentId"])
+        kind, info = _resource(info["parentId"])
+    return tuple(out)
+
+
+@lru_cache(maxsize=4096)
+def folder_path(folder_id: str) -> str:
+    if not girder_enabled() or folder_id == PLACEHOLDER_FOLDER:
+        return "Placeholder" if folder_id == PLACEHOLDER_FOLDER else folder_id
+    kind, _info = _resource(folder_id)
+    path = _client().get(f"/resource/{folder_id}/path", params={"type": kind})
+    return path.raise_for_status().json()
+
+
+def folder_row(folder_id: str) -> dict:
+    if not girder_enabled() or folder_id == PLACEHOLDER_FOLDER:
+        return {"id": folder_id, "name": "Placeholder", "n_items": 1, "n_folders": 0}
+    try:
+        kind, info = _resource(folder_id)
+        return {
+            "id": folder_id,
+            "name": info.get("name", ""),
+            "n_items": len(_images(folder_id)) if kind == "folder" else 0,
+            "n_folders": len(_kids(kind, folder_id)),
+        }
+    except httpx.HTTPError:
+        # Deleted or unshared in Girder: the project's other folders still show.
+        return {"id": folder_id, "name": folder_id, "n_items": 0, "n_folders": 0}
 
 
 def list_folders(parent_id: str | None = None) -> dict:
@@ -170,12 +229,27 @@ def list_folders(parent_id: str | None = None) -> dict:
     }
 
 
-def folder_images(folder_id: str) -> list[dict]:
-    parent_type, info = _resource(folder_id)
-    images = _collect_images(folder_id, parent_type, info.get("name", ""))
-    if not images:
-        raise RuntimeError("This dataset contains no images.")
-    return images
+def _listed(item: dict, names: dict[str, str]) -> dict:
+    meta = {k: v for k, v in (item.get("meta") or {}).items() if k in _LISTED_META}
+    listed = {"_id": item["_id"], "name": item["name"], "folderId": item["folderId"]}
+    if meta:
+        listed["meta"] = meta
+    if not meta.get("case_id"):
+        listed["folder_name"] = names[item["folderId"]]
+    return listed
+
+
+def walk_images(folder_id: str) -> list[dict]:
+    kind, _info = _resource(folder_id)
+    # Girder walks the whole tree for each request and restarts that walk at every page's
+    # offset, so pages are large: 236k items take 17s, against 37s walking folder by folder.
+    items = _paged(f"/resource/{folder_id}/items", {"type": kind}, 100_000, _is_image_item)
+    # Only images without a case id are grouped by folder name, so only their folders are named.
+    unnamed = {it["folderId"] for it in items if not (it.get("meta") or {}).get("case_id")}
+    names = {
+        f: _client().get(f"/folder/{f}").raise_for_status().json().get("name", "") for f in unnamed
+    }
+    return [_listed(it, names) for it in items]
 
 
 def image_info(item_id: str) -> tuple[dict | None, str]:

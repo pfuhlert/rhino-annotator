@@ -1,5 +1,6 @@
 import hashlib
 import json
+import re
 import secrets
 
 from fastapi import APIRouter, Depends, HTTPException, Response
@@ -9,14 +10,15 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from simple_annotator.config import COOKIE_NAME
-from simple_annotator.db import ELMI_JOBS, SEED_JOBS, get_db
-from simple_annotator.girder import is_elmi_folder, list_folders
+from simple_annotator.db import add_default_project, get_db
 from simple_annotator.models import Job, User
 from simple_annotator.models import Session as AuthSession
 
 router = APIRouter(prefix="/auth")
 me_router = APIRouter()
 cookie_scheme = APIKeyCookie(name=COOKIE_NAME, auto_error=False)
+# Shared project layers are named like this; the names are reserved.
+LAYER_NAME = re.compile(r"project-\d+(-[0-9a-f]+)?")
 
 
 class Creds(BaseModel):
@@ -67,6 +69,7 @@ def _user_json(user: User) -> dict:
         "username": user.username,
         "last_job_id": user.last_job_id,
         "last_folder_id": user.last_folder_id,
+        "last_project_id": user.last_project_id,
         "stain_filter": user_stains(user),
     }
 
@@ -82,7 +85,9 @@ def require_job(db: Session, job_id: int) -> None:
 
 @router.post("/register")
 def register(body: Creds, response: Response, db: Session = Depends(get_db)) -> dict:
-    if db.scalar(select(User).where(User.username == body.username)):
+    if LAYER_NAME.fullmatch(body.username) or db.scalar(
+        select(User).where(User.username == body.username)
+    ):
         raise HTTPException(409, "username taken")
     first_job = db.scalar(select(Job).order_by(Job.id))
     user = User(
@@ -91,6 +96,8 @@ def register(body: Creds, response: Response, db: Session = Depends(get_db)) -> 
         last_job_id=first_job.id if first_job else None,
     )
     db.add(user)
+    db.flush()
+    user.last_project_id = add_default_project(db, user.id)
     db.commit()
     db.refresh(user)
     _set_session(db, user, response)
@@ -143,15 +150,3 @@ def patch_me(
         user.stain_filter = json.dumps(body.stain_filter) if body.stain_filter else None
     db.commit()
     return _user_json(user)
-
-
-@me_router.get("/folders")
-def folders(parent_id: str | None = None, _user: User = Depends(current_user)) -> dict:
-    return list_folders(parent_id)
-
-
-@me_router.get("/jobs")
-def list_jobs(user: User = Depends(current_user), db: Session = Depends(get_db)) -> list[dict]:
-    names = {n for n, _ in (ELMI_JOBS if is_elmi_folder(user.last_folder_id) else SEED_JOBS)}
-    jobs = [j for j in db.scalars(select(Job).order_by(Job.id)).all() if j.name in names]
-    return [{"id": j.id, "name": j.name, "color": j.color} for j in jobs]

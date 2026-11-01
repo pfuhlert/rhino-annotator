@@ -7,6 +7,7 @@ import {
   ChevronRightIcon,
   FolderIcon,
   FolderOpenIcon,
+  RefreshCwIcon,
 } from "lucide-react";
 import { cn } from "cn";
 import MarkDot from "@/components/MarkDot";
@@ -39,11 +40,29 @@ function CollapseToggle({
   );
 }
 
+function RefreshButton({ indexing, onRefresh }: { indexing: boolean; onRefresh: () => void }) {
+  return (
+    <Button
+      data-testid="folder-refresh"
+      variant="ghost"
+      size="icon-xs"
+      disabled={indexing}
+      aria-label="Refresh images"
+      title={indexing ? "Indexing folder…" : "List this folder's images again"}
+      className="text-muted-foreground hover:text-foreground"
+      onClick={onRefresh}
+    >
+      <RefreshCwIcon className={cn("size-3.5", indexing && "animate-spin")} />
+    </Button>
+  );
+}
+
 function FolderRow({
   child,
   active,
   mark,
   collapsed,
+  refresh,
   onToggle,
   onOpen,
   onUse,
@@ -52,6 +71,7 @@ function FolderRow({
   active: boolean;
   mark: Mark | null;
   collapsed: boolean;
+  refresh: ReactNode;
   onToggle: () => void;
   onOpen: () => void;
   onUse: () => void;
@@ -89,6 +109,7 @@ function FolderRow({
         {active && <CheckIcon className="size-3.5 shrink-0" />}
         {drill && <ChevronRightIcon className="size-3.5 shrink-0 text-muted-foreground" />}
       </button>
+      {active && <span className="mr-1">{refresh}</span>}
       {drill && !active && (
         <UseButton
           testId={`use-folder-${child.id}`}
@@ -176,6 +197,8 @@ export default function FolderPicker({
   selectedId,
   initialLevel,
   onUse,
+  indexing,
+  onRefresh,
   pinned,
   progress,
   mark,
@@ -184,6 +207,9 @@ export default function FolderPicker({
   selectedId: string | null;
   initialLevel: FolderLevel | null;
   onUse: (id: string) => void;
+  // The selected folder's images are being listed again.
+  indexing: boolean;
+  onRefresh: () => void;
   // Shown under the selected folder, which may be this level itself or one of its rows.
   pinned: ReactNode;
   // Over the selected folder's listed images, null while they load.
@@ -203,7 +229,7 @@ export default function FolderPicker({
     if (level) return;
     let live = true;
     api
-      .folders(null)
+      .folders(null, true)
       .then((root) => live && setLevel(root))
       .catch((e: Error) => live && setError(e.message));
     return () => {
@@ -219,19 +245,20 @@ export default function FolderPicker({
     );
 
   const go = (id: string | null) =>
-    void api.folders(id).then(
+    void api.folders(id, true).then(
       (next) => {
         setError(null);
         setLevel(next);
       },
       (e: Error) => setError(e.message),
     );
+  const refresh = <RefreshButton indexing={indexing} onRefresh={onRefresh} />;
   const levelId = level.id;
   const levelSelected = !!levelId && levelId === selectedId;
   const levelHeader = (
     // Row spacing is an opaque bottom border, not a flex gap, so pinned rows keep it when stuck.
     <div className="sticky top-0 z-20 flex h-8.5 items-center gap-1 border-b-2 border-sidebar bg-sidebar px-1 text-xs font-medium text-sidebar-foreground/70">
-      {level.id && (
+      {level.id && !level.root && (
         <Button
           data-testid="folder-back"
           variant="ghost"
@@ -246,6 +273,7 @@ export default function FolderPicker({
         {level.id ? level.name : "Datasets"}
       </span>
       {levelSelected && <MarkDot mark={mark} />}
+      {levelSelected && refresh}
       {levelSelected && <CollapseToggle collapsed={collapsed} onToggle={toggle} />}
       {levelId &&
         (levelSelected ? (
@@ -284,6 +312,7 @@ export default function FolderPicker({
             active={child.id === selectedId}
             mark={child.id === selectedId ? mark : null}
             collapsed={collapsed}
+            refresh={refresh}
             onToggle={toggle}
             onOpen={() => go(child.id)}
             onUse={() => onUse(child.id)}
