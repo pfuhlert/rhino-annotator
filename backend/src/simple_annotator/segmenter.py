@@ -17,6 +17,7 @@ from simple_annotator.config import AiModel
 from simple_annotator.embeddings import (
     embedding_id,
     load_embedding,
+    point_crop,
     prompt_regions,
     save_embedding,
     tile_request,
@@ -157,20 +158,24 @@ class MicroSam:
         largest = 1 + np.argmax(stats[1:, cv2.CC_STAT_AREA])
         return (labels == largest).astype(np.uint8), (x, y)
 
+    def _point_masks(self, request: dict, region: tuple[int, int, int, int]):
+        x, y, w, h = region
+        self._set_tile(request, region)
+        point = np.array([[request["x"] - x, request["y"] - y]])
+        masks, scores, _ = self.predictor.predict(
+            point_coords=point, point_labels=np.array([1]), multimask_output=True
+        )
+        px, py = min(w - 1, round(point[0, 0])), min(h - 1, round(point[0, 1]))
+        # SAM's best-scoring mask often leaks into the background; a smaller one may still fit.
+        for choice in np.argsort(scores)[::-1]:
+            if masks[choice, py, px]:
+                _, labels = cv2.connectedComponents(masks[choice].astype(np.uint8))
+                yield (labels == labels[py, px]).astype(np.uint8)
+
     def _predict_point(self, request: dict) -> tuple[np.ndarray, tuple[int, int]]:
         clipped_any = False
         for x, y, w, h in prompt_regions(request):
-            self._set_tile(request, (x, y, w, h))
-            point = np.array([[request["x"] - x, request["y"] - y]])
-            masks, scores, _ = self.predictor.predict(
-                point_coords=point, point_labels=np.array([1]), multimask_output=True
-            )
-            px, py = min(w - 1, round(point[0, 0])), min(h - 1, round(point[0, 1]))
-            choices = [i for i in np.argsort(scores)[::-1] if masks[i, py, px]]
-            # SAM's best-scoring mask often leaks into the background; a smaller one may still fit.
-            for choice in choices:
-                _, labels = cv2.connectedComponents(masks[choice].astype(np.uint8))
-                mask = (labels == labels[py, px]).astype(np.uint8)
+            for mask in self._point_masks(request, (x, y, w, h)):
                 clipped = (
                     (x > 0 and mask[:, 0].any())
                     or (y > 0 and mask[0, :].any())
@@ -180,6 +185,11 @@ class MicroSam:
                 if not clipped:
                     return mask, (x, y)
                 clipped_any = True
+        # Downsampled whole-image embeddings often miss thin membranes; the full-resolution crop
+        # finds them, and a membrane spanning the frame is expected to leave the crop.
+        if crop := point_crop(request):
+            for mask in self._point_masks(request, crop):
+                return mask, crop[:2]
         if clipped_any:
             raise ValueError("Structure extends beyond the tile. Try a box or use the brush.")
         raise ValueError("No structure found at this point. Try a nearby point or the brush.")

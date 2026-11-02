@@ -13,6 +13,8 @@ from simple_annotator.db import retry_sqlite_busy, session_factory
 from simple_annotator.models import AiEmbedding, Patch
 
 TILE_SIZE = 384
+POINT_CROP = 1024
+POINT_CROP_GRID = 256
 HALO = 64
 TILE_NM = 3000
 HALO_NM = 500
@@ -115,6 +117,18 @@ def prompt_regions(request: dict) -> list[tuple[int, int, int, int]]:
                 return [region]
         raise ValueError("Box is larger than the available tiles. Use a smaller box or the brush.")
     return candidates
+
+
+def point_crop(request: dict) -> tuple[int, int, int, int] | None:
+    width, height = request["width"], request["height"]
+    if not AI_MODELS[request["model"]].whole_image or max(width, height) <= POINT_CROP:
+        return None
+    # Snap to a grid so nearby clicks share cached crop embeddings.
+    origin = []
+    for click, size in ((request["x"], width), (request["y"], height)):
+        snapped = round((click - POINT_CROP / 2) / POINT_CROP_GRID) * POINT_CROP_GRID
+        origin.append(max(0, min(size - POINT_CROP, snapped)))
+    return *origin, min(POINT_CROP, width), min(POINT_CROP, height)
 
 
 def _intersects(a: tuple[int, int, int, int], b: tuple[int, int, int, int]) -> bool:

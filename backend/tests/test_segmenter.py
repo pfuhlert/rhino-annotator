@@ -16,7 +16,7 @@ import torch
 
 from simple_annotator import segmenter, slides
 from simple_annotator.ai_worker import process_next
-from simple_annotator.config import DEFAULT_AI_MODEL, AiModel
+from simple_annotator.config import DEFAULT_AI_MODEL, GBM_AI_MODEL, AiModel
 from simple_annotator.db import reset_engine, session_factory
 from simple_annotator.embeddings import embedding_id, prompt_regions, regions, tile_request
 from simple_annotator.models import AiEmbedding, AiTask, AiWorker, Patch
@@ -267,6 +267,29 @@ def test_point_missed_by_its_tile_still_tries_the_whole_image(fake_model):
     model.predictor.predict = lambda **_: (np.zeros((1, 768, 1024), dtype=bool), [0.9], None)
     with pytest.raises(ValueError, match="No structure found at this point"):
         model.predict(request)
+
+
+def test_whole_image_miss_falls_back_to_full_resolution_crop_that_may_touch_its_edge(fake_model):
+    create, fetched, _, _ = fake_model
+    model = create()
+    request = {**REQUEST, "model": GBM_AI_MODEL.name, "width": 2048, "height": 2048}
+    request.update(x=1300, y=700)
+
+    def predict(**kwargs):
+        h, w = model.predictor.original_size
+        masks = np.zeros((3, h, w), dtype=bool)
+        if (h, w) == (2048, 2048):
+            masks[:, :50, :50] = True
+        else:
+            x, y = np.round(kwargs["point_coords"][0]).astype(int)
+            masks[0, y - 5 : y + 6] = True
+        return masks, np.array([0.9, 0.5, 0.3]), None
+
+    model.predictor.predict = predict
+    polygon = model.predict(request)
+    assert fetched[-1] == ("image", 100 + 768, 200 + 256, 1024, 1024)
+    xs, ys = [x for x, _ in polygon["points"]], [y for _, y in polygon["points"]]
+    assert (min(xs), max(xs), min(ys), max(ys)) == (768, 1791, 695, 705)
 
 
 @pytest.mark.parametrize(
