@@ -74,7 +74,7 @@ export default async function (page, state) {
   const jobs = await json("/jobs");
   const job = jobs.find((j) => j.name === "Nucleus");
   await select("tool-switcher", "tool-ai-box");
-  assert.equal(await page.getByTestId("tool-switcher").innerText(), "AI Box (A)");
+  assert.equal(await page.getByTestId("tool-switcher").innerText(), "AI Box");
   await move(250, 500);
   const cursor = await root.evaluate((el) => getComputedStyle(el).cursor);
   assert.match(cursor, /^url\("data:image\/svg\+xml,.*"\) 8 8, crosshair$/);

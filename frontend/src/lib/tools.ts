@@ -3,7 +3,7 @@ import type { Tool } from "./draw";
 
 export const TOOLS: readonly (readonly [Tool, string, string])[] = [
   ["hand", "Hand", "H"],
-  ["point", "Point", "P"],
+  ["point", "AI Point", "P"],
   ["polygon", "Polygon", "L"],
   ["brush", "Brush", "R"],
   ["ai-box", "AI Box", "A"],

@@ -10,7 +10,7 @@ Next advances to the next region of the current image, then to the first region 
 
 ## How to get to it (user POV)
 
-- On `/annotate`, choose Next (N) or Previous (B).
+- On `/annotate`, choose Next (N) or Previous (B) (icon buttons `next` / `prev`).
 
 ## Driving it with Playwright
 

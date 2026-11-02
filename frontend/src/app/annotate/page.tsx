@@ -1,5 +1,7 @@
 "use client";
 
+import { cn } from "cn";
+import { ArrowLeft, ArrowRight, Redo2, Undo2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { type RefObject, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AiCursorStatus } from "@/components/AiCursorStatus";
@@ -7,9 +9,17 @@ import { BrushSizeControl } from "@/components/BrushSizeControl";
 import PatchCanvas, { type AnnotatorApi } from "@/components/PatchCanvas";
 import ProjectsPanel, { expanded } from "@/components/ProjectsPanel";
 import Sidebar from "@/components/Sidebar";
-import ShortcutsDialog from "@/components/ShortcutsDialog";
+import ShortcutsDialog, { MOD } from "@/components/ShortcutsDialog";
 import SlideMap from "@/components/SlideMap";
-import { Button } from "@/components/ui/button";
+import {
+  Kbd,
+  ToolbarButton,
+  ToolbarDivider,
+  toolbarChip,
+  toolbarMenu,
+  toolbarMenuItem,
+} from "@/components/Toolbar";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Overlay } from "@/components/Overlay";
 import {
@@ -656,7 +666,7 @@ function Editor({
               )}
             </div>
           )}
-          <footer className="pointer-events-none absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-black/70 to-transparent px-4 py-4">
+          <footer className="pointer-events-none absolute inset-x-0 bottom-0 z-10 px-4 py-4">
             {patch.slide && (
               <SlideMap
                 slide={patch.slide}
@@ -664,87 +674,127 @@ function Editor({
                 view={view?.patchId === patch.id ? view.rect : null}
               />
             )}
-            <div
-              data-scale-bar-anchor
-              className="pointer-events-auto flex flex-wrap items-center justify-center gap-2"
-            >
-              <Button
-                data-testid="prev"
-                variant="outline"
-                disabled={busy}
-                onClick={() => void finish("prev")}
+            <TooltipProvider>
+              <div
+                data-scale-bar-anchor
+                className="pointer-events-auto mx-auto flex w-fit flex-wrap items-center justify-center gap-1 rounded-full border border-black/10 bg-white/85 p-1.5 text-sm text-neutral-800 shadow-lg shadow-black/10 backdrop-blur-md dark:border-white/10 dark:bg-neutral-900/80 dark:text-neutral-100 dark:shadow-black/30"
               >
-                Previous (B)
-              </Button>
-              <Select
-                value={String(jobId)}
-                open={openMenu === "job"}
-                onOpenChange={toggleMenu("job")}
-                onValueChange={(id) => void switchJob(Number(id))}
-              >
-                <SelectTrigger
-                  data-testid="job-switcher"
-                  aria-label="Job"
-                  className="bg-background"
+                <ToolbarButton
+                  data-testid="prev"
+                  label="Previous"
+                  shortcut="B"
+                  tone="secondary"
+                  disabled={busy}
+                  onClick={() => void finish("prev")}
                 >
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent position="popper" align="center" side="top">
-                  {pickerJobs(jobs, jobId).map((j) => (
-                    <SelectItem key={j.id} value={String(j.id)} data-testid={`job-${j.name}`}>
-                      <span
-                        className="h-2.5 w-2.5 shrink-0 rounded-full"
-                        style={{ background: j.color }}
-                      />
-                      {j.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Select
-                value={tool}
-                open={openMenu === "tool"}
-                onOpenChange={toggleMenu("tool")}
-                onValueChange={(id) => setTool(id as Tool)}
-              >
-                <SelectTrigger
-                  data-testid="tool-switcher"
-                  aria-label="Tool"
-                  className="bg-background"
+                  <ArrowLeft />
+                </ToolbarButton>
+                <ToolbarDivider />
+                <Select
+                  value={String(jobId)}
+                  open={openMenu === "job"}
+                  onOpenChange={toggleMenu("job")}
+                  onValueChange={(id) => void switchJob(Number(id))}
                 >
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent position="popper" align="center" side="top">
-                  {TOOLS.filter(([id]) => enabledTools.includes(id)).map(([id, label, key]) => (
-                    <SelectItem key={id} value={id} data-testid={`tool-${id}`}>
-                      {label} ({key})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {tool === "brush" && (
-                <BrushSizeControl
-                  value={brushRadius}
-                  onChange={setBrushRadius}
-                  open={openMenu === "size"}
-                  onOpenChange={toggleMenu("size")}
-                />
-              )}
-              <Button data-testid="undo" variant="outline" onClick={undo}>
-                Undo (Ctrl+Z)
-              </Button>
-              <Button data-testid="redo" variant="outline" onClick={() => annoRef.current?.redo()}>
-                Redo (Ctrl+Y)
-              </Button>
-              <Button
-                data-testid="next"
-                variant="outline"
-                disabled={busy}
-                onClick={() => void finish("next")}
-              >
-                Next (N)
-              </Button>
-            </div>
+                  <SelectTrigger
+                    data-testid="job-switcher"
+                    aria-label="Job"
+                    className={toolbarChip}
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent
+                    position="popper"
+                    align="center"
+                    side="top"
+                    sideOffset={8}
+                    className={toolbarMenu}
+                  >
+                    {pickerJobs(jobs, jobId).map((j) => (
+                      <SelectItem
+                        key={j.id}
+                        value={String(j.id)}
+                        data-testid={`job-${j.name}`}
+                        className={toolbarMenuItem}
+                      >
+                        <span
+                          className="h-2.5 w-2.5 shrink-0 rounded-full"
+                          style={{ background: j.color }}
+                        />
+                        {j.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select
+                  value={tool}
+                  open={openMenu === "tool"}
+                  onOpenChange={toggleMenu("tool")}
+                  onValueChange={(id) => setTool(id as Tool)}
+                >
+                  <SelectTrigger
+                    data-testid="tool-switcher"
+                    aria-label="Tool"
+                    className={toolbarChip}
+                  >
+                    <SelectValue>{TOOLS.find(([id]) => id === tool)?.[1]}</SelectValue>
+                  </SelectTrigger>
+                  <SelectContent
+                    position="popper"
+                    align="center"
+                    side="top"
+                    sideOffset={8}
+                    className={toolbarMenu}
+                  >
+                    {TOOLS.filter(([id]) => enabledTools.includes(id)).map(([id, label, key]) => (
+                      <SelectItem
+                        key={id}
+                        value={id}
+                        data-testid={`tool-${id}`}
+                        className={cn(
+                          toolbarMenuItem,
+                          "*:[span]:last:flex-1 *:[span]:last:justify-between",
+                        )}
+                      >
+                        {label}
+                        <Kbd>{key}</Kbd>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {tool === "brush" && (
+                  <BrushSizeControl
+                    value={brushRadius}
+                    onChange={setBrushRadius}
+                    open={openMenu === "size"}
+                    onOpenChange={toggleMenu("size")}
+                  />
+                )}
+                <ToolbarDivider />
+                <ToolbarButton data-testid="undo" label="Undo" shortcut={`${MOD}+Z`} onClick={undo}>
+                  <Undo2 />
+                </ToolbarButton>
+                <ToolbarButton
+                  data-testid="redo"
+                  label="Redo"
+                  shortcut={`${MOD}+Y`}
+                  onClick={() => annoRef.current?.redo()}
+                >
+                  <Redo2 />
+                </ToolbarButton>
+                <ToolbarDivider />
+                <ToolbarButton
+                  data-testid="next"
+                  label="Next"
+                  shortcut="N"
+                  tone="primary"
+                  disabled={busy}
+                  onClick={() => void finish("next")}
+                >
+                  <ArrowRight />
+                </ToolbarButton>
+              </div>
+            </TooltipProvider>
           </footer>
         </main>
       )}

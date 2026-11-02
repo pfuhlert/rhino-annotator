@@ -15,7 +15,7 @@ Annotate and next records polygons on the current image, then loads the next ima
 ## How to get to it (user POV)
 
 - After login, the crop and toolbar are on `/annotate`.
-- Tab cycles tools, or choose Point, Polygon, Brush, or AI Box, mark the crop, choose Next (N).
+- Tab cycles tools, or choose AI Point, Polygon, Brush, or AI Box, mark the crop, choose Next (N).
 
 ## Driving it with Playwright
 
@@ -28,9 +28,9 @@ Preconditions:
   goto --path /annotate \
   wait --testid annotate-app \
   press --key Tab \
-  wait --testid tool-switcher --text "Brush (R)" \
+  wait --testid tool-switcher --text "Brush" \
   press --key Shift+Tab \
-  wait --testid tool-switcher --text "Polygon (L)" \
+  wait --testid tool-switcher --text "Polygon" \
   select --testid tool-switcher --option tool-polygon \
   drag --testid patch-canvas --from 500,220 --via 800,240 --to 640,500 \
   select --testid tool-switcher --option tool-brush \

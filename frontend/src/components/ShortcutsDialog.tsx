@@ -5,7 +5,7 @@ import { Dialog } from "radix-ui";
 import type { Tool } from "@/lib/draw";
 import { TOOLS, useEnabledTools } from "@/lib/tools";
 
-const MOD = "Ctrl/⌘";
+export const MOD = "Ctrl/⌘";
 
 const SECTIONS: [string, [string[][], string, Tool?][]][] = [
   [
