@@ -13,12 +13,15 @@ export const strongest = (marks: (Mark | null)[]): Mark | null =>
 
 export const isDone = (row: ImageRow) => row.regions !== null && row.visited >= row.regions;
 
-// Region progress of the open slide comes from its patch, so the list needs no refetch per region.
-// Without a slide view (single-region images, legacy crops) the fetched row is the source of truth.
+// Region progress and layout of the open slide come from its patch, so the list needs no refetch
+// per region or layout switch. Without a slide view (single-region images, legacy crops) the
+// fetched row's progress is the source of truth.
 function withProgress(row: ImageRow, patch: Patch | null): ImageRow {
-  const tiles = patch?.item_id === row.id && patch.slide?.tiles;
-  if (!tiles) return row;
-  return { ...row, regions: tiles.length, visited: tiles.filter((t) => t[4]).length };
+  if (patch?.item_id !== row.id) return row;
+  const split = row.split === null ? null : !patch.slide?.whole;
+  const tiles = patch.slide?.tiles;
+  if (!tiles) return { ...row, split };
+  return { ...row, split, regions: tiles.length, visited: tiles.filter((t) => t[4]).length };
 }
 
 // Rows arrive sorted by group, so consecutive rows with the same group form one group.

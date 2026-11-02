@@ -39,6 +39,8 @@ export type Me = {
   last_project_id: number | null;
   // null selects images without a stain.
   stain_filter: (string | null)[];
+  // Whether histology slides open as tissue regions unless set per slide.
+  split_histo: boolean;
 };
 export type FolderChild = {
   id: string;
@@ -88,6 +90,8 @@ export type SlideView = {
   thumbnail_url: string;
   tiles: SlideTile[];
   current: number;
+  // A histology slide shown whole: its one tile is the slide, so only the view is drawn.
+  whole: boolean;
 };
 // A patch is a rectangle of a slide pyramid; tile_url serves the slide's tiles (not the patch's).
 export type PatchImage = {
@@ -132,6 +136,9 @@ export type ImageRow = {
   regions: number | null;
   visited: number;
   annotations: number;
+  // Whether this user sees a histology slide split by tissue; null for other images and unopened
+  // ones.
+  split: boolean | null;
 };
 export const imageThumbnailUrl = (id: string, side: number) =>
   `/images/${encodeURIComponent(id)}/thumbnail?side=${side}`;
@@ -185,6 +192,8 @@ export const api = {
     req<Me>("/me", { method: "PATCH", body: JSON.stringify({ last_job_id }) }),
   setFolder: (last_folder_id: string) =>
     req<Me>("/me", { method: "PATCH", body: JSON.stringify({ last_folder_id }) }),
+  setSplitHisto: (split_histo: boolean) =>
+    req<Me>("/me", { method: "PATCH", body: JSON.stringify({ split_histo }) }),
   jobs: () => req<ProjectJob[]>("/jobs"),
   jobPresets: () => req<Record<Kind, Job[]>>("/jobs/presets"),
   // Scoped: limited to the current project's folders, as in the sidebar.
@@ -218,8 +227,12 @@ export const api = {
   currentPatch: () => req<Patch>("/patches/current"),
   nextPatch: () => req<Patch>("/patches/next"),
   prevPatch: () => req<Patch>("/patches/prev"),
-  openImage: (item_id: string, link?: { folder_id: string; view: ViewRect }) =>
-    req<Patch>("/patches/open", { method: "POST", body: JSON.stringify({ item_id, ...link }) }),
+  // split first sets whether this user sees a histology slide split by tissue or whole.
+  openImage: (
+    item_id: string,
+    options?: { folder_id?: string; view?: ViewRect; split?: boolean },
+  ) =>
+    req<Patch>("/patches/open", { method: "POST", body: JSON.stringify({ item_id, ...options }) }),
   images: () => req<ImageCatalog>("/images"),
   refreshImages: () => req<{ ok: boolean }>("/images/refresh", { method: "POST" }),
   imagePath: (item_id: string) =>

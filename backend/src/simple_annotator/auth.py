@@ -31,6 +31,7 @@ class MePatch(BaseModel):
     last_job_id: int | None = None
     last_folder_id: str | None = None
     stain_filter: list[str | None] | None = None
+    split_histo: bool | None = None
 
 
 def _hash(password: str, salt: str | None = None) -> str:
@@ -72,6 +73,7 @@ def _user_json(db: Session, user: User, project_id: int | None = None) -> dict:
         "last_folder_id": user.last_folder_id,
         "last_project_id": user.last_project_id,
         "stain_filter": project_stains(db, user, project_id),
+        "split_histo": user.split_histo,
     }
 
 
@@ -162,6 +164,8 @@ def patch_me(
         user.last_job_id = body.last_job_id
     if body.last_folder_id is not None:
         set_folder(db, user, project, body.last_folder_id)
+    if body.split_histo is not None:
+        user.split_histo = body.split_histo
     if "stain_filter" in body.model_fields_set:
         row = _opened(db, user, project)
         if not row:

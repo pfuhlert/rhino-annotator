@@ -24,7 +24,15 @@ from simple_annotator.images import INDEXING, ordered_items
 from simple_annotator.models import Job, Patch, PatchVisit, Project, Slide, User
 from simple_annotator.projects import outside
 from simple_annotator.scope import browse, current_project, layer_id, visited_filter
-from simple_annotator.slides import ensure_slide, open_item, patch_scale, slide_view, step, tile_at
+from simple_annotator.slides import (
+    ensure_slide,
+    open_item,
+    patch_scale,
+    set_split,
+    slide_view,
+    step,
+    tile_at,
+)
 
 router = APIRouter(prefix="/patches")
 
@@ -123,7 +131,7 @@ def _step(
     current = db.get(Patch, visit.patch_id) if visit else None
     stains = project_stains(db, user, project.id)
     try:
-        patch = step(db, _items(db, folders), current, direction, stains)
+        patch = step(db, user, _items(db, folders), current, direction, stains)
     except RuntimeError as e:
         raise HTTPException(400, str(e)) from e
     return _record(db, user, project, patch, key, background)
@@ -208,9 +216,12 @@ class View(BaseModel):
 
 class OpenImage(BaseModel):
     item_id: str
-    # A shared link names its dataset and the visible slide rectangle.
+    # A shared link names its dataset and the visible slide rectangle; a layout switch names only
+    # the rectangle, to keep the user's place.
     folder_id: str | None = None
     view: View | None = None
+    # Splits a histology slide by tissue, or shows it whole, for this user from now on.
+    split: bool | None = None
 
 
 @router.post("/open")
@@ -227,10 +238,18 @@ def open_image(
     item = next((it for it in _items(db, folders) if it["_id"] == body.item_id), None)
     if not item:
         raise HTTPException(404, "image not in this dataset")
+    if body.split is not None:
+        try:
+            set_split(db, user, item, body.split)
+        except ValueError as e:
+            raise HTTPException(400, str(e)) from e
     if body.view is None:
-        patch = open_item(db, visited_filter(project, user), item)
+        patch = open_item(db, user, visited_filter(project, user), item)
     else:
-        patch = tile_at(db, ensure_slide(db, item), **body.view.model_dump())
+        # A shared link must show the shared area; a layout switch stays in the chosen layout.
+        shared = body.folder_id is not None and body.split is None
+        slide = ensure_slide(db, item)
+        patch = tile_at(db, user, slide, **body.view.model_dump(), show_all=shared)
     visit = _cursor_visit(db, user, project, key)
     # Reloading a shared link reopens the cursor instead of recording another visit.
     if visit and visit.patch_id == patch.id:

@@ -7,6 +7,7 @@ import { cn } from "cn";
 import { api, type ImageCatalog, type ImageRow, imageThumbnailUrl } from "@/lib/api";
 import { copyText } from "@/lib/clipboard";
 import MarkDot from "@/components/MarkDot";
+import { SwitchTrack } from "@/components/ui/switch-track";
 import { type ImageGroup, isDone, rowMark } from "@/lib/images";
 
 type Stain = string | null;
@@ -199,12 +200,20 @@ export function StainFilter({
   );
 }
 
-const MENU_WIDTH = 144;
+const MENU_WIDTH = 176;
 type RowMenu = { row: ImageRow; x: number; y: number };
 
 // Positioned inside the list, not portaled, so it stays within an unpinned sidebar overlay.
 // Fetches the path on open so the copy click stays synchronous and keeps clipboard permission.
-function ImageRowMenu({ menu, onClose }: { menu: RowMenu; onClose: () => void }) {
+function ImageRowMenu({
+  menu,
+  onClose,
+  onSplit,
+}: {
+  menu: RowMenu;
+  onClose: () => void;
+  onSplit: (itemId: string, split: boolean) => void;
+}) {
   // null while loading, false if it could not be loaded.
   const [path, setPath] = useState<string | null | false>(null);
   const root = useRef<HTMLDivElement>(null);
@@ -260,6 +269,21 @@ function ImageRowMenu({ menu, onClose }: { menu: RowMenu; onClose: () => void })
       >
         {path === false ? "Path unavailable" : "Copy path"}
       </button>
+      {menu.row.split !== null && (
+        <button
+          type="button"
+          role="menuitemcheckbox"
+          aria-checked={menu.row.split}
+          className={`${item} flex items-center justify-between gap-3 whitespace-nowrap`}
+          onClick={() => {
+            onSplit(menu.row.id, !menu.row.split);
+            onClose();
+          }}
+        >
+          Split by tissue
+          <SwitchTrack on={menu.row.split} />
+        </button>
+      )}
     </div>
   );
 }
@@ -270,12 +294,15 @@ export default function ImageList({
   indexing,
   currentId,
   onOpen,
+  onSplit,
 }: {
   groups: ImageGroup[] | null;
   error: string | null;
   indexing: boolean;
   currentId: string | null;
   onOpen: (itemId: string) => void;
+  // Splits a histology slide by tissue or shows it whole for this user, then opens it.
+  onSplit: (itemId: string, split: boolean) => void;
 }) {
   const currentGroup = groups?.find((g) => g.rows.some((r) => r.id === currentId))?.name ?? null;
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
@@ -415,7 +442,7 @@ export default function ImageList({
           </div>
         );
       })}
-      {menu && <ImageRowMenu key={menu.row.id} menu={menu} onClose={closeMenu} />}
+      {menu && <ImageRowMenu key={menu.row.id} menu={menu} onClose={closeMenu} onSplit={onSplit} />}
       {preview && <ThumbnailPreview key={preview.row.id} preview={preview} />}
     </div>
   );

@@ -58,8 +58,8 @@ function isIndexing(error: unknown) {
   return (error as { status?: number }).status === 503;
 }
 
-// A shared link's view, relative to the patch it opened.
-function linkView({ view }: ShareLink, { image }: Patch): ViewRect {
+// A slide-pixel view, relative to the patch it opened.
+function patchView(view: ViewRect, { image }: Patch): ViewRect {
   return { ...view, left: view.left - image.left, top: view.top - image.top };
 }
 
@@ -297,13 +297,13 @@ function Editor({
         if (job != null && job !== who.last_job_id) setMe(await api.setJob(job));
         setFolderId(who.last_folder_id);
         // The patch carries the job from before the remap above.
-        if (link && opened) showPatch({ ...opened, job_id: job }, linkView(link, opened));
+        if (link && opened) showPatch({ ...opened, job_id: job }, patchView(link.view, opened));
         // The link opens once its dataset is indexed, instead of the folder's first image.
         else if (link && linkIndexing) {
           const retry = () =>
             loadLatest(
               () => openLink(link),
-              (next) => linkView(link, next),
+              (next) => patchView(link.view, next),
             );
           void waitForIndex(retry).catch(() => {});
         } else await loadLatest(api.currentPatch);
@@ -325,21 +325,35 @@ function Editor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadLatest, showPatch, router, waitForIndex]);
 
+  // The visible area of a patch, in whole slide pixels.
+  const slideView = useCallback(
+    ({ id, image }: Patch): ViewRect => {
+      const rect =
+        view?.patchId === id
+          ? view.rect
+          : (initialView ?? { left: 0, top: 0, width: image.width, height: image.height });
+      // Rounding edges, not sizes, keeps a view inside its patch inside it after rounding.
+      const [left, top, right, bottom] = [
+        rect.left + image.left,
+        rect.top + image.top,
+        rect.left + image.left + rect.width,
+        rect.top + image.top + rect.height,
+      ].map(Math.round);
+      return { left, top, width: right - left, height: bottom - top };
+    },
+    [view, initialView],
+  );
+
   // The address bar always links to the open image and the visible area.
   useEffect(() => {
     if (!patch || !project) return;
-    const { image } = patch;
-    const rect =
-      view?.patchId === patch.id
-        ? view.rect
-        : (initialView ?? { left: 0, top: 0, width: image.width, height: image.height });
     const query = shareLinkQuery({
       dataset: patch.folder_id,
       image: patch.item_id,
-      view: { ...rect, left: rect.left + image.left, top: rect.top + image.top },
+      view: slideView(patch),
     });
     window.history.replaceState(null, "", `/annotate?project=${project.id}&${query}`);
-  }, [patch, view, initialView, project]);
+  }, [patch, slideView, project]);
 
   async function switchJob(id: number) {
     setJobId(id);
@@ -422,12 +436,12 @@ function Editor({
   }
 
   // Without a patch there is nothing to save, e.g. after the folder's first image failed to load.
-  async function go(load: () => Promise<Patch>) {
+  async function go(load: () => Promise<Patch>, initial?: (next: Patch) => ViewRect) {
     if (jobId == null || busy) return;
     setBusy(true);
     try {
       await stainSave.current;
-      if (await saveBeforeLeaving()) await loadLatest(load);
+      if (await saveBeforeLeaving()) await loadLatest(load, initial);
     } catch (error) {
       setLoadError(errorMessage(error));
     } finally {
@@ -449,6 +463,38 @@ function Editor({
         setLoadError(`Could not change the stain filter. ${errorMessage(error)}`);
         return api.me().then(setMe, () => {});
       });
+  }
+
+  // Reopens a slide in its new layout at the tile under the same view, keeping the zoom.
+  function reopenAt(itemId: string, view: ViewRect, split?: boolean) {
+    return go(
+      () => api.openImage(itemId, { view, split }),
+      (next) => patchView(view, next),
+    );
+  }
+
+  function splitImage(id: string, split: boolean) {
+    const open = patchRef.current;
+    if (open?.item_id === id) void reopenAt(id, slideView(open), split);
+    else void go(() => api.openImage(id, { split }));
+  }
+
+  // The open slide is reopened only if its layout follows the default, not its own setting.
+  async function setSplitHisto(split: boolean) {
+    const open = patchRef.current;
+    const view = open && slideView(open);
+    let stale = false;
+    try {
+      setMe(await api.setSplitHisto(split));
+      const row = open && (await api.images()).items.find((r) => r.id === open.item_id);
+      stale = row?.split != null && row.split === !!open?.slide?.whole;
+    } catch (error) {
+      setLoadError(`Could not change how histology slides open. ${errorMessage(error)}`);
+      return;
+    }
+    // Not if the user moved on to another image meanwhile.
+    if (open && view && stale && patchRef.current?.item_id === open.item_id)
+      await reopenAt(open.item_id, view);
   }
 
   async function switchFolder(id: string) {
@@ -556,6 +602,8 @@ function Editor({
       times={times}
       onUseFolder={(id) => void switchFolder(id)}
       onOpenImage={(id) => void go(() => api.openImage(id))}
+      onSplitImage={splitImage}
+      onSplitHisto={(split) => void setSplitHisto(split)}
       // A failed listing stopped the wait for the folder's first image; a refresh resumes it.
       onRefreshed={() => {
         if (patch) return;

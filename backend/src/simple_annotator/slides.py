@@ -5,7 +5,7 @@ from typing import Literal
 
 import numpy as np
 from PIL import Image
-from sqlalchemy import ColumnElement, select, update
+from sqlalchemy import ColumnElement, literal, select, update
 from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.orm import Session
 
@@ -30,7 +30,7 @@ from simple_annotator.girder import (
     thumbnail,
 )
 from simple_annotator.images import matches
-from simple_annotator.models import Patch, PatchVisit, Slide
+from simple_annotator.models import WHOLE_GRID, Patch, PatchVisit, Slide, SlideView, User
 from simple_annotator.tiling import grid, split, tissue_mask, tissue_regions
 
 PLACEHOLDER_SIZE = FULL_IMAGE_MAX + CROP_SIZE
@@ -140,24 +140,67 @@ def ensure_slide(db: Session, item: dict) -> Slide:
     return db.get(Slide, built.item_id, populate_existing=True)
 
 
-def _tiles(db: Session, slide: Slide) -> list[Patch]:
+def _tiles(db: Session, item_id: str, grid: str) -> list[Patch]:
     return db.scalars(
         select(Patch)
-        .where(Patch.girder_item_id == slide.item_id, Patch.grid == slide.grid)
+        .where(Patch.girder_item_id == item_id, Patch.grid == grid)
         .order_by(Patch.top, Patch.left)
     ).all()
 
 
-def _visited(db: Session, seen: ColumnElement[bool], tiles: list[Patch]) -> set[int]:
-    return set(
-        db.scalars(
-            select(PatchVisit.patch_id).where(seen, PatchVisit.patch_id.in_([t.id for t in tiles]))
+def _splits(db: Session, user: User, item_id: str) -> bool:
+    view = db.get(SlideView, (user.id, item_id))
+    return view.split if view else user.split_histo
+
+
+def set_split(db: Session, user: User, item: dict, split: bool) -> None:
+    if not ensure_slide(db, item).histo:
+        raise ValueError("Only histology slides can be split by tissue.")
+    row = {"user_id": user.id, "item_id": item["_id"], "split": split}
+    keys = ["user_id", "item_id"]
+    db.execute(insert(SlideView).values(row).on_conflict_do_update(keys, set_={"split": split}))
+    db.commit()
+
+
+# The tiles this user walks: a histology slide's tissue regions, or one tile of the whole slide.
+def _layout(db: Session, user: User, slide: Slide) -> list[Patch]:
+    if not slide.histo or _splits(db, user, slide.item_id):
+        return _tiles(db, slide.item_id, slide.grid)
+    return [_whole(db, slide)]
+
+
+def _whole(db: Session, slide: Slide) -> Patch:
+    if tiles := _tiles(db, slide.item_id, WHOLE_GRID):
+        return tiles[0]
+    # One statement checks and inserts, so concurrent first uses add the tile once.
+    whole = (Patch.girder_item_id == slide.item_id) & (Patch.grid == WHOLE_GRID)
+    values = (slide.item_id, 0, 0, slide.width, slide.height, WHOLE_GRID)
+    columns = ["girder_item_id", "left", "top", "width", "height", "grid"]
+    missing = select(*map(literal, values)).where(~select(Patch.id).where(whole).exists())
+    db.execute(insert(Patch).from_select(columns, missing))
+    db.commit()
+    return _tiles(db, slide.item_id, WHOLE_GRID)[0]
+
+
+def _visited(db: Session, seen: ColumnElement[bool], slide: Slide) -> set[int]:
+    grids = [slide.grid, WHOLE_GRID] if slide.histo else [slide.grid]
+    tiles = db.execute(
+        select(Patch.id, Patch.grid).where(
+            Patch.girder_item_id == slide.item_id, Patch.grid.in_(grids)
         )
-    )
+    ).all()
+    ids = {t.id for t in tiles}
+    visited = set(db.scalars(select(PatchVisit.patch_id).where(seen, PatchVisit.patch_id.in_(ids))))
+    regions = {t.id for t in tiles if t.grid == slide.grid}
+    # A whole-slide visit covers every tissue region; visiting every region covers the whole slide.
+    if slide.histo and (visited - regions or (regions and regions <= visited)):
+        return ids
+    return visited
 
 
 def step(
     db: Session,
+    user: User,
     items: list[dict],
     current: Patch | None,
     direction: Literal[1, -1],
@@ -167,7 +210,7 @@ def step(
     pos = ids.index(current.girder_item_id) if current and current.girder_item_id in ids else None
     if pos is not None and matches(items[pos], stains):
         try:
-            tiles = _tiles(db, ensure_slide(db, items[pos]))
+            tiles = _layout(db, user, ensure_slide(db, items[pos]))
         except UnreadableImage:
             tiles = []
         i = next((k for k, t in enumerate(tiles) if t.id == current.id), None)
@@ -185,7 +228,7 @@ def step(
         if not matches(item, stains):
             continue
         try:
-            tiles = _tiles(db, ensure_slide(db, item))
+            tiles = _layout(db, user, ensure_slide(db, item))
         except UnreadableImage as e:
             reason = reason or str(e)
             continue
@@ -197,25 +240,45 @@ def step(
     )
 
 
-def open_item(db: Session, seen: ColumnElement[bool], item: dict) -> Patch:
-    tiles = _tiles(db, ensure_slide(db, item))
-    visited = _visited(db, seen, tiles)
+def open_item(db: Session, user: User, seen: ColumnElement[bool], item: dict) -> Patch:
+    slide = ensure_slide(db, item)
+    tiles = _layout(db, user, slide)
+    visited = _visited(db, seen, slide)
     return next((t for t in tiles if t.id not in visited), tiles[0])
 
 
-def tile_at(db: Session, slide: Slide, left: int, top: int, width: int, height: int) -> Patch:
+def tile_at(
+    db: Session,
+    user: User,
+    slide: Slide,
+    left: int,
+    top: int,
+    width: int,
+    height: int,
+    show_all: bool = False,
+) -> Patch:
+    tiles = _layout(db, user, slide)
+    right, bottom = left + width, top + height
+
+    def contains(t: Patch) -> bool:
+        inside_x = t.left <= left and right <= t.left + t.width
+        return inside_x and t.top <= top and bottom <= t.top + t.height
+
+    # With show_all, a histology view no single region shows opens the whole slide instead.
+    if show_all and slide.histo and not any(map(contains, tiles)):
+        return _whole(db, slide)
     # Tiles overlap; prefer the one showing most of the view, then the one nearest its center.
     x, y = left + width / 2, top + height / 2
 
     def rank(t: Patch) -> tuple[float, float]:
-        overlap_x = min(left + width, t.left + t.width) - max(left, t.left)
-        overlap_y = min(top + height, t.top + t.height) - max(top, t.top)
+        overlap_x = min(right, t.left + t.width) - max(left, t.left)
+        overlap_y = min(bottom, t.top + t.height) - max(top, t.top)
         gap = math.hypot(
             max(t.left - x, 0, x - t.left - t.width), max(t.top - y, 0, y - t.top - t.height)
         )
         return -max(overlap_x, 0) * max(overlap_y, 0), gap
 
-    return min(_tiles(db, slide), key=rank)
+    return min(tiles, key=rank)
 
 
 def patch_scale(db: Session, patch: Patch) -> tuple[Slide, float | None]:
@@ -227,12 +290,13 @@ def patch_scale(db: Session, patch: Patch) -> tuple[Slide, float | None]:
 
 def slide_view(db: Session, seen: ColumnElement[bool], patch: Patch) -> dict | None:
     slide = db.get(Slide, patch.girder_item_id)
-    if not patch.grid or not slide or slide.grid != patch.grid:
+    whole = patch.grid == WHOLE_GRID
+    if not patch.grid or not slide or not (whole or patch.grid == slide.grid):
         return None
-    tiles = _tiles(db, slide)
-    if len(tiles) == 1 and (patch.width, patch.height) == (slide.width, slide.height):
+    tiles = _tiles(db, slide.item_id, patch.grid)
+    if not whole and len(tiles) == 1 and (patch.width, patch.height) == (slide.width, slide.height):
         return None
-    visited = _visited(db, seen, tiles)
+    visited = _visited(db, seen, slide)
     return {
         "name": slide.name,
         "width": slide.width,
@@ -240,4 +304,6 @@ def slide_view(db: Session, seen: ColumnElement[bool], patch: Patch) -> dict | N
         "thumbnail_url": f"/patches/{patch.id}/slide-thumbnail",
         "tiles": [[t.left, t.top, t.width, t.height, t.id in visited] for t in tiles],
         "current": next(i for i, t in enumerate(tiles) if t.id == patch.id),
+        # A histology slide shown whole: its one tile is the slide.
+        "whole": whole,
     }

@@ -24,12 +24,14 @@ from simple_annotator.girder import (
     walk_images,
 )
 from simple_annotator.models import (
+    WHOLE_GRID,
     Annotation,
     FolderImages,
     Patch,
     PatchVisit,
     Project,
     Slide,
+    SlideView,
     User,
 )
 from simple_annotator.scope import browse, current_project, layer_id, roots, visited_filter
@@ -212,6 +214,38 @@ def list_images(
             .group_by(Patch.girder_item_id)
         ).all()
     )
+    # Known only once a slide was opened.
+    histo = set(db.scalars(select(Slide.item_id).where(Slide.histo, among(Slide.item_id, ids))))
+    splits = dict(
+        db.execute(
+            select(SlideView.item_id, SlideView.split).where(
+                SlideView.user_id == user.id, among(SlideView.item_id, ids)
+            )
+        ).all()
+    )
+    seen_whole = set(
+        db.scalars(
+            select(Patch.girder_item_id)
+            .join(PatchVisit, PatchVisit.patch_id == Patch.id)
+            .where(
+                visited_filter(project, user),
+                Patch.grid == WHOLE_GRID,
+                among(Patch.girder_item_id, ids),
+            )
+        )
+    )
+
+    # Regions and visited ones in this user's layout, and whether a histology slide is split.
+    def progress(item_id: str) -> dict:
+        n, seen = regions.get(item_id), visited.get(item_id, 0)
+        if item_id not in histo:
+            return {"regions": n, "visited": seen, "split": None}
+        # A whole-slide visit covers every tissue region; visiting every region covers the whole.
+        done = item_id in seen_whole or bool(n and seen >= n)
+        if splits.get(item_id, user.split_histo):
+            return {"regions": n, "visited": n if done else seen, "split": True}
+        return {"regions": 1, "visited": int(done), "split": False}
+
     annotations = dict(
         db.execute(
             select(Annotation.item_id, func.count())
@@ -233,9 +267,8 @@ def list_images(
                 "group": group_key(item),
                 "staining": staining(item),
                 "magnification": magnification(item),
-                "regions": regions.get(item["_id"]),
-                "visited": visited.get(item["_id"], 0),
                 "annotations": annotations.get(item["_id"], 0),
+                **progress(item["_id"]),
             }
             for item in items
         ],

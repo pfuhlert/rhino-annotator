@@ -3,6 +3,8 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 # Shared project layers are users that can never sign in.
 LOCKED_PASSWORD = "!$locked"
+# Grid of the one tile showing a whole histology slide, next to its tissue-region grid.
+WHOLE_GRID = "v1:histo-whole"
 
 
 class Base(DeclarativeBase):
@@ -23,6 +25,8 @@ class User(Base):
     current_visit_id: Mapped[int | None] = mapped_column(
         ForeignKey("patch_visits.id", use_alter=True), nullable=True
     )
+    # Histology slides open as tissue regions unless shown whole; SlideView overrides per slide.
+    split_histo: Mapped[bool] = mapped_column(default=True, server_default="1")
 
 
 class Session(Base):
@@ -78,6 +82,14 @@ class Slide(Base):
     tile_width: Mapped[int]
     tile_height: Mapped[int]
     levels: Mapped[int]
+
+
+class SlideView(Base):
+    __tablename__ = "slide_views"
+
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), primary_key=True)
+    item_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    split: Mapped[bool]
 
 
 class Annotation(Base):

@@ -69,9 +69,15 @@ function useFolderPath(folderId: string | null) {
   return { path, failed: failedId === folderId };
 }
 
-// Refetched per image (not per region) so images left behind show their final progress, and after
-// each save so annotation marks follow edits. Polled while the server indexes the folder.
-function useCatalog(folderId: string | null, itemId: string | null, saves: number) {
+// Refetched per image (not per region) so images left behind show their final progress, after
+// each save so annotation marks follow edits, and after the histology layout default changes.
+// Polled while the server indexes the folder.
+function useCatalog(
+  folderId: string | null,
+  itemId: string | null,
+  saves: number,
+  splitHisto: boolean,
+) {
   const [catalog, setCatalog] = useState<{ folderId: string; data: ImageCatalog } | null>(null);
   const [error, setError] = useState<{ folderId: string; message: string } | null>(null);
   const [refreshes, setRefreshes] = useState(0);
@@ -95,7 +101,7 @@ function useCatalog(folderId: string | null, itemId: string | null, saves: numbe
       live = false;
       window.clearTimeout(timer);
     };
-  }, [folderId, itemId, saves, refreshes]);
+  }, [folderId, itemId, saves, splitHisto, refreshes]);
   const refresh = (then: () => void) =>
     void api.refreshImages().then(
       () => {
@@ -125,6 +131,8 @@ export default function Sidebar({
   times,
   onUseFolder,
   onOpenImage,
+  onSplitImage,
+  onSplitHisto,
   onRefreshed,
   onStains,
   onHoverMark,
@@ -150,6 +158,8 @@ export default function Sidebar({
   times: Times;
   onUseFolder: (id: string) => void;
   onOpenImage: (itemId: string) => void;
+  onSplitImage: (itemId: string, split: boolean) => void;
+  onSplitHisto: (split: boolean) => void;
   onRefreshed: () => void;
   onStains: (stains: (string | null)[]) => void;
   onHoverMark: (id: string | null) => void;
@@ -196,7 +206,12 @@ export default function Sidebar({
     catalog,
     error: catalogError,
     refresh,
-  } = useCatalog(me.last_folder_id === folderId ? folderId : null, patch?.item_id ?? null, saves);
+  } = useCatalog(
+    me.last_folder_id === folderId ? folderId : null,
+    patch?.item_id ?? null,
+    saves,
+    me.split_histo,
+  );
   // A failed listing keeps the last catalog, which may still say it was indexing.
   const indexing = !catalogError && !!catalog?.indexing;
   const groups = useMemo(
@@ -281,6 +296,7 @@ export default function Sidebar({
                   indexing={indexing}
                   currentId={patch?.item_id ?? null}
                   onOpen={onOpenImage}
+                  onSplit={onSplitImage}
                 />
               }
             />
@@ -316,6 +332,8 @@ export default function Sidebar({
           username={me.username}
           project={project}
           onCopied={onCopied}
+          splitHisto={me.split_histo}
+          onSplitHisto={onSplitHisto}
           onShortcuts={onShortcuts}
           onLogout={onLogout}
         />

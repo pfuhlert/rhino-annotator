@@ -289,6 +289,38 @@ def test_rebuilding_a_lost_slide_row_reuses_its_tiles(auth, girder):
         assert len(db.scalars(select(Patch).where(Patch.girder_item_id == "small")).all()) == 1
 
 
+def test_each_user_picks_a_histology_layout_and_visits_count_across_layouts(auth, girder):
+    girder[:] = [{"_id": "big", "name": "a.svs"}, {"_id": "histo", "name": "b.svs"}]
+    (shared,) = auth.get("/api/projects").json()
+    auth.put(f"/api/projects/{shared['id']}/sharing", json={"visibility": "everyone"})
+    bob = TestClient(auth.app)
+    bob.post("/auth/register", json={"username": "bob", "password": "secret"})
+    bob.post(f"/api/projects/{shared['id']}/open")
+    bob.patch("/me", json={"last_folder_id": "dataset", "split_histo": False})
+    auth.post("/patches/open", json={"item_id": "histo"})
+    whole = bob.post("/patches/open", json={"item_id": "big"}).json()
+    assert [whole["image"][k] for k in ("left", "top", "width", "height")] == [0, 0, 40000, 30000]
+    assert whole["slide"]["whole"] and len(whole["slide"]["tiles"]) == 1
+
+    def rows(c: TestClient) -> list[tuple]:
+        return [(r["split"], r["regions"], r["visited"]) for r in c.get("/images").json()["items"]]
+
+    # Bob's whole-slide visit covers Ada's region of a.svs; Ada's one region covers Bob's b.svs.
+    assert rows(auth) == [(True, 1, 1), (True, 1, 1)]
+    assert rows(bob) == [(False, 1, 1), (False, 1, 1)]
+    split = bob.post("/patches/open", json={"item_id": "big", "split": True}).json()
+    assert not split["slide"]["whole"] and split["image"]["width"] < 40000
+    assert rows(bob)[0][0] is True
+    # A shared view outside Ada's regions opens the whole slide without changing her layout;
+    # switching layout with that view stays in the chosen layout.
+    view = {"left": 5000, "top": 3000, "width": 1000, "height": 1000}
+    link = {"item_id": "histo", "folder_id": "dataset", "view": view}
+    assert auth.post("/patches/open", json=link).json()["slide"]["whole"]
+    assert rows(auth)[1][0] is True
+    switch = auth.post("/patches/open", json={"item_id": "histo", "view": view, "split": True})
+    assert not switch.json()["slide"]["whole"]
+
+
 @pytest.mark.parametrize("center", [3071, 3072, 3073, 7000])
 def test_histology_boxes_up_to_248_um_fit_wherever_they_sit(center):
     from simple_annotator.config import HISTO_AI_MODEL

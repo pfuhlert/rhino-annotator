@@ -8,6 +8,7 @@ import {
   CopyIcon,
   HandIcon,
   KeyboardIcon,
+  LayoutGridIcon,
   LogOutIcon,
   MonitorIcon,
   MoonIcon,
@@ -19,6 +20,7 @@ import {
 import { useEffect, useRef, useState } from "react";
 import { DropdownMenu, Slider } from "radix-ui";
 import { useOverlay } from "@/components/Overlay";
+import { SwitchTrack } from "@/components/ui/switch-track";
 import { api, type Project } from "@/lib/api";
 import { plural } from "@/lib/projects";
 import type { Tool } from "@/lib/draw";
@@ -47,12 +49,16 @@ export default function UserMenu({
   username,
   project,
   onCopied,
+  splitHisto,
+  onSplitHisto,
   onShortcuts,
   onLogout,
 }: {
   username: string;
   project: Project;
   onCopied: (project: Project) => void;
+  splitHisto: boolean;
+  onSplitHisto: (split: boolean) => void;
   onShortcuts: () => void;
   onLogout: () => void;
 }) {
@@ -220,20 +226,29 @@ export default function UserMenu({
                     disabled={on && enabledTools.length === 1}
                     onCheckedChange={(checked) => setToolEnabled(id, checked)}
                     onSelect={(e) => e.preventDefault()}
-                    className={`${ROW} group data-disabled:opacity-60`}
+                    className={`${ROW} data-disabled:opacity-60`}
                   >
                     <Icon className="size-4 text-muted-foreground" />
                     <span className="flex-1">{label}</span>
                     <kbd className="font-sans text-xs text-muted-foreground">{key}</kbd>
-                    <span className="flex h-4 w-7 shrink-0 items-center rounded-full bg-input p-0.5 transition-colors group-data-[state=checked]:bg-primary">
-                      <span className="size-3 rounded-full bg-background shadow-sm transition-transform group-data-[state=checked]:translate-x-3" />
-                    </span>
+                    <SwitchTrack on={on} />
                   </DropdownMenu.CheckboxItem>
                 );
               })}
             </DropdownMenu.SubContent>
           </DropdownMenu.Portal>
         </DropdownMenu.Sub>
+        <DropdownMenu.CheckboxItem
+          data-testid="split-histo"
+          checked={splitHisto}
+          onCheckedChange={onSplitHisto}
+          onSelect={(e) => e.preventDefault()}
+          className={ROW}
+        >
+          <LayoutGridIcon className="size-4 text-muted-foreground" />
+          <span className="flex-1">Split histology by tissue</span>
+          <SwitchTrack on={splitHisto} />
+        </DropdownMenu.CheckboxItem>
         <DropdownMenu.Separator className="-mx-1 my-1 h-px bg-border" />
         <DropdownMenu.Item data-testid="logout" className={ROW} onSelect={onLogout}>
           <LogOutIcon className="size-4 text-muted-foreground" />

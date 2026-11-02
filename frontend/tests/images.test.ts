@@ -13,6 +13,7 @@ const row = (id: string, group: string, staining: string | null, regions: number
     regions,
     visited: 0,
     annotations: 0,
+    split: null,
   }) as ImageRow;
 
 const rows = [
