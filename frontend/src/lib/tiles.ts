@@ -103,17 +103,25 @@ export function createTileLayer(
     ctx.beginPath();
     ctx.rect(left, top, right - left, bottom - top);
     ctx.clip();
-    let complete = true;
     const needed = new Set<string>();
+    // Request coarse tiles first so gaps fill quickly.
+    const levels: { key: TileKey; img: HTMLImageElement | null }[][] = [];
     for (let z = coarsest; z <= target; z++) {
-      const down = downsample(image, z);
-      for (const key of visibleTiles(image, z, view)) {
-        needed.add(`${key.z}/${key.x}/${key.y}`);
-        const img = tile(key, z === target || z === coarsest);
-        if (!img) {
-          complete &&= z !== target;
-          continue;
-        }
+      levels.push(
+        visibleTiles(image, z, view).map((key) => {
+          needed.add(`${key.z}/${key.x}/${key.y}`);
+          return { key, img: tile(key, z === target || z === coarsest) };
+        }),
+      );
+    }
+    // Coarser levels only fill gaps, and rasterizing them is the main cost of a frame, so skip
+    // those under the finest level that covers the view.
+    const covering = levels.findLastIndex((level) => level.every((t) => t.img));
+    const complete = covering === levels.length - 1;
+    for (const level of levels.slice(Math.max(0, covering))) {
+      for (const { key, img } of level) {
+        if (!img) continue;
+        const down = downsample(image, key.z);
         const [x, y] = imageToScreen(
           [
             key.x * image.tile_width * down - image.left,

@@ -1,18 +1,9 @@
-import type { PatchImage, SlideView, ViewRect } from "@/lib/api";
+import type { PatchImage, SlideView } from "@/lib/api";
+import { useLiveView } from "@/lib/live-view";
 
 const SIDE = 208;
 
-export default function SlideMap({
-  slide,
-  image,
-  view,
-}: {
-  slide: SlideView;
-  image: PatchImage;
-  view: ViewRect | null;
-}) {
-  // Only worth drawing once the user has zoomed into part of the patch.
-  const zoomed = view && (view.width < image.width * 0.98 || view.height < image.height * 0.98);
+export default function SlideMap({ slide, image }: { slide: SlideView; image: PatchImage }) {
   const scale = SIDE / Math.max(slide.width, slide.height);
   const [x, y, w, h] = slide.tiles[slide.current];
   return (
@@ -65,19 +56,27 @@ export default function SlideMap({
             />
           </>
         )}
-        {zoomed && (
-          <rect
-            data-testid="slide-map-view"
-            x={image.left + view.left}
-            y={image.top + view.top}
-            width={view.width}
-            height={view.height}
-            vectorEffect="non-scaling-stroke"
-            strokeWidth={1.5}
-            className="fill-white/20 stroke-white"
-          />
-        )}
+        <ViewBox image={image} />
       </svg>
     </figure>
+  );
+}
+
+function ViewBox({ image }: { image: PatchImage }) {
+  const view = useLiveView(image.tile_url);
+  // Only worth drawing once the user has zoomed into part of the patch.
+  if (!view || (view.width >= image.width * 0.98 && view.height >= image.height * 0.98))
+    return null;
+  return (
+    <rect
+      data-testid="slide-map-view"
+      x={image.left + view.left}
+      y={image.top + view.top}
+      width={view.width}
+      height={view.height}
+      vectorEffect="non-scaling-stroke"
+      strokeWidth={1.5}
+      className="fill-white/20 stroke-white"
+    />
   );
 }

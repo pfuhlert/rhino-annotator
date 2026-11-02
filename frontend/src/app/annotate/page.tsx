@@ -719,7 +719,6 @@ function Editor({
               <SlideMap
                 slide={patch.slide}
                 image={patch.image}
-                view={view?.patchId === patch.id ? view.rect : null}
               />
             )}
             <TooltipProvider>

@@ -6,6 +6,7 @@ import { measureSpace, type Mark, type Tool } from "@/lib/draw";
 import { useFillOpacity } from "@/lib/fill-opacity";
 import { useFreehand } from "@/lib/freehand";
 import { createHistory } from "@/lib/history";
+import { setLiveView } from "@/lib/live-view";
 import { isLightBackground, measureScaleBar, sampleBehind } from "@/lib/scale-bar";
 import { createTileLayer, visibleRect } from "@/lib/tiles";
 
@@ -140,12 +141,11 @@ export default function PatchCanvas({
       const root = rootRef.current;
       if (!root) return;
       tilesRef.current?.update(space);
+      const rect = space && visibleRect(space, root.clientWidth, root.clientHeight);
+      if (rect) setLiveView(image.tile_url, rect);
       window.clearTimeout(visibleTimer.current);
       visibleTimer.current = window.setTimeout(() => {
-        if (space)
-          imageEvents.current.onVisibleChange?.(
-            visibleRect(space, root.clientWidth, root.clientHeight),
-          );
+        if (rect) imageEvents.current.onVisibleChange?.(rect);
       }, 150);
       const rootRect = root.getBoundingClientRect();
       const controls = root.parentElement?.querySelector("[data-scale-bar-anchor]");

@@ -16,3 +16,7 @@ Expect three regions: the tissue strip split into two chunks of 11423 × 6661 px
 sqlite3 "$(./scripts/verify-simple-annotator sqlite)" \
   "select item_id, nm_per_px, histo, grid, levels from slides; select left, top, width, height from patches where girder_item_id = 'slide' and grid is not null;"
 ```
+
+## Performance
+
+`browser script --file .cursor/skills/verify-simple-annotator/features/viewer-perf.mjs` zooms and pans `slide` and the ELMI `tem` fixture under 4x CPU throttling with a cold cache, and writes frame times, long-task time, tile requests, and minimap view-box moves to `artifacts/viewer-perf/$PERF_LABEL.json`. `PERF_TRACE=1` saves a Chrome trace, `PERF_PROFILE=1` a CPU profile, and `PERF_HIDE=<selector>` hides an element to A/B its cost. Headless Chromium rasterizes in software, so compare runs against each other rather than against real hardware.
