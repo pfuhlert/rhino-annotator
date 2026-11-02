@@ -37,7 +37,7 @@ export default function LoginPage() {
         <form className="space-y-5 p-6" onSubmit={(e) => submit("login", e)}>
           <div>
             <h1 className="font-heading text-xl font-medium">Simple annotator</h1>
-            <p className="mt-1 text-sm text-muted-foreground">Sign in to label the next crop.</p>
+            <p className="mt-1 text-sm text-muted-foreground">Sign in to label the next image.</p>
           </div>
           <div className="space-y-2">
             <Label htmlFor="username" className="text-muted-foreground">

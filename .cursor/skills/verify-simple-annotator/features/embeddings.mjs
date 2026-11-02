@@ -78,7 +78,7 @@ export default async function (page, state) {
 
   await select("job-switcher", "job-Podocyte");
   await page.keyboard.press("l");
-  const saved = page.waitForResponse((r) => /\/annotations$/.test(r.url()) && r.request().method() === "PATCH");
+  const saved = page.waitForResponse((r) => /\/annotations(\?|$)/.test(r.url()) && r.request().method() === "PATCH");
   await move(150, 250);
   await page.mouse.down();
   for (const p of [[210, 250], [210, 320], [150, 320], [150, 250]]) await move(...p);

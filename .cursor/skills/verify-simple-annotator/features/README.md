@@ -8,7 +8,7 @@ This directory is the maintained source for verifying user-facing behavior. Read
 - `npm run dev` on 3000/8000 may be running. Leave it; do not stop or drive it.
 - `doctor` / `login-proof` start a second stack if needed. Require `ok: true` and a `webUrl` that is not port 3000.
 - Drive only `$(./scripts/verify-simple-annotator url)`.
-- Crops are placeholders (`GIRDER_TOKEN` unset).
+- The dataset is one placeholder image of 1024 × 1024 px, shown whole (`GIRDER_TOKEN` unset).
 - Never drive an instance this run did not start.
 
 ## Driving conventions

@@ -28,6 +28,15 @@ def auth(client: TestClient):
 
 
 @pytest.fixture
+def three_images(monkeypatch):
+    # Without Girder every image is a placeholder; three of them give Next somewhere to go.
+    from simple_annotator import images
+
+    items = [{"_id": i, "name": f"{i}.png"} for i in "abc"]
+    monkeypatch.setattr(images, "folder_listing", lambda _db, _id: items)
+
+
+@pytest.fixture
 def busy_db(client):
     from sqlalchemy import event
 

@@ -1,6 +1,6 @@
 # Switch job
 
-Switch job changes the active label target on the current crop. The new job stays selected for the next crop until the user changes it again.
+Switch job changes the active label target on the current image. The new job stays selected for the next image until the user changes it again.
 
 ## Sub-features
 
@@ -11,7 +11,7 @@ Switch job changes the active label target on the current crop. The new job stay
 ## How to get to it (user POV)
 
 - After login, use the job select in the annotate footer.
-- Next or Previous; the next crop still shows the chosen job.
+- Next or Previous; the next image still shows the chosen job.
 
 ## Driving it with Playwright
 

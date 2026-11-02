@@ -34,19 +34,6 @@ def tissue_mask(rgb: np.ndarray, um_per_px: float, min_area_um2: float) -> np.nd
     return keep[labels]
 
 
-def _starts(size: int, tile: int, stride: int) -> list[int]:
-    if size <= tile:
-        return [0]
-    return sorted({*range(0, size - tile, stride), size - tile})
-
-
-def grid(width: int, height: int, tile: int, stride: int) -> list[Rect]:
-    w, h = min(tile, width), min(tile, height)
-    return [
-        (x, y, w, h) for y in _starts(height, tile, stride) for x in _starts(width, tile, stride)
-    ]
-
-
 def _spans(start: int, end: int, max_size: int, overlap: int) -> list[tuple[int, int]]:
     length = end - start
     if length <= max_size:

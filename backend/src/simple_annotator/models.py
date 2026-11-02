@@ -3,6 +3,8 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 # Shared project layers are users that can never sign in.
 LOCKED_PASSWORD = "!$locked"
+# The grid of an image other than histology: one patch showing the whole image.
+IMAGE_GRID = "v1:whole"
 # Grid of the one tile showing a whole histology slide, next to its tissue-region grid.
 WHOLE_GRID = "v1:histo-whole"
 
@@ -55,8 +57,8 @@ class Patch(Base):
     top: Mapped[int]
     width: Mapped[int]
     height: Mapped[int]
-    # Signature of the slide grid this tile belongs to; NULL for legacy random crops.
-    grid: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    # Signature of the slide grid this patch belongs to.
+    grid: Mapped[str] = mapped_column(String(64), index=True)
 
 
 class FolderImages(Base):

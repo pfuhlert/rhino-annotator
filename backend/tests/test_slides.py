@@ -10,7 +10,7 @@ from PIL import Image
 from sqlalchemy import select
 
 from simple_annotator.db import session_factory
-from simple_annotator.models import Patch, Slide
+from simple_annotator.models import IMAGE_GRID, Patch, Slide
 
 # Thumbnails are 800 x 600 with one tissue disk of radius 80 centred at (150, 150).
 IMAGES = {
@@ -18,9 +18,11 @@ IMAGES = {
     "big": {"sizeX": 40000, "sizeY": 30000},
     "gray": {"sizeX": 8000, "sizeY": 6000},
     "grid": {"sizeX": 4200, "sizeY": 4200},
+    "photo": {"sizeX": 9000, "sizeY": 5000},
     "small": {"sizeX": 900, "sizeY": 700},
 }
-NM_PER_PX = {"histo": 2500, "big": 2500, "gray": 2500}
+# At 100 µm/px the tissue of "grid" exceeds the 50 mm region limit and splits into 2 x 2 chunks.
+NM_PER_PX = {"histo": 2500, "big": 2500, "gray": 2500, "grid": 100_000}
 
 
 def _png(item_id: str) -> bytes:
@@ -100,6 +102,15 @@ def test_large_regions_prepare_ai_tiles_around_the_view(auth, girder):
         assert len(db.scalars(select(AiEmbedding)).all()) == 1
 
 
+def test_large_images_outside_histology_are_one_whole_patch(auth, girder):
+    girder[0] = {"_id": "photo", "name": "photo.png"}
+    patch = auth.get("/patches/current").json()
+    image = patch["image"]
+    box = [image[k] for k in ("left", "top", "width", "height")]
+    assert (box, patch["slide"], image["prepare_view"]) == ([0, 0, 9000, 5000], None, True)
+    assert auth.get("/patches/next").json()["id"] == patch["id"]
+
+
 def _three_images(girder: list[dict]) -> None:
     girder[:] = [
         {"_id": "histo", "name": "a.svs", "folder_name": "zz", "meta": {"staining": "PAS"}},
@@ -114,11 +125,11 @@ def _at(patch: dict) -> tuple[str, int]:
 
 def test_next_walks_regions_then_images_in_case_order_and_wraps(auth, girder):
     _three_images(girder)
-    walk = [_at(p) for p in [auth.get("/patches/current").json(), *_walk(auth, 39)]]
-    grid = [("grid", i) for i in range(36)]
+    walk = [_at(p) for p in [auth.get("/patches/current").json(), *_walk(auth, 7)]]
+    grid = [("grid", i) for i in range(4)]
     assert walk == [("small", 0), *grid, ("histo", 0), ("small", 0), ("grid", 0)]
     back = [_at(auth.get("/patches/prev").json()) for _ in range(4)]
-    assert back == [("small", 0), ("histo", 0), ("grid", 35), ("grid", 34)]
+    assert back == [("small", 0), ("histo", 0), ("grid", 3), ("grid", 2)]
 
 
 def test_stain_filter_skips_other_images(auth, girder):
@@ -200,7 +211,7 @@ def test_image_list_groups_by_case_with_stains_and_progress(auth, girder):
     ]
     assert rows == [
         ("small", "case-2", "PAS", 20, 1, 1, 0),
-        ("grid", "case-10", "HE", 40, 36, 2, 2),
+        ("grid", "case-10", "HE", 40, 4, 2, 2),
         ("histo", "zz", "PAS", None, None, 0, 0),
     ]
     assert listing["stains"] == [{"name": "PAS", "count": 2}, {"name": "HE", "count": 1}]
@@ -208,15 +219,15 @@ def test_image_list_groups_by_case_with_stains_and_progress(auth, girder):
 
 def test_users_walk_shared_tiles_row_by_row_with_own_annotations(auth, client, girder):
     girder[0] = {"_id": "grid", "name": "grid.tif"}
-    ada = _walk(auth, 36)
+    ada = _walk(auth, 4)
     with session_factory()() as db:
         origins = [(db.get(Patch, p["id"]).top, db.get(Patch, p["id"]).left) for p in ada]
-    assert origins == sorted(origins) and len(set(origins)) == 36
+    assert origins == sorted(origins) and len(set(origins)) == 4
     element = {"id": "dot", "jobId": 1, "type": "point", "points": [[5.0, 5.0]]}
     auth.patch(f"/patches/{ada[0]['id']}/annotations", json={"upsert": [element]})
     client.post("/auth/register", json={"username": "bob", "password": "secret"})
     client.patch("/me", json={"last_folder_id": "dataset"})
-    bob = _walk(client, 36)
+    bob = _walk(client, 4)
     assert [p["id"] for p in bob] == [p["id"] for p in ada]
     assert all(p["elements"] == [] for p in bob)
 
@@ -243,12 +254,12 @@ def test_old_patch_of_an_unreadable_image_reports_why(auth, girder, monkeypatch)
     monkeypatch.setattr(slides, "image_info", lambda _: (None, "Item not found."))
     with session_factory()() as db:
         user = db.scalar(select(User).where(User.username == "ada"))
-        legacy = Patch(girder_item_id="gone", left=0, top=0, width=900, height=700)
-        db.add(legacy)
+        old = Patch(girder_item_id="gone", left=0, top=0, width=900, height=700, grid=IMAGE_GRID)
+        db.add(old)
         db.flush()
         visit = PatchVisit(
             user_id=user.id,
-            patch_id=legacy.id,
+            patch_id=old.id,
             folder_id="dataset",
             project_id=user.last_project_id,
         )
@@ -270,10 +281,10 @@ def test_rebuilt_slides_keep_their_elmi_folder_and_name(girder, monkeypatch):
     monkeypatch.setattr(slides, "get_item", lambda _: item)
     monkeypatch.setattr(slides, "is_elmi_folder", lambda folder: folder == "elmi")
     with session_factory()() as db:
-        legacy = Patch(girder_item_id="histo", left=0, top=0, width=900, height=700)
-        db.add(legacy)
+        old = Patch(girder_item_id="histo", left=0, top=0, width=900, height=700, grid=IMAGE_GRID)
+        db.add(old)
         db.commit()
-        slide, _ = slides.patch_scale(db, legacy)
+        slide, _ = slides.patch_scale(db, old)
         assert (slide.histo, slide.name) == (False, "colour TEM.tif")
 
 

@@ -13,8 +13,6 @@ export default async function (page, state) {
       const img = document.querySelector('[data-testid="patch-canvas"] [data-image-plane]');
       return img?.dataset.loaded === 'true';
     });
-  await ready();
-  await page.getByTestId("sidebar-trigger").click();
   const results = [];
   const readPatch = async () => {
     const response = await page.request.get(`${state.webUrl}/patches/current`);
@@ -23,7 +21,7 @@ export default async function (page, state) {
   };
   async function saved(label, action) {
     const response = page.waitForResponse(
-      (r) => /\/annotations$/.test(r.url()) && r.request().method() === "PATCH",
+      (r) => /\/annotations(\?|$)/.test(r.url()) && r.request().method() === "PATCH",
     );
     await action();
     assert.ok((await response).ok(), label);
@@ -31,15 +29,20 @@ export default async function (page, state) {
     results.push({ label, patch });
     return patch.elements;
   }
-  async function next() {
-    const previous = await root.elementHandle();
-    const response = page.waitForResponse((r) =>
-      r.url().endsWith("/patches/next"),
-    );
-    await page.keyboard.press("n");
-    assert.ok((await response).ok());
-    await page.waitForFunction((el) => !el.isConnected, previous);
+  // The placeholder dataset is one image shown whole, so clear it instead of moving on.
+  async function fresh() {
+    const patch = await readPatch();
+    const ids = patch.elements.map((el) => el.id);
+    if (ids.length) {
+      const cleared = await page.request.patch(
+        `${state.webUrl}/patches/${patch.id}/annotations`,
+        { data: { delete: ids } },
+      );
+      assert.ok(cleared.ok());
+    }
+    await page.reload();
     await ready();
+    await page.getByTestId("sidebar-trigger").click();
   }
   async function bounds() {
     return root.evaluate((el) => {
@@ -111,7 +114,7 @@ export default async function (page, state) {
     );
 
   // Start on an empty patch, including when the script is rerun.
-  await next();
+  await fresh();
   image = await bounds();
   await move(-100, 350);
   for (const key of ["p", "l", "r"]) {
@@ -227,7 +230,7 @@ export default async function (page, state) {
     image.height - 1,
   ]);
 
-  await next();
+  await fresh();
   image = await bounds();
   await page.keyboard.press("l");
   const polygon = await saved(
@@ -332,7 +335,7 @@ export default async function (page, state) {
     "bounded geometry survives reload",
   );
 
-  await next();
+  await fresh();
   image = await bounds();
   await page.keyboard.press("r");
   await move(-8, 350);

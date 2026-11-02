@@ -14,8 +14,8 @@ export const strongest = (marks: (Mark | null)[]): Mark | null =>
 export const isDone = (row: ImageRow) => row.regions !== null && row.visited >= row.regions;
 
 // Region progress and layout of the open slide come from its patch, so the list needs no refetch
-// per region or layout switch. Without a slide view (single-region images, legacy crops) the
-// fetched row's progress is the source of truth.
+// per region or layout switch. Without a slide view (images shown whole) the fetched row's
+// progress is the source of truth.
 function withProgress(row: ImageRow, patch: Patch | null): ImageRow {
   if (patch?.item_id !== row.id) return row;
   const split = row.split === null ? null : !patch.slide?.whole;

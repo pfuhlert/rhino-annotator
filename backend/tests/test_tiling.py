@@ -1,28 +1,13 @@
 import cv2
 import numpy as np
-import pytest
 
-from simple_annotator.tiling import grid, is_colored, split, tissue_mask, tissue_regions
+from simple_annotator.tiling import is_colored, split, tissue_mask, tissue_regions
 
 
 def tissue_image(width=400, height=300, center=(100, 150), radius=60) -> np.ndarray:
     rgb = np.full((height, width, 3), 245, np.uint8)
     cv2.circle(rgb, center, radius, (200, 90, 160), -1)
     return rgb
-
-
-@pytest.mark.parametrize("width,height", [(10_000, 7_300), (4_001, 9_999), (5_000, 5_000)])
-def test_grid_stays_inside_and_contains_every_overlap_sized_object(width, height):
-    tile, overlap = 4000, 1200
-    tiles = grid(width, height, tile, tile - overlap)
-    assert all(x >= 0 and y >= 0 and x + w <= width and y + h <= height for x, y, w, h in tiles)
-    for size, starts in ((width, {x for x, *_ in tiles}), (height, {y for _, y, *_ in tiles})):
-        for pos in range(0, size - overlap + 1, 97):
-            assert any(s <= pos and pos + overlap <= s + tile for s in starts)
-
-
-def test_small_image_is_one_whole_tile():
-    assert grid(900, 700, 4000, 2800) == [(0, 0, 900, 700)]
 
 
 def test_regions_pad_tissue_and_merge_only_nearby_fragments():

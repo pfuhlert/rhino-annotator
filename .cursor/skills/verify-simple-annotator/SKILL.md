@@ -52,6 +52,6 @@ For assertions requiring network interception or canvas instrumentation, use `br
 
 ## Evidence
 
-Write under `.cursor/skills/verify-simple-annotator/artifacts/` (survives `down`). Need the UI action plus `/me` or `sqlite3 $(./scripts/verify-simple-annotator sqlite)`. Do not POST `/auth/register` as login proof. Crops are placeholders (`GIRDER_TOKEN` unset).
+Write under `.cursor/skills/verify-simple-annotator/artifacts/` (survives `down`). Need the UI action plus `/me` or `sqlite3 $(./scripts/verify-simple-annotator sqlite)`. Do not POST `/auth/register` as login proof. The dataset is one placeholder image of 1024 × 1024 px, shown whole (`GIRDER_TOKEN` unset).
 
 For real-image AI verification, use the localhost-only fixture described in [AI annotation](features/ai-annotation.md). All other runs keep the placeholder image source.

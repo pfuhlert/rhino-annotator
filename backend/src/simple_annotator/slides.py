@@ -10,9 +10,6 @@ from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.orm import Session
 
 from simple_annotator.config import (
-    CROP_OVERLAP,
-    CROP_SIZE,
-    FULL_IMAGE_MAX,
     REGION_MAX_UM,
     REGION_MERGE_UM,
     REGION_PAD_UM,
@@ -30,10 +27,18 @@ from simple_annotator.girder import (
     thumbnail,
 )
 from simple_annotator.images import matches
-from simple_annotator.models import WHOLE_GRID, Patch, PatchVisit, Slide, SlideView, User
-from simple_annotator.tiling import grid, split, tissue_mask, tissue_regions
+from simple_annotator.models import (
+    IMAGE_GRID,
+    WHOLE_GRID,
+    Patch,
+    PatchVisit,
+    Slide,
+    SlideView,
+    User,
+)
+from simple_annotator.tiling import split, tissue_mask, tissue_regions
 
-PLACEHOLDER_SIZE = FULL_IMAGE_MAX + CROP_SIZE
+PLACEHOLDER_SIZE = 1024
 DETECTION_SIDE = 2048
 log = logging.getLogger(__name__)
 
@@ -46,14 +51,7 @@ def _signature(slide: Slide) -> str:
     if slide.histo:
         params = (REGION_MAX_UM, TILE_OVERLAP_UM, REGION_PAD_UM, REGION_MERGE_UM)
         return f"v3:regions:{':'.join(f'{v:g}' for v in params)}:{TISSUE_MIN_AREA_UM2:g}"
-    if max(slide.width, slide.height) <= FULL_IMAGE_MAX:
-        return "v1:whole"
-    # v1 grids include gray-stained histology slides that are now tissue regions.
-    return f"v2:{CROP_SIZE}:{CROP_SIZE - _crop_overlap()}:all"
-
-
-def _crop_overlap() -> int:
-    return min(CROP_OVERLAP, CROP_SIZE // 2)
+    return IMAGE_GRID
 
 
 def _rgb(item_id: str) -> np.ndarray:
@@ -100,10 +98,8 @@ def _build(item: dict) -> tuple[Slide, list[tuple[int, int, int, int]]]:
             boxes = [[0, 0, width, height]]
         size, overlap = round(REGION_MAX_UM / um_per_px), round(TILE_OVERLAP_UM / um_per_px)
         tiles = [chunk for box in boxes for chunk in split(box, size, overlap)]
-    elif max(width, height) <= FULL_IMAGE_MAX:
-        tiles = [(0, 0, width, height)]
     else:
-        tiles = grid(width, height, CROP_SIZE, CROP_SIZE - _crop_overlap())
+        tiles = [(0, 0, width, height)]
     return slide, tiles
 
 
@@ -282,8 +278,7 @@ def tile_at(
 
 
 def patch_scale(db: Session, patch: Patch) -> tuple[Slide, float | None]:
-    # Legacy random crops predate slide rows. The Girder item supplies the folder that decides
-    # ELMI and the name shown on the map.
+    # A lost slide row is rebuilt; the Girder item supplies the folder that decides ELMI.
     slide = db.get(Slide, patch.girder_item_id) or ensure_slide(db, get_item(patch.girder_item_id))
     return slide, slide.nm_per_px if slide.histo else image_nm_per_px(patch.girder_item_id)
 
@@ -291,7 +286,7 @@ def patch_scale(db: Session, patch: Patch) -> tuple[Slide, float | None]:
 def slide_view(db: Session, seen: ColumnElement[bool], patch: Patch) -> dict | None:
     slide = db.get(Slide, patch.girder_item_id)
     whole = patch.grid == WHOLE_GRID
-    if not patch.grid or not slide or not (whole or patch.grid == slide.grid):
+    if not slide or not (whole or patch.grid == slide.grid):
         return None
     tiles = _tiles(db, slide.item_id, patch.grid)
     if not whole and len(tiles) == 1 and (patch.width, patch.height) == (slide.width, slide.height):

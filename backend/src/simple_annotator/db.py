@@ -243,8 +243,27 @@ def _migrate(engine: Engine) -> None:
             )
         if before_projects:
             _default_projects(conn)
+        _drop_crops(conn)
         # Replaced by folder_images before release.
         conn.execute(text("DROP TABLE IF EXISTS project_images"))
+
+
+def _drop_crops(conn: Connection) -> None:
+    # Automatic crops are gone: random crops have no grid, crop grids are "v1|v2:size:stride:...".
+    # Annotations are kept per image.
+    crops = "SELECT id FROM patches WHERE (grid IS NULL OR grid GLOB 'v[12]:[0-9]*:[0-9]*:*')"
+    if "patch_id" in _columns(conn, "annotations_json"):
+        # The pre-rows annotation backup locates its marks through the patches it references.
+        crops += " AND id NOT IN (SELECT patch_id FROM annotations_json WHERE patch_id IS NOT NULL)"
+    visits = f"SELECT id FROM patch_visits WHERE patch_id IN ({crops})"
+    conn.execute(
+        text(f"UPDATE users SET current_visit_id = NULL WHERE current_visit_id IN ({visits})")
+    )
+    # Older databases still hold a "skips" table that references patches.
+    for table in ("skips", "ai_tasks", "patch_visits"):
+        if _columns(conn, table):
+            conn.execute(text(f"DELETE FROM {table} WHERE patch_id IN ({crops})"))
+    conn.execute(text(f"DELETE FROM patches WHERE id IN ({crops})"))
 
 
 def preset_ids(db: Session | Connection) -> dict[str, int]:

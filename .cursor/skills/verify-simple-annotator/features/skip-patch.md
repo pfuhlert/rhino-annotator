@@ -1,6 +1,6 @@
 # Next without marks
 
-Next advances to the next region of the current image, then to the first region of the next image in the [image list](image-list.md) order, and wraps to the first image after the last. Every open writes a new visit. With no marks, no annotation row is written. A one-tile dataset (such as the ELMI fixture) keeps returning the same tile with a new visit.
+Next advances to the next region of the current image, then to the first region of the next image in the [image list](image-list.md) order, and wraps to the first image after the last. Every open writes a new visit. With no marks, no annotation row is written. A one-tile dataset (such as the ELMI fixture or the placeholder dataset) keeps returning the same tile with a new visit.
 
 ## Sub-features
 
@@ -30,7 +30,7 @@ sqlite3 "$(./scripts/verify-simple-annotator sqlite)" 'select count(*) from anno
 
 Copy both query outputs into `artifacts/` before `down`.
 
-- **Proof.** `annotate-app` remains. Annotation count is unchanged versus just before next. A `patch_visits` row exists for the new crop.
+- **Proof.** `annotate-app` remains. Annotation count is unchanged versus just before next. A new `patch_visits` row exists.
 
 ## Gotchas
 

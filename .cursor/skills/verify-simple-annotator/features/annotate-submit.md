@@ -14,8 +14,8 @@ Annotate and next records polygons on the current image, then loads the next ima
 
 ## How to get to it (user POV)
 
-- After login, the crop and toolbar are on `/annotate`.
-- Tab cycles tools, or choose AI Point, Polygon, Brush, or AI Box, mark the crop, choose Next (N).
+- After login, the image and toolbar are on `/annotate`.
+- Tab cycles tools, or choose AI Point, Polygon, Brush, or AI Box, mark the image, choose Next (N).
 
 ## Driving it with Playwright
 
@@ -52,11 +52,11 @@ Shortcut regression: after selecting a job and closing the menu, press N/F to ad
 
 ## Gotchas
 
-- `--at` / `--from` are CSS pixels on `patch-canvas`, not image pixels. Default verify window is 1280×720; a 1024 crop is letterboxed, so x < ~280 is gutter and cannot start a point or polygon. Close the sidebar to test that margin. Use ~`640,360` for a point.
+- `--at` / `--from` are CSS pixels on `patch-canvas`, not image pixels. Default verify window is 1280×720; the 1024 × 1024 placeholder image is letterboxed, so x < ~280 is gutter and cannot start a point or polygon. Close the sidebar to test that margin. Use ~`640,360` for a point.
 - A straight `drag` simplifies to fewer than 3 points and is dropped. Use `--via` so the path has three corners.
 - Tab is handled on `window`; do not Tab while a select is open.
 - `select` waits for the menu to close; a drag right after an option click otherwise loses `pointerdown` to the dismiss layer.
 - Brush on the same job unions into existing polygons, so multiple strokes may remain one `polygon`.
-- Marks are a canvas overlay on an `img` inside `patch-canvas`; click the crop, not the header.
+- Marks are a canvas overlay on an `img` inside `patch-canvas`; click the image, not the header.
 - Empty next is allowed and does not increment `done_count`.
 - `down` deletes the verify SQLite; export `elements` first.

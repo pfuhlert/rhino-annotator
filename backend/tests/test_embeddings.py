@@ -15,7 +15,7 @@ from simple_annotator.embeddings import embedding_id, prompt_regions, regions, t
 from simple_annotator.models import AiEmbedding, Job, PatchVisit
 
 
-def test_open_queues_embeddings_once_across_visits_users_and_jobs(auth, monkeypatch):
+def test_open_queues_embeddings_once_across_visits_users_and_jobs(auth, monkeypatch, three_images):
     from simple_annotator import patches
 
     monkeypatch.setattr(patches, "tile", lambda *_: (_ for _ in ()).throw(AssertionError()))

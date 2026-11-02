@@ -7,9 +7,7 @@ from dotenv import load_dotenv
 load_dotenv(Path(__file__).resolve().parents[3] / ".env")
 
 COOKIE_NAME = "sa_session"
-CROP_SIZE = int(os.environ.get("CROP_SIZE", "1024"))
 FULL_IMAGE_MAX = int(os.environ.get("FULL_IMAGE_MAX", "4096"))
-CROP_OVERLAP = int(os.environ.get("CROP_OVERLAP", "256"))
 # Histology is split into padded tissue regions; chunks of an oversized region overlap by more
 # than the largest glomerulus so each one is whole in some chunk. These were tuned while slide
 # scales were read 10x too fine; the defaults keep the same pixel sizes at the true scale.

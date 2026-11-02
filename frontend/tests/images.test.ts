@@ -59,8 +59,8 @@ test("the open image's progress comes from its patch", () => {
 });
 
 test("a patch without a slide view keeps the fetched progress", () => {
-  const legacyCrop = { item_id: "a", slide: null } as unknown as Patch;
-  const [first] = groupImages(rows, [], legacyCrop);
+  const whole = { item_id: "a", slide: null } as unknown as Patch;
+  const [first] = groupImages(rows, [], whole);
   assert.deepEqual([first.rows[0].visited, first.rows[0].regions, first.done], [0, 4, 0]);
 });
 

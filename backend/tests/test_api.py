@@ -25,7 +25,7 @@ def test_register_login_and_me(client: TestClient):
     assert ok.status_code == 200
 
 
-def test_sticky_job_and_annotations(auth: TestClient):
+def test_sticky_job_and_annotations(auth: TestClient, three_images):
     jobs = auth.get("/jobs").json()
     assert {j["name"] for j in jobs} >= {"Glomerulus", "Tubule"}
     tubule = next(j for j in jobs if j["name"] == "Tubule")
@@ -88,7 +88,7 @@ def test_annotation_rejects_bad_type(auth: TestClient):
     assert bad.status_code == 400
 
 
-def test_folders_and_per_folder_series(auth: TestClient):
+def test_folders_and_per_folder_series(auth: TestClient, three_images):
     folders = auth.get("/folders").json()
     assert folders["children"][0]["id"] == "placeholder"
     assert folders["children"][0]["n_items"] == 1
@@ -125,21 +125,19 @@ def test_stain_filter_is_kept_per_folder_choice(auth: TestClient):
     assert auth.patch("/me", json={"stain_filter": []}).json()["stain_filter"] == []
 
 
-def test_shared_link_switches_dataset_and_opens_the_tile_at_its_point(auth: TestClient):
+def test_shared_link_switches_dataset_and_reopens_without_a_new_visit(auth: TestClient):
     from simple_annotator.db import session_factory
     from simple_annotator.models import PatchVisit
 
     first = auth.get("/patches/current").json()
-    second = auth.get("/patches/next").json()["image"]
     auth.patch("/me", json={"stain_filter": ["PAS"]})
-    # The view's center lies where both tiles overlap, but only the second tile holds all of it.
-    view = {"left": second["left"] + 32, "top": 0, "width": 400, "height": 100}
+    view = {"left": 0, "top": 0, "width": 400, "height": 100}
     link = {"item_id": first["item_id"], "folder_id": "other", "view": view}
 
     opened = auth.post("/patches/open", json=link).json()
     me = auth.get("/me").json()
     assert (me["last_folder_id"], me["stain_filter"]) == ("other", [])
-    assert (opened["image"]["left"], opened["image"]["top"]) == (second["left"], second["top"])
+    assert opened["id"] == first["id"]
     with session_factory()() as db:
         visits = db.query(PatchVisit).count()
     assert auth.post("/patches/open", json=link).json()["id"] == opened["id"]
@@ -217,13 +215,14 @@ def test_annotation_saves_preserve_selected_job(auth: TestClient):
 def test_patch_calibration_follows_image_through_history(auth, monkeypatch):
     from simple_annotator import patches, slides
     from simple_annotator.db import session_factory
-    from simple_annotator.models import Patch
+    from simple_annotator.models import IMAGE_GRID, Patch
 
     existing = auth.get("/patches/current").json()
     assert existing["nm_per_px"] is None
     with session_factory()() as db:
         tiles = [
-            Patch(girder_item_id=item, left=0, top=0, width=2048, height=2048) for item in "ab"
+            Patch(girder_item_id=item, left=0, top=0, width=2048, height=2048, grid=IMAGE_GRID)
+            for item in "ab"
         ]
         db.add_all(tiles)
         db.commit()
@@ -241,8 +240,29 @@ def test_patch_calibration_follows_image_through_history(auth, monkeypatch):
     assert auth.get("/patches/next").json()["nm_per_px"] == b["nm_per_px"]
 
 
+def _overlapping_patch(first: dict) -> None:
+    # Histology regions may overlap; another patch of the placeholder image stands in for one.
+    from simple_annotator.db import session_factory
+    from simple_annotator.models import IMAGE_GRID, Patch
+
+    image = first["image"]
+    with session_factory()() as db:
+        db.add(
+            Patch(
+                girder_item_id=first["item_id"],
+                left=768,
+                top=0,
+                width=image["width"] - 768,
+                height=image["height"],
+                grid=IMAGE_GRID,
+            )
+        )
+        db.commit()
+
+
 def test_annotations_follow_the_image_into_overlapping_patches(auth):
     first = auth.get("/patches/current").json()
+    _overlapping_patch(first)
     second = auth.get("/patches/next").json()
     dx = second["image"]["left"] - first["image"]["left"]
     assert first["item_id"] == second["item_id"] and 0 < dx < first["image"]["width"]
@@ -269,7 +289,8 @@ def _legacy_annotations(rows, user_id):
         conn.execute(text("DROP TABLE annotations"))
         conn.execute(
             text(
-                "CREATE TABLE annotations (id INTEGER PRIMARY KEY, patch_id INTEGER, "
+                "CREATE TABLE annotations (id INTEGER PRIMARY KEY, "
+                "patch_id INTEGER REFERENCES patches(id), "
                 "user_id INTEGER, job_id INTEGER, elements TEXT)"
             )
         )
@@ -283,15 +304,24 @@ def _legacy_annotations(rows, user_id):
 def test_patch_annotations_migrate_to_image_coordinates(auth):
     from simple_annotator import db
     from simple_annotator.config import sqlite_path
+    from simple_annotator.models import Patch
 
     first = auth.get("/patches/current").json()
+    _overlapping_patch(first)
     second = auth.get("/patches/next").json()
     user_id = auth.get("/me").json()["id"]
     dx = second["image"]["left"] - first["image"]["left"]
+    with db.session_factory()() as s:
+        # The backup's reference keeps an old crop from the startup purge.
+        crop = Patch(girder_item_id="old", left=0, top=0, width=9, height=9, grid="v2:9:9:all")
+        s.add(crop)
+        s.commit()
+        crop_id = crop.id
     rows = [
         (first["id"], [{"type": "point", "points": [[dx + 5, 10]]}]),
         (first["id"], [{"type": "point", "points": [[1, 2]]}]),
         (second["id"], [{"id": "kept", "type": "polygon", "points": [[1, 1], [9, 1], [9, 9]]}]),
+        (crop_id, []),
     ]
     _legacy_annotations(rows, user_id)
 
@@ -307,7 +337,7 @@ def test_patch_annotations_migrate_to_image_coordinates(auth):
         "kept",
     ]
     with sqlite3.connect(sqlite_path()) as conn:
-        assert conn.execute("SELECT count(*) FROM annotations_json").fetchone() == (3,)
+        assert conn.execute("SELECT count(*) FROM annotations_json").fetchone() == (4,)
 
 
 def test_failed_annotation_migration_leaves_the_old_table_intact(auth, monkeypatch):
