@@ -1,4 +1,4 @@
-# Simple annotator
+# <img src="frontend/src/app/icon.svg" width="36" align="top" alt=""> JustAnnotate
 
 Web app for annotating EM and histology images from Girder, with AI-assisted point and box segmentation (SAM / μSAM). Next.js frontend in `frontend/`, FastAPI backend and GPU AI worker in `backend/`, data in SQLite.
 

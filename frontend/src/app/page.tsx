@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useState } from "react";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -36,7 +37,10 @@ export default function LoginPage() {
       <Card className="w-full max-w-sm py-0">
         <form className="space-y-5 p-6" onSubmit={(e) => submit("login", e)}>
           <div>
-            <h1 className="font-heading text-xl font-medium">Simple annotator</h1>
+            <div className="flex items-center gap-2.5">
+              <Image src="/icon.svg" alt="" width={32} height={32} loading="eager" />
+              <h1 className="font-heading text-xl font-medium">JustAnnotate</h1>
+            </div>
             <p className="mt-1 text-sm text-muted-foreground">Sign in to label the next image.</p>
           </div>
           <div className="space-y-2">
