@@ -22,6 +22,7 @@ const PEEK_CLOSE_MS = 300;
 
 type OverlayState = {
   toggle: () => void;
+  peek: () => void;
   expanded: boolean;
   pinned: boolean;
   togglePin: () => void;
@@ -140,7 +141,9 @@ export function Overlay({ sidebar, children }: { sidebar: ReactNode; children: R
   }
 
   const state: OverlayState = {
-    toggle: () => (pinned ? togglePin() : setOpen(expanded ? "closed" : "open")),
+    // A click while peeking keeps the sidebar open, like a click inside the panel.
+    toggle: () => (pinned ? togglePin() : setOpen(open === "open" ? "closed" : "open")),
+    peek: () => setOpen((cur) => (cur === "closed" ? "peek" : cur)),
     expanded,
     pinned,
     togglePin,
@@ -159,7 +162,11 @@ export function Overlay({ sidebar, children }: { sidebar: ReactNode; children: R
           ref={panelRef}
           data-slot="overlay-panel"
           className="fixed inset-y-0 left-0 z-20 flex h-svh w-(--overlay-width) text-sidebar-foreground"
-          onPointerDown={() => setOpen((cur) => (cur === "peek" ? "open" : cur))}
+          onPointerDown={(e) => {
+            // The trigger's own click decides what happens to a peek.
+            if ((e.target as Element).closest("[data-slot=sidebar-trigger]")) return;
+            setOpen((cur) => (cur === "peek" ? "open" : cur));
+          }}
         >
           <div data-slot="overlay-inner" className="flex size-full flex-col bg-sidebar">
             {sidebar}
@@ -179,7 +186,7 @@ export function useOverlay() {
 }
 
 export function OverlayTrigger() {
-  const { toggle } = useOverlay();
+  const { toggle, peek } = useOverlay();
   return (
     <Button
       data-testid="sidebar-trigger"
@@ -188,6 +195,7 @@ export function OverlayTrigger() {
       size="icon-sm"
       className="fixed top-(--overlay-trigger-top) left-(--overlay-trigger-left) z-20 size-4! overflow-hidden rounded-none border border-transparent p-0 hover:bg-transparent"
       onClick={toggle}
+      onPointerEnter={(e) => e.buttons === 0 && peek()}
     >
       <PanelLeftIcon />
       <span className="sr-only">Toggle Sidebar</span>
