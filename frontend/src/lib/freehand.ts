@@ -10,6 +10,7 @@ import {
   type Brush,
 } from "./brush";
 import { createBrushCursor } from "./brush-cursor";
+import { wheelZoomFactor } from "./wheel-zoom";
 import { TOOL_CURSORS } from "./tool-cursors";
 import {
   imagePoint,
@@ -420,8 +421,8 @@ export function useFreehand(opts: {
     }
 
     // Zooms about a point given in root coordinates.
-    function zoom(deltaY: number, cx: number, cy: number) {
-      const z2 = Math.min(maxZoom(), Math.max(1, view.z * Math.exp(-deltaY * 0.002)));
+    function zoom(e: WheelEvent, cx: number, cy: number) {
+      const z2 = Math.min(maxZoom(), Math.max(1, view.z * wheelZoomFactor(e.deltaY, e.deltaMode)));
       const k = z2 / view.z;
       view.x = cx - (cx - view.x) * k;
       view.y = cy - (cy - view.y) * k;
@@ -443,7 +444,7 @@ export function useFreehand(opts: {
       pointer = e;
       if (e.ctrlKey || e.metaKey) {
         const r = root.getBoundingClientRect();
-        zoom(e.deltaY, e.clientX - r.left, e.clientY - r.top);
+        zoom(e, e.clientX - r.left, e.clientY - r.top);
       } else if (e.shiftKey && brushing()) {
         const delta = e.deltaY || e.deltaX;
         resizeBrush(-Math.sign(delta));
@@ -464,7 +465,7 @@ export function useFreehand(opts: {
     function onPageWheel(e: WheelEvent) {
       if (!(e.ctrlKey || e.metaKey) || root.contains(e.target as Node)) return;
       e.preventDefault();
-      zoom(e.deltaY, root.clientWidth / 2, root.clientHeight / 2);
+      zoom(e, root.clientWidth / 2, root.clientHeight / 2);
       clampView();
       scheduleView();
     }
