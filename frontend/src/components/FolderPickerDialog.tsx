@@ -3,12 +3,10 @@
 import { useEffect, useState } from "react";
 import { CheckIcon, ChevronRightIcon, CornerLeftUpIcon } from "lucide-react";
 import { cn } from "cn";
-import { Button } from "@/components/ui/button";
+import { Button, PILL } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { api, type FolderLevel } from "@/lib/api";
 import { plural } from "@/lib/projects";
-
-export const PILL = "h-9 rounded-full px-4";
 
 function Box({ on, muted }: { on: boolean; muted?: boolean }) {
   return (

@@ -3,10 +3,9 @@
 import { useEffect, useState, ViewTransition } from "react";
 import { Maximize2Icon, SettingsIcon, UsersIcon, XIcon } from "lucide-react";
 import { cn } from "cn";
-import { PILL } from "@/components/FolderPickerDialog";
 import ProjectDialog from "@/components/ProjectDialog";
 import ShareDialog from "@/components/ShareDialog";
-import { Button } from "@/components/ui/button";
+import { Button, PILL } from "@/components/ui/button";
 import { DialogTitle } from "@/components/ui/dialog";
 import { api, type Project } from "@/lib/api";
 import {
@@ -160,7 +159,12 @@ export default function ProjectsPanel({
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<Project | null>(null);
   const [sharing, setSharing] = useState<Project | null>(null);
-  const [now] = useState(Date.now);
+  // The projects page keeps the panel open, so "Opened …" labels advance.
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     api.projects().then(setProjects, (e: Error) => setError(e.message));

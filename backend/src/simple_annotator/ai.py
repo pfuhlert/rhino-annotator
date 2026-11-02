@@ -68,7 +68,7 @@ def status(
     project: Project = Depends(current_project),
     db: Session = Depends(get_db),
 ) -> dict:
-    require_patch(db, user.id, patch_id)
+    require_patch(db, user.id, project.id, patch_id)
     patch = db.get(Patch, patch_id)
     worker = db.get(AiWorker, 1)
     available = bool(worker and time.time() - worker.updated < 15)
@@ -109,7 +109,7 @@ def enqueue(
     project: Project = Depends(current_project),
     db: Session = Depends(get_db),
 ) -> dict:
-    require_patch(db, user.id, patch_id)
+    require_patch(db, user.id, project.id, patch_id)
     task_id = str(body.id)
     patch = db.get(Patch, patch_id)
     prompt = body.model_dump(mode="json", exclude={"id", "job_id"})

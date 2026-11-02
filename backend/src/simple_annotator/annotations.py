@@ -26,10 +26,14 @@ class Changes(BaseModel):
     delete: list[str] = Field(default_factory=list, max_length=10000)
 
 
-def require_patch(db: Session, user_id: int, patch_id: int) -> None:
+def require_patch(db: Session, user_id: int, project_id: int, patch_id: int) -> None:
     if not db.scalar(
         select(PatchVisit.id)
-        .where(PatchVisit.patch_id == patch_id, PatchVisit.user_id == user_id)
+        .where(
+            PatchVisit.patch_id == patch_id,
+            PatchVisit.user_id == user_id,
+            PatchVisit.project_id == project_id,
+        )
         .limit(1)
     ):
         raise HTTPException(404, "patch not found")

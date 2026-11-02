@@ -35,20 +35,22 @@ import { pickerJobs } from "@/lib/projects";
 import { createAnnotationSync } from "@/lib/annotation-sync";
 import { useAi } from "@/lib/use-ai";
 import { isTypingTarget } from "@/lib/keys";
-import { parseShareLink, shareLinkQuery } from "@/lib/share-link";
+import { type ShareLink, parseShareLink, shareLinkQuery } from "@/lib/share-link";
 import { TOOLS, useEnabledTools } from "@/lib/tools";
+import { errorMessage } from "@/lib/utils";
 
 const FAILURE_MESSAGE_MS = 5000;
 
 type Menu = "job" | "tool" | "size";
 
-function errorMessage(error: unknown) {
-  return error instanceof Error && error.message ? error.message : "Something went wrong.";
-}
-
 // The server is still listing the folder's images.
 function isIndexing(error: unknown) {
   return (error as { status?: number }).status === 503;
+}
+
+// A shared link's view, relative to the patch it opened.
+function linkView({ view }: ShareLink, { image }: Patch): ViewRect {
+  return { ...view, left: view.left - image.left, top: view.top - image.top };
 }
 
 function LoadError({
@@ -142,7 +144,7 @@ function Editor({
   const patchRef = useRef<Patch | null>(null);
   const saveTimer = useRef<number>(0);
   const sync = useRef<ReturnType<typeof createAnnotationSync> | null>(null);
-  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<{ message: string; stale: boolean } | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [indexing, setIndexing] = useState(false);
   // The address bar already shows the fallback patch, so reloading cannot retry a failed link.
@@ -196,7 +198,7 @@ function Editor({
     setInitialView(initial);
     annoRef.current = null;
     sync.current = createAnnotationSync(next.elements, (changes) =>
-      api.edit(next.id, changes).then(({ times: saved }) => {
+      api.edit(next.id, next.shared_layer, changes).then(({ times: saved }) => {
         if (patchRef.current?.id === next.id) setTimes((t) => ({ ...t, ...saved }));
       }),
     );
@@ -218,11 +220,11 @@ function Editor({
   const loadSeq = useRef(0);
   const stainSave = useRef<Promise<unknown>>(Promise.resolve());
   const loadLatest = useCallback(
-    async (load: () => Promise<Patch>) => {
+    async (load: () => Promise<Patch>, initial?: (next: Patch) => ViewRect) => {
       const seq = ++loadSeq.current;
       try {
         const next = await load();
-        if (seq === loadSeq.current) showPatch(next);
+        if (seq === loadSeq.current) showPatch(next, initial?.(next));
       } catch (error) {
         if (seq === loadSeq.current) throw error;
       }
@@ -230,8 +232,11 @@ function Editor({
     [showPatch],
   );
 
+  // What the wait opens instead of the folder's first image, e.g. a shared link.
+  const indexRetry = useRef<(() => Promise<void>) | null>(null);
   // Without an image the sidebar learns the browsed folder from its listing instead.
-  const waitForIndex = useCallback(async () => {
+  const waitForIndex = useCallback(async (retry: (() => Promise<void>) | null = null) => {
+    indexRetry.current = retry;
     setIndexing(true);
     const { folder_id } = await api.images();
     setFolderId(folder_id);
@@ -241,7 +246,7 @@ function Editor({
   useEffect(() => {
     if (patch || !indexing) return;
     const poll = () =>
-      loadLatest(api.currentPatch).catch((error) => {
+      (indexRetry.current?.() ?? loadLatest(api.currentPatch)).catch((error) => {
         if (isIndexing(error)) return;
         setIndexing(false);
         setLoadError(errorMessage(error));
@@ -261,18 +266,17 @@ function Editor({
         setProject(opening);
         // Opening a link may switch the dataset, which changes the folder fetched below.
         const link = parseShareLink(window.location.search);
+        const openLink = ({ image, dataset, view }: ShareLink) =>
+          api.openImage(image, { folder_id: dataset, view });
         let linkError: string | null = null;
+        let linkIndexing = false;
         const opened = link
-          ? await api
-              .openImage(link.image, {
-                folder_id: link.dataset,
-                view: link.view,
-              })
-              .catch((error) => {
-                if ((error as { status?: number }).status === 401) throw error;
-                linkError = errorMessage(error);
-                return null;
-              })
+          ? await openLink(link).catch((error) => {
+              if ((error as { status?: number }).status === 401) throw error;
+              if (isIndexing(error)) linkIndexing = true;
+              else linkError = errorMessage(error);
+              return null;
+            })
           : null;
         const [who, jobList] = await Promise.all([api.me(), api.jobs()]);
         setMe(who);
@@ -282,17 +286,16 @@ function Editor({
         setJobId(job);
         if (job != null && job !== who.last_job_id) setMe(await api.setJob(job));
         setFolderId(who.last_folder_id);
-        if (link && opened) {
-          const { left, top } = opened.image;
-          // The patch carries the job from before the remap above.
-          showPatch(
-            { ...opened, job_id: job },
-            {
-              ...link.view,
-              left: link.view.left - left,
-              top: link.view.top - top,
-            },
-          );
+        // The patch carries the job from before the remap above.
+        if (link && opened) showPatch({ ...opened, job_id: job }, linkView(link, opened));
+        // The link opens once its dataset is indexed, instead of the folder's first image.
+        else if (link && linkIndexing) {
+          const retry = () =>
+            loadLatest(
+              () => openLink(link),
+              (next) => linkView(link, next),
+            );
+          void waitForIndex(retry).catch(() => {});
         } else await loadLatest(api.currentPatch);
         if (linkError) {
           setLoadError(`Could not open the shared image: ${linkError}`);
@@ -341,7 +344,14 @@ function Editor({
       setSaveError(null);
       setSaves((n) => n + 1);
     } catch (error) {
-      setSaveError("Changes could not be saved. Please retry before leaving.");
+      // The server refuses saves into a layer the editor did not load; retrying cannot help.
+      const stale = (error as { status?: number }).status === 412;
+      setSaveError({
+        stale,
+        message: stale
+          ? "This project's sharing changed, so these changes were not saved. Reload the page to annotate the current layer."
+          : "Changes could not be saved. Please retry before leaving.",
+      });
       throw error;
     }
   }
@@ -634,10 +644,16 @@ function Editor({
               role="alert"
               className="absolute left-4 top-4 z-20 rounded bg-background p-3 text-sm"
             >
-              {saveError}{" "}
-              <button className="underline" onClick={() => void persist().catch(() => {})}>
-                Retry save
-              </button>
+              {saveError.message}{" "}
+              {saveError.stale ? (
+                <button className="underline" onClick={() => location.reload()}>
+                  Reload
+                </button>
+              ) : (
+                <button className="underline" onClick={() => void persist().catch(() => {})}>
+                  Retry save
+                </button>
+              )}
             </div>
           )}
           <footer className="pointer-events-none absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-black/70 to-transparent px-4 py-4">

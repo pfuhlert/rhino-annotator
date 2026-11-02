@@ -48,7 +48,7 @@ def test_a_database_from_before_projects_gives_everyone_their_own_project(auth):
     old = {
         "users": "id INTEGER PRIMARY KEY, username VARCHAR(64) NOT NULL UNIQUE, "
         "password_hash VARCHAR(256) NOT NULL, last_job_id INTEGER, last_folder_id VARCHAR(64), "
-        "stain_filter TEXT, current_visit_id INTEGER",
+        "current_visit_id INTEGER",
         "jobs": "id INTEGER PRIMARY KEY, name VARCHAR(64) NOT NULL UNIQUE, color VARCHAR(16)",
         "annotations": "id INTEGER PRIMARY KEY, element_id VARCHAR(100), item_id VARCHAR(64), "
         "user_id INTEGER REFERENCES users(id), job_id INTEGER REFERENCES jobs(id), "
@@ -179,6 +179,18 @@ def test_sharing_copies_into_a_shared_layer_and_never_overwrites_it(auth):
     assert auth.patch(f"/patches/{patch_id}/annotations{scoped}", json=edit).is_success
     assert "p3" not in _elements(auth)
     assert "p3" in {e["id"] for e in auth.get(f"/patches/current{scoped}").json()["elements"]}
+
+
+def test_a_tab_from_before_unsharing_cannot_overwrite_the_owners_annotations(auth):
+    url = f"/api/projects/{_create(auth)['id']}"
+    patch_id = _annotate(auth, POINT)
+    auth.put(f"{url}/sharing", json={"visibility": "everyone"})
+    assert auth.get("/patches/current").json()["shared_layer"]
+    auth.put(f"{url}/sharing", json={"visibility": "private"})
+    # The other tab still shows the shared layer, whose p1 has the id of the owner's own p1.
+    stale = {"upsert": [{**POINT, "points": [[7.0, 8.0]]}]}
+    assert auth.patch(f"/patches/{patch_id}/annotations?shared=true", json=stale).status_code == 412
+    assert _elements(auth) == {"p1": [[5.0, 6.0]]}
 
 
 def test_registering_starts_on_a_private_project_with_the_preset_label_classes(auth):

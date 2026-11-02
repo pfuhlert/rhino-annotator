@@ -3,12 +3,12 @@
 import { type FormEvent, useState } from "react";
 import { XIcon } from "lucide-react";
 import { cn } from "cn";
-import { PILL } from "@/components/FolderPickerDialog";
-import { Button } from "@/components/ui/button";
+import { Button, PILL } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { api, type Project, type Visibility } from "@/lib/api";
 import { plural } from "@/lib/projects";
+import { errorMessage } from "@/lib/utils";
 
 const OPTIONS: [Exclude<Visibility, "private">, string, string][] = [
   ["people", "Specific people", "Only the people you add"],
@@ -61,7 +61,7 @@ function Form({
       onSaved(await api.shareProject(project.id, visibility, members));
       onClose();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not share the project.");
+      setError(errorMessage(e, "Could not share the project."));
     } finally {
       setBusy(false);
     }
@@ -138,10 +138,8 @@ function Form({
             <>
               <b className="font-medium text-foreground">
                 {/* Null while the project's images are still being counted. */}
-                {mine === null
-                  ? "Your annotations"
-                  : `Your ${plural(mine, "annotation")}`}{" "}
-                will be copied to a shared layer.
+                {mine === null ? "Your annotations" : `Your ${plural(mine, "annotation")}`} will be
+                copied to a shared layer.
               </b>{" "}
               Everyone edits the copy, and your own annotations stay unchanged.
             </>

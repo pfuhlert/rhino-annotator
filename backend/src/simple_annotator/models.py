@@ -20,8 +20,6 @@ class User(Base):
     last_project_id: Mapped[int | None] = mapped_column(
         ForeignKey("projects.id", use_alter=True), nullable=True
     )
-    # JSON list of stain names; null in the list means "no stain".
-    stain_filter: Mapped[str | None] = mapped_column(Text, nullable=True)
     current_visit_id: Mapped[int | None] = mapped_column(
         ForeignKey("patch_visits.id", use_alter=True), nullable=True
     )
@@ -147,6 +145,8 @@ class ProjectOpen(Base):
     project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"), primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), primary_key=True)
     opened: Mapped[float]
+    # JSON list of stain names; null in the list means "no stain".
+    stain_filter: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class PatchVisit(Base):

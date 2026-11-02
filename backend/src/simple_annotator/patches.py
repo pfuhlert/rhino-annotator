@@ -15,7 +15,7 @@ from simple_annotator.annotations import (
     times,
     visible,
 )
-from simple_annotator.auth import current_user, set_folder, user_stains
+from simple_annotator.auth import current_user, project_stains, set_folder
 from simple_annotator.config import FULL_IMAGE_MAX, job_ai_model
 from simple_annotator.db import get_db
 from simple_annotator.embeddings import queue_image
@@ -38,7 +38,8 @@ def _dump(
     slide: Slide,
     nm_per_px: float | None,
 ) -> dict:
-    rows = visible(db, layer_id(project, user), patch)
+    layer = layer_id(project, user)
+    rows = visible(db, layer, patch)
     return {
         "id": patch.id,
         "item_id": patch.girder_item_id,
@@ -62,6 +63,7 @@ def _dump(
         "nm_per_px": nm_per_px,
         "elements": [element_json(a, patch) for a in rows],
         "times": times(rows),
+        "shared_layer": layer != user.id,
         "slide": slide_view(db, visited_filter(project, user), patch),
     }
 
@@ -119,8 +121,9 @@ def _step(
     key, folders = browse(db, user, project)
     visit = _cursor_visit(db, user, project, key) or _last_in_folder(db, user, project, key)
     current = db.get(Patch, visit.patch_id) if visit else None
+    stains = project_stains(db, user, project.id)
     try:
-        patch = step(db, _items(db, folders), current, direction, user_stains(user))
+        patch = step(db, _items(db, folders), current, direction, stains)
     except RuntimeError as e:
         raise HTTPException(400, str(e)) from e
     return _record(db, user, project, patch, key, background)
@@ -219,7 +222,7 @@ def open_image(
     db: Session = Depends(get_db),
 ) -> dict:
     if body.folder_id:
-        set_folder(user, body.folder_id)
+        set_folder(db, user, project.id, body.folder_id)
     key, folders = browse(db, user, project)
     item = next((it for it in _items(db, folders) if it["_id"] == body.item_id), None)
     if not item:
@@ -259,9 +262,10 @@ def prepare_view(
     body: View,
     background: BackgroundTasks,
     user: User = Depends(current_user),
+    project: Project = Depends(current_project),
     db: Session = Depends(get_db),
 ) -> dict:
-    require_patch(db, user.id, patch_id)
+    require_patch(db, user.id, project.id, patch_id)
     patch = db.get(Patch, patch_id)
     slide, nm_per_px = patch_scale(db, patch)
     within = (body.left, body.top, body.width, body.height)
@@ -289,13 +293,19 @@ def slide_thumbnail(
 def edit_annotations(
     patch_id: int,
     body: Changes,
+    # The layer the editor loaded. Element ids repeat across layers, so a tab opened before the
+    # project's sharing changed must not write its marks over the other layer's.
+    shared: bool | None = None,
     user: User = Depends(current_user),
     project: Project = Depends(current_project),
     db: Session = Depends(get_db),
 ) -> dict:
-    require_patch(db, user.id, patch_id)
+    require_patch(db, user.id, project.id, patch_id)
     lock(db)
     layer = layer_id(project, user)
+    if shared is not None and shared != (layer != user.id):
+        # Not 409, which the editor reads as having no project.
+        raise HTTPException(412, "This project's sharing changed. Reload to continue.")
     saved = apply_changes(db, layer, user.id, db.get(Patch, patch_id), body)
     db.commit()
     return {"ok": True, "times": saved}

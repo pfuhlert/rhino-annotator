@@ -2,8 +2,8 @@
 
 import { type FormEvent, useEffect, useState } from "react";
 import { PlusIcon, XIcon } from "lucide-react";
-import FolderPickerDialog, { PILL } from "@/components/FolderPickerDialog";
-import { Button } from "@/components/ui/button";
+import FolderPickerDialog from "@/components/FolderPickerDialog";
+import { Button, PILL } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { api, type Job, type Kind, type Project, type ProjectFolder } from "@/lib/api";
@@ -15,10 +15,7 @@ import {
   type Label,
   nextColor,
 } from "@/lib/projects";
-
-function errorText(e: unknown) {
-  return e instanceof Error && e.message ? e.message : "Something went wrong.";
-}
+import { errorMessage } from "@/lib/utils";
 
 // Creates a project, or edits one when given.
 export default function ProjectDialog({
@@ -91,7 +88,7 @@ function Form({
       // The server keeps only the outermost folders, so show what it will save.
       changeFolders(await api.resolveFolders([...folders.map((f) => f.id), ...ids]));
     } catch (e) {
-      setError(errorText(e));
+      setError(errorMessage(e));
     }
   }
 
@@ -119,7 +116,7 @@ function Form({
       onSaved(await (project ? api.updateProject(project.id, body) : api.createProject(body)));
       onClose();
     } catch (err) {
-      setError(errorText(err));
+      setError(errorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -132,7 +129,7 @@ function Form({
       onDeleted?.();
       onClose();
     } catch (err) {
-      setError(errorText(err));
+      setError(errorMessage(err));
     }
   }
 

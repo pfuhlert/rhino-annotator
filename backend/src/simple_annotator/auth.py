@@ -2,6 +2,7 @@ import hashlib
 import json
 import re
 import secrets
+import time
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi.security import APIKeyCookie
@@ -11,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from simple_annotator.config import COOKIE_NAME
 from simple_annotator.db import add_default_project, get_db
-from simple_annotator.models import Job, User
+from simple_annotator.models import Job, Project, ProjectOpen, User
 from simple_annotator.models import Session as AuthSession
 
 router = APIRouter(prefix="/auth")
@@ -63,19 +64,26 @@ def _set_session(db: Session, user: User, response: Response) -> None:
     )
 
 
-def _user_json(user: User) -> dict:
+def _user_json(db: Session, user: User, project_id: int | None = None) -> dict:
     return {
         "id": user.id,
         "username": user.username,
         "last_job_id": user.last_job_id,
         "last_folder_id": user.last_folder_id,
         "last_project_id": user.last_project_id,
-        "stain_filter": user_stains(user),
+        "stain_filter": project_stains(db, user, project_id),
     }
 
 
-def user_stains(user: User) -> list[str | None]:
-    return json.loads(user.stain_filter) if user.stain_filter else []
+# Each project remembers its own stain filter; without a project, the one last opened.
+def _opened(db: Session, user: User, project_id: int | None) -> ProjectOpen | None:
+    project_id = project_id or user.last_project_id
+    return db.get(ProjectOpen, (project_id, user.id)) if project_id else None
+
+
+def project_stains(db: Session, user: User, project_id: int | None = None) -> list[str | None]:
+    row = _opened(db, user, project_id)
+    return json.loads(row.stain_filter) if row and row.stain_filter else []
 
 
 def require_job(db: Session, job_id: int) -> None:
@@ -101,7 +109,7 @@ def register(body: Creds, response: Response, db: Session = Depends(get_db)) -> 
     db.commit()
     db.refresh(user)
     _set_session(db, user, response)
-    return _user_json(user)
+    return _user_json(db, user)
 
 
 @router.post("/login")
@@ -110,7 +118,7 @@ def login(body: Creds, response: Response, db: Session = Depends(get_db)) -> dic
     if not user or not _verify(body.password, user.password_hash):
         raise HTTPException(401, "invalid credentials")
     _set_session(db, user, response)
-    return _user_json(user)
+    return _user_json(db, user)
 
 
 @router.post("/logout")
@@ -126,27 +134,43 @@ def logout(
     return {"ok": True}
 
 
-def set_folder(user: User, folder_id: str) -> None:
+def set_folder(db: Session, user: User, project_id: int | None, folder_id: str) -> None:
     if folder_id != user.last_folder_id:
         user.last_folder_id = folder_id
-        user.stain_filter = None
+        if row := _opened(db, user, project_id):
+            row.stain_filter = None
 
 
 @me_router.get("/me")
-def me(user: User = Depends(current_user)) -> dict:
-    return _user_json(user)
+def me(
+    project: int | None = None,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    return _user_json(db, user, project)
 
 
 @me_router.patch("/me")
 def patch_me(
-    body: MePatch, user: User = Depends(current_user), db: Session = Depends(get_db)
+    body: MePatch,
+    project: int | None = None,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
 ) -> dict:
     if body.last_job_id is not None:
         require_job(db, body.last_job_id)
         user.last_job_id = body.last_job_id
     if body.last_folder_id is not None:
-        set_folder(user, body.last_folder_id)
+        set_folder(db, user, project, body.last_folder_id)
     if "stain_filter" in body.model_fields_set:
-        user.stain_filter = json.dumps(body.stain_filter) if body.stain_filter else None
+        row = _opened(db, user, project)
+        if not row:
+            project_id = project or user.last_project_id
+            if not project_id or not db.get(Project, project_id):
+                raise HTTPException(409, "Choose a project first.")
+            # Filtering images means working in the project, so it counts as opened.
+            row = ProjectOpen(project_id=project_id, user_id=user.id, opened=time.time())
+            db.add(row)
+        row.stain_filter = json.dumps(body.stain_filter) if body.stain_filter else None
     db.commit()
-    return _user_json(user)
+    return _user_json(db, user, project)

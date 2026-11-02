@@ -63,4 +63,7 @@ function Button({
   )
 }
 
-export { Button, buttonVariants }
+// Rounded dialog actions.
+const PILL = "h-9 rounded-full px-4"
+
+export { Button, buttonVariants, PILL }

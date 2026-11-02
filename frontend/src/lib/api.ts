@@ -116,6 +116,9 @@ export type Patch = {
   nm_per_px: number | null;
   elements: Element[];
   times: Times;
+  // The elements are the project's shared layer; saves name it so a stale tab cannot write them
+  // into another layer after sharing changed.
+  shared_layer: boolean;
   slide: SlideView | null;
 };
 
@@ -239,8 +242,8 @@ export const api = {
   aiSubmit: (patchId: number, prompt: AiPrompt & { id: string; job_id: number }) =>
     req<AiTask>(`/patches/${patchId}/ai`, { method: "POST", body: JSON.stringify(prompt) }),
   aiCancel: (id: string) => req(`/patches/ai/${id}`, { method: "DELETE" }),
-  edit: (patchId: number, changes: { upsert: Element[]; delete: string[] }) =>
-    req<{ times: Times }>(`/patches/${patchId}/annotations`, {
+  edit: (patchId: number, shared: boolean, changes: { upsert: Element[]; delete: string[] }) =>
+    req<{ times: Times }>(`/patches/${patchId}/annotations?shared=${shared}`, {
       method: "PATCH",
       body: JSON.stringify(changes),
     }),
