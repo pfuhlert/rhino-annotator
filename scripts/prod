@@ -6,12 +6,15 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const home = process.env.SIMPLE_ANNOTATOR_PROD_DIR || path.join(homedir(), "simple-annotator-prod");
+// Beside the main checkout (persistent disk), not in $HOME, which a pod rebuild wipes.
+const mainCheckout = path.dirname(git(repo, "rev-parse", "--path-format=absolute", "--git-common-dir"));
+const home = process.env.SIMPLE_ANNOTATOR_PROD_DIR || path.join(path.dirname(mainCheckout), "simple-annotator-prod");
 const app = path.join(home, "app");
 const data = path.join(home, "data");
 const logs = path.join(home, "logs");
 const pids = path.join(home, "pids");
 const lastDeploy = path.join(home, "last-deploy.json");
+// The venv stays on local disk for speed; start() rebuilds it after a pod rebuild.
 const venv = path.join(homedir(), ".uv-local/venvs/simple-annotator-prod");
 const sqlite = path.join(data, "annotator.sqlite");
 const webPort = "3300";
@@ -106,6 +109,7 @@ function stop() {
 async function start() {
   if (!existsSync(path.join(app, "frontend/.next/BUILD_ID"))) throw new Error("nothing deployed; run deploy first");
   stop();
+  if (!existsSync(path.join(venv, "bin/uvicorn"))) syncPython();
   mkdirSync(logs, { recursive: true });
   mkdirSync(pids, { recursive: true });
   const names = Object.keys(services).filter((n) => n !== "worker" || env().SIMPLE_ANNOTATOR_AI !== "0");
@@ -140,10 +144,14 @@ function backup() {
   console.log(`backup: ${out}`);
 }
 
-async function install(sha) {
-  run("git", ["checkout", "--force", "--detach", sha], app);
+function syncPython() {
   const ai = env().SIMPLE_ANNOTATOR_AI !== "0" ? ["--extra", "ai"] : [];
   run("uv", ["sync", "--locked", "--no-dev", ...ai], path.join(app, "backend"));
+}
+
+async function install(sha) {
+  run("git", ["checkout", "--force", "--detach", sha], app);
+  syncPython();
   run("npm", ["ci", "--no-audit", "--no-fund"], path.join(app, "frontend"));
   run(path.join(app, "frontend/node_modules/.bin/next"), ["build"], path.join(app, "frontend"));
   await start();
