@@ -179,6 +179,7 @@ def _migrate(engine: Engine) -> None:
         _add_columns(conn, "project_jobs", {"color": "VARCHAR(16)"})
         _add_columns(conn, "project_opens", {"stain_filter": "TEXT"})
         _add_columns(conn, "users", {"split_histo": "BOOLEAN NOT NULL DEFAULT 1"})
+        _add_columns(conn, "jobs", {"mode": "VARCHAR(8) NOT NULL DEFAULT 'mask'"})
         had_kind = "kind" in _columns(conn, "jobs")
         _jobs_without_unique_name(conn)
         if not had_kind:

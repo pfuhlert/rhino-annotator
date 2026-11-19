@@ -13,6 +13,7 @@ from fastapi.responses import Response
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from simple_annotator import scores
 from simple_annotator.auth import current_user
 from simple_annotator.db import among, get_db, retry_sqlite_busy, session_factory
 from simple_annotator.girder import (
@@ -253,6 +254,7 @@ def list_images(
             .group_by(Annotation.item_id)
         ).all()
     )
+    scored = scores.counts(db, layer_id(project, user), ids)
     stains = Counter(staining(item) for item in items)
     return {
         "folder_id": key,
@@ -267,7 +269,7 @@ def list_images(
                 "group": group_key(item),
                 "staining": staining(item),
                 "magnification": magnification(item),
-                "annotations": annotations.get(item["_id"], 0),
+                "annotations": annotations.get(item["_id"], 0) + scored.get(item["_id"], 0),
                 **progress(item["_id"]),
             }
             for item in items

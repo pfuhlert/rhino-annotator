@@ -1,12 +1,12 @@
 "use client";
 
 import { type FormEvent, useEffect, useState } from "react";
-import { PlusIcon, XIcon } from "lucide-react";
+import { PlusIcon, SlidersHorizontalIcon, XIcon } from "lucide-react";
 import FolderPickerDialog from "@/components/FolderPickerDialog";
 import { Button, PILL } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { api, type Job, type Kind, type Project, type ProjectFolder } from "@/lib/api";
+import { api, type Job, type Kind, type Mode, type Project, type ProjectFolder } from "@/lib/api";
 import {
   adaptLabels,
   folderKinds,
@@ -16,6 +16,9 @@ import {
   nextColor,
 } from "@/lib/projects";
 import { errorMessage } from "@/lib/utils";
+
+const ADD_BUTTON =
+  "inline-flex h-7 items-center gap-1 rounded-full border border-dashed px-2.5 text-muted-foreground hover:bg-muted/60 hover:text-foreground";
 
 // Creates a project, or edits one when given.
 export default function ProjectDialog({
@@ -60,8 +63,8 @@ function Form({
   const [folders, setFolders] = useState<ProjectFolder[]>(project?.folders ?? []);
   const [labels, setLabels] = useState<Label[]>(project?.jobs ?? []);
   const [presets, setPresets] = useState<Record<Kind, Job[]>>({ histo: [], elmi: [] });
-  // The group a label is being added to, and its name so far.
-  const [newLabel, setNewLabel] = useState<{ kind: Kind; name: string } | null>(null);
+  // The group a label is being added to, whether it is drawn or scored, and its name so far.
+  const [newLabel, setNewLabel] = useState<{ kind: Kind; mode: Mode; name: string } | null>(null);
   const [picking, setPicking] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -97,7 +100,7 @@ function Form({
     if (newLabel && name)
       setLabels((l) => [
         ...l,
-        { name, color: nextColor(l.map((j) => j.color)), kind: newLabel.kind },
+        { name, color: nextColor(l.map((j) => j.color)), kind: newLabel.kind, mode: newLabel.mode },
       ]);
     setNewLabel(null);
   }
@@ -186,6 +189,9 @@ function Form({
       </div>
       <div className="grid gap-3">
         <span className="text-muted-foreground">Label classes</span>
+        <p className="-mt-2 text-xs text-muted-foreground">
+          Mask classes are drawn on the image. Score classes get one 0–100 value per image.
+        </p>
         {groups.map(({ kind, title }) => (
           <div key={kind} className="grid gap-1.5" data-testid={`project-labels-${kind}`}>
             <span className="text-xs font-medium text-muted-foreground">{title}</span>
@@ -208,9 +214,9 @@ function Form({
                   data-testid="new-label"
                   autoFocus
                   className="h-7 w-40 rounded-full px-3"
-                  placeholder="Label name"
+                  placeholder={newLabel.mode === "score" ? "Score name" : "Label name"}
                   value={newLabel.name}
-                  onChange={(e) => setNewLabel({ kind, name: e.target.value })}
+                  onChange={(e) => setNewLabel({ ...newLabel, name: e.target.value })}
                   onBlur={addLabel}
                   onKeyDown={(e) => {
                     if (e.key === "Enter") {
@@ -224,15 +230,28 @@ function Form({
                   }}
                 />
               ) : (
-                <button
-                  type="button"
-                  data-testid={`add-label-${kind}`}
-                  className="inline-flex h-7 items-center gap-1 rounded-full border border-dashed px-2.5 text-muted-foreground hover:bg-muted/60 hover:text-foreground"
-                  onClick={() => setNewLabel({ kind, name: "" })}
-                >
-                  <PlusIcon className="size-3.5" />
-                  Add
-                </button>
+                <>
+                  <button
+                    type="button"
+                    data-testid={`add-label-${kind}`}
+                    title="A class you draw as masks, polygons or points"
+                    className={ADD_BUTTON}
+                    onClick={() => setNewLabel({ kind, mode: "mask", name: "" })}
+                  >
+                    <PlusIcon className="size-3.5" />
+                    Mask
+                  </button>
+                  <button
+                    type="button"
+                    data-testid={`add-score-${kind}`}
+                    title="A class you score from 0 to 100 per image"
+                    className={ADD_BUTTON}
+                    onClick={() => setNewLabel({ kind, mode: "score", name: "" })}
+                  >
+                    <PlusIcon className="size-3.5" />
+                    Score
+                  </button>
+                </>
               )}
             </div>
           </div>
@@ -285,7 +304,10 @@ function LabelChip({
   onRemove: () => void;
 }) {
   return (
-    <span className="inline-flex h-7 items-center gap-1.5 rounded-full border pr-1 pl-2">
+    <span
+      data-testid={`label-${label.name}`}
+      className="inline-flex h-7 items-center gap-1.5 rounded-full border pr-1 pl-2"
+    >
       <label
         className="relative size-2.5 cursor-pointer rounded-full"
         style={{ background: label.color }}
@@ -300,6 +322,12 @@ function LabelChip({
         />
       </label>
       {label.name}
+      {label.mode === "score" && (
+        <SlidersHorizontalIcon
+          aria-label="Score class"
+          className="size-3.5 text-muted-foreground"
+        />
+      )}
       <button
         type="button"
         aria-label={`Remove ${label.name}`}

@@ -24,6 +24,7 @@ from simple_annotator.images import INDEXING, ordered_items
 from simple_annotator.models import Job, Patch, PatchVisit, Project, Slide, User
 from simple_annotator.projects import outside
 from simple_annotator.scope import browse, current_project, layer_id, visited_filter
+from simple_annotator.scores import scores_for
 from simple_annotator.slides import (
     ensure_slide,
     open_item,
@@ -70,6 +71,7 @@ def _dump(
         },
         "nm_per_px": nm_per_px,
         "elements": [element_json(a, patch) for a in rows],
+        "scores": scores_for(db, layer, patch.girder_item_id),
         "times": times(rows),
         "shared_layer": layer != user.id,
         "slide": slide_view(db, visited_filter(project, user), patch),

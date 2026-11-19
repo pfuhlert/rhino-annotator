@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, insert, literal, literal_column, select, update
 from sqlalchemy.orm import Session
 
+from simple_annotator import scores
 from simple_annotator.auth import current_user
 from simple_annotator.db import ELMI_JOBS, SEED_JOBS, among, get_db, preset_ids
 from simple_annotator.girder import (
@@ -29,6 +30,7 @@ from simple_annotator.models import (
     ProjectJob,
     ProjectMember,
     ProjectOpen,
+    Score,
     User,
 )
 from simple_annotator.scope import can_open, current_project, inside, layer_id, roots, union_key
@@ -44,6 +46,8 @@ class JobIn(BaseModel):
     name: str = Field(min_length=1, max_length=64)
     color: str = Field(pattern=r"^#[0-9a-fA-F]{6}$")
     kind: Literal["histo", "elmi"] = "histo"
+    # Only for a new class; an existing class keeps its mode.
+    mode: Literal["mask", "score"] = "mask"
 
 
 class ProjectIn(BaseModel):
@@ -93,7 +97,13 @@ def _jobs(db: Session, project_id: int) -> list[dict]:
 
 
 def _job_json(job: Job, color: str | None = None) -> dict:
-    return {"id": job.id, "name": job.name, "color": color or job.color, "kind": job.kind}
+    return {
+        "id": job.id,
+        "name": job.name,
+        "color": color or job.color,
+        "kind": job.kind,
+        "mode": job.mode,
+    }
 
 
 def _scope(db: Session, folders: list[str]) -> tuple[list[str] | None, bool]:
@@ -131,7 +141,7 @@ def _count(db: Session, user_id: int, item_ids: list[str] | None) -> int:
     query = select(func.count()).select_from(Annotation).where(Annotation.user_id == user_id)
     if item_ids is not None:
         query = query.where(among(Annotation.item_id, item_ids))
-    return db.scalar(query)
+    return db.scalar(query) + scores.total(db, user_id, item_ids)
 
 
 def project_json(db: Session, project: Project, user: User) -> dict:
@@ -187,7 +197,7 @@ def _set_jobs(db: Session, project: Project, jobs: list[JobIn]) -> None:
     colors: dict[int, str | None] = {}
     for j in jobs:
         if j.id is None:
-            job = Job(name=j.name.strip(), color=j.color, kind=j.kind)
+            job = Job(name=j.name.strip(), color=j.color, kind=j.kind, mode=j.mode)
             db.add(job)
             db.flush()
         elif not (job := db.get(Job, j.id)):
@@ -215,7 +225,8 @@ def copy_into_layer(db: Session, project: Project, source_id: int, ids: list[str
     if ids is not None:
         source = source.where(among(a.item_id, ids))
     statement = insert(Annotation).prefix_with("OR IGNORE").from_select(list(values), source)
-    return db.execute(statement).rowcount
+    copied = db.execute(statement).rowcount
+    return copied + scores.copy_scores(db, project.layer_user_id, source_id, ids)
 
 
 @router.get("/api/projects")
@@ -386,10 +397,14 @@ def list_jobs(
     # The project's classes, plus those of the annotations visible here so they keep their names
     # and colors. Other people's classes stay out.
     own = _jobs(db, project.id)
-    used = select(Annotation.job_id).where(Annotation.user_id == layer_id(project, user))
+    layer = layer_id(project, user)
+    used = select(Annotation.job_id).where(Annotation.user_id == layer)
+    scored = select(Score.job_id).where(Score.user_id == layer)
     item_ids, known = _scope(db, roots(db, project.id))
     if known and item_ids is not None:
         used = used.where(among(Annotation.item_id, item_ids))
+        scored = scored.where(among(Score.item_id, item_ids))
+    used = used.union(scored)
     ids = [j["id"] for j in own]
     others = db.scalars(select(Job).where(Job.id.in_(used), Job.id.not_in(ids)).order_by(Job.id))
     return [{**j, "in_project": True} for j in own] + [

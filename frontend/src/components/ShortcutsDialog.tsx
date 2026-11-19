@@ -16,6 +16,18 @@ const SECTIONS: [string, [string[][], string, Tool?][]][] = [
     ],
   ],
   [
+    "Scoring (projects with score classes)",
+    [
+      [
+        [["0"], ["…"], ["9"]],
+        "Score 0–90; type two digits quickly for any value (9 5 → 95, 1 0 → 100)",
+      ],
+      [[["X"]], "Not scorable"],
+      [[["S"], ["Shift", "S"]], "Next / previous score class"],
+      [[["Enter"], ["Shift", "Enter"]], "Next / previous image"],
+    ],
+  ],
+  [
     "Tools",
     [
       ...TOOLS.map(([id, label, key]): [string[][], string, Tool] => [[[key]], label, id]),

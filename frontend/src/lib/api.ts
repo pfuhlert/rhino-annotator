@@ -1,6 +1,12 @@
 // Histology slides or electron microscopy (ELMI); each image and label class is one or the other.
 export type Kind = "histo" | "elmi";
-export type Job = { id: number; name: string; color: string; kind: Kind };
+// Mask classes are drawn on the image; score classes give each image one 0-100 value.
+export type Mode = "mask" | "score";
+export type Job = { id: number; name: string; color: string; kind: Kind; mode: Mode };
+// A score class's value on an image: 0-100, or "na" when the image is not scorable.
+export type ScoreValue = number | "na";
+// Score class id -> value; classes without a value are missing.
+export type Scores = Record<string, ScoreValue>;
 // in_project: one of the project's label classes; the others only name and color old annotations.
 export type ProjectJob = Job & { in_project: boolean };
 export type Visibility = "private" | "people" | "everyone";
@@ -119,6 +125,7 @@ export type Patch = {
   image: PatchImage;
   nm_per_px: number | null;
   elements: Element[];
+  scores: Scores;
   times: Times;
   // The elements are the project's shared layer; saves name it so a stale tab cannot write them
   // into another layer after sharing changed.
@@ -255,6 +262,15 @@ export const api = {
   aiSubmit: (patchId: number, prompt: AiPrompt & { id: string; job_id: number }) =>
     req<AiTask>(`/patches/${patchId}/ai`, { method: "POST", body: JSON.stringify(prompt) }),
   aiCancel: (id: string) => req(`/patches/ai/${id}`, { method: "DELETE" }),
+  setScore: (patchId: number, shared: boolean, job_id: number, value: ScoreValue) =>
+    req<{ scores: Scores }>(`/patches/${patchId}/scores?shared=${shared}`, {
+      method: "PUT",
+      body: JSON.stringify({ job_id, value }),
+    }),
+  clearScore: (patchId: number, shared: boolean, jobId: number) =>
+    req<{ scores: Scores }>(`/patches/${patchId}/scores/${jobId}?shared=${shared}`, {
+      method: "DELETE",
+    }),
   edit: (patchId: number, shared: boolean, changes: { upsert: Element[]; delete: string[] }) =>
     req<{ times: Times }>(`/patches/${patchId}/annotations?shared=${shared}`, {
       method: "PATCH",

@@ -46,6 +46,8 @@ class Job(Base):
     color: Mapped[str] = mapped_column(String(16))
     # Which images the class is for: "histo" (histology slides) or "elmi" (electron microscopy).
     kind: Mapped[str] = mapped_column(String(8), default="histo", server_default="histo")
+    # "mask": drawn as points and polygons; "score": one 0-100 value (or not scorable) per image.
+    mode: Mapped[str] = mapped_column(String(8), default="mask", server_default="mask")
 
 
 class Patch(Base):
@@ -114,6 +116,23 @@ class Annotation(Base):
     created: Mapped[float | None]
     updated: Mapped[float | None]
     # Who saved it; null for annotations saved before projects. A shared layer has many editors.
+    created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    edited_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+
+
+class Score(Base):
+    __tablename__ = "scores"
+    __table_args__ = (UniqueConstraint("user_id", "item_id", "job_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    item_id: Mapped[str] = mapped_column(String(64), index=True)
+    # The annotation layer: the user's own, or a shared project's layer user.
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    job_id: Mapped[int] = mapped_column(ForeignKey("jobs.id"))
+    # 0-100; null marks the image as not scorable for this class.
+    value: Mapped[int | None]
+    created: Mapped[float]
+    updated: Mapped[float]
     created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     edited_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
 

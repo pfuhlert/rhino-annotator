@@ -22,6 +22,7 @@ import {
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Overlay } from "@/components/Overlay";
+import ScoreDock from "@/components/ScoreDock";
 import {
   Select,
   SelectContent,
@@ -36,6 +37,8 @@ import {
   type Patch,
   type Project,
   type ProjectJob,
+  type ScoreValue,
+  type Scores,
   type Times,
   type ViewRect,
   setRequestProject,
@@ -45,6 +48,7 @@ import { pickerJobs } from "@/lib/projects";
 import { createAnnotationSync } from "@/lib/annotation-sync";
 import { useAi } from "@/lib/use-ai";
 import { isTypingTarget } from "@/lib/keys";
+import { type DigitState, digitScore, isScoreClass, scoreKey } from "@/lib/scores";
 import { type ShareLink, parseShareLink, shareLinkQuery } from "@/lib/share-link";
 import { TOOLS, useEnabledTools } from "@/lib/tools";
 import { errorMessage } from "@/lib/utils";
@@ -136,6 +140,9 @@ function Editor({
     return () => window.clearTimeout(timer);
   }, [view]);
   const [marks, setMarks] = useState<Element[]>([]);
+  const [scores, setScores] = useState<Scores>({});
+  const [chosenScoreId, setScoreId] = useState<number | null>(null);
+  const lastDigit = useRef<DigitState>(null);
   const [times, setTimes] = useState<Times>({});
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selectAfterSwitch = useRef<string | null>(null);
@@ -171,10 +178,21 @@ function Editor({
   );
   // The project's classes for another image kind join the other labels on this image.
   const kind = patch?.kind;
+  // Mask classes are drawn; score classes have the score dock instead.
   const jobs = useMemo(
-    () => allJobs.map((j) => ({ ...j, in_project: j.in_project && (!kind || j.kind === kind) })),
+    () =>
+      allJobs
+        .filter((j) => !isScoreClass(j))
+        .map((j) => ({ ...j, in_project: j.in_project && (!kind || j.kind === kind) })),
     [allJobs, kind],
   );
+  const scoreJobs = useMemo(
+    () => allJobs.filter((j) => isScoreClass(j) && j.in_project && (!kind || j.kind === kind)),
+    [allJobs, kind],
+  );
+  const scoreId = scoreJobs.some((j) => j.id === chosenScoreId)
+    ? chosenScoreId
+    : (scoreJobs[0]?.id ?? null);
   // Each image starts on a class of its kind, unless the project has none for it.
   useEffect(() => {
     const own = jobs.filter((j) => j.in_project);
@@ -215,6 +233,8 @@ function Editor({
     setOpenCount((n) => n + 1);
     setPatch(next);
     setMarks(next.elements);
+    setScores(next.scores ?? {});
+    lastDigit.current = null;
     setTimes(next.times);
     setSelectedId(null);
     setLoadError(null);
@@ -291,7 +311,7 @@ function Editor({
         const [who, jobList] = await Promise.all([api.me(), api.jobs()]);
         setMe(who);
         setJobs(jobList);
-        const own = jobList.filter((j) => j.in_project);
+        const own = jobList.filter((j) => j.in_project && !isScoreClass(j));
         const job = own.find((j) => j.id === who.last_job_id)?.id ?? own[0]?.id ?? null;
         setJobId(job);
         if (job != null && job !== who.last_job_id) setMe(await api.setJob(job));
@@ -354,6 +374,62 @@ function Editor({
     });
     window.history.replaceState(null, "", `/annotate?project=${project.id}&${query}`);
   }, [patch, slideView, project]);
+
+  // Optimistic, so quick keys build on each other; a failed save reloads the image's scores.
+  async function saveScore(jobId: number, value: ScoreValue | null) {
+    const open = patchRef.current;
+    if (!open) return;
+    setScores((cur) => {
+      const next = { ...cur };
+      if (value === null) delete next[jobId];
+      else next[jobId] = value;
+      return next;
+    });
+    try {
+      const saved =
+        value === null
+          ? await api.clearScore(open.id, open.shared_layer, jobId)
+          : await api.setScore(open.id, open.shared_layer, jobId, value);
+      if (patchRef.current?.id === open.id) setScores(saved.scores);
+      setSaves((n) => n + 1);
+    } catch (error) {
+      const stale = (error as { status?: number }).status === 412;
+      setSaveError({
+        stale,
+        message: stale
+          ? "This project's sharing changed, so the score was not saved. Reload the page to score the current layer."
+          : `The score could not be saved. ${errorMessage(error)}`,
+      });
+      if (patchRef.current?.id === open.id)
+        void api.currentPatch().then(
+          (cur) => cur.id === open.id && setScores(cur.scores),
+          () => {},
+        );
+    }
+  }
+
+  // Digits, X, S and Enter score the active score class; true when the key was used.
+  function handleScoreKey(e: KeyboardEvent) {
+    if (!patch || scoreId == null) return false;
+    const action = scoreKey(e);
+    if (action === null) return false;
+    e.preventDefault();
+    e.stopPropagation();
+    if (typeof action === "number") {
+      const { value, state } = digitScore(action, Date.now(), lastDigit.current);
+      lastDigit.current = state;
+      void saveScore(scoreId, value);
+      return true;
+    }
+    lastDigit.current = null;
+    if (action.kind === "set") void saveScore(scoreId, action.value);
+    else if (action.kind === "class") {
+      const i = scoreJobs.findIndex((j) => j.id === scoreId);
+      const n = scoreJobs.length;
+      setScoreId(scoreJobs[(i + action.step + n) % n].id);
+    } else void finish(action.kind);
+    return true;
+  }
 
   async function switchJob(id: number) {
     setJobId(id);
@@ -437,7 +513,7 @@ function Editor({
 
   // Without a patch there is nothing to save, e.g. after the folder's first image failed to load.
   async function go(load: () => Promise<Patch>, initial?: (next: Patch) => ViewRect) {
-    if (jobId == null || busy) return;
+    if (busy) return;
     setBusy(true);
     try {
       await stainSave.current;
@@ -550,6 +626,7 @@ function Editor({
         setTool(enabledTools[(enabledTools.indexOf(tool) + dir + n) % n]);
         return;
       }
+      if (handleScoreKey(e)) return;
       if (k === "escape" && !annoRef.current?.cancelDraft()) cancelLatestPending();
       const keyed = TOOLS.find(([, , key]) => key.toLowerCase() === k)?.[0];
       if (!e.ctrlKey && !e.metaKey && !e.altKey && keyed && enabledTools.includes(keyed)) {
@@ -579,7 +656,9 @@ function Editor({
     return () => window.removeEventListener("keydown", onKey, true);
   }, []);
 
-  if (!me || !project || jobId == null) {
+  // A project of only score classes has no class to draw with.
+  const drawable = jobId != null;
+  if (!me || !project || (!drawable && jobs.some((j) => j.in_project))) {
     return (
       <main className="flex min-h-full items-center justify-center text-sm text-muted-foreground">
         {loadError ? <LoadError message={loadError} /> : "Loading"}
@@ -658,13 +737,13 @@ function Editor({
               setView({ patchId: patch.id, rect, prepare: patch.image.prepare_view })
             }
             pending={pending}
-            onAiPrompt={(prompt) => ai.submit(patch.id, jobId, prompt)}
+            onAiPrompt={(prompt) => jobId != null && ai.submit(patch.id, jobId, prompt)}
             onRemote={(elements) => sync.current?.accept(elements)}
             nmPerPixel={patch.nm_per_px}
-            jobId={jobId}
+            jobId={jobId ?? -1}
             jobs={canvasJobs}
             marks={patch.elements}
-            tool={tool}
+            tool={drawable ? tool : "hand"}
             radius={brushRadius}
             onRadiusChange={setBrushRadius}
             onReady={(a) => {
@@ -715,10 +794,14 @@ function Editor({
             </div>
           )}
           <footer className="pointer-events-none absolute inset-x-0 bottom-0 z-10 px-4 py-4">
-            {patch.slide && (
-              <SlideMap
-                slide={patch.slide}
-                image={patch.image}
+            {patch.slide && <SlideMap slide={patch.slide} image={patch.image} />}
+            {scoreJobs.length > 0 && scoreId != null && (
+              <ScoreDock
+                jobs={scoreJobs}
+                scores={scores}
+                activeId={scoreId}
+                onActivate={setScoreId}
+                onScore={(id, value) => void saveScore(id, value)}
               />
             )}
             <TooltipProvider>
@@ -736,99 +819,110 @@ function Editor({
                 >
                   <ArrowLeft />
                 </ToolbarButton>
-                <ToolbarDivider />
-                <Select
-                  value={String(jobId)}
-                  open={openMenu === "job"}
-                  onOpenChange={toggleMenu("job")}
-                  onValueChange={(id) => void switchJob(Number(id))}
-                >
-                  <SelectTrigger
-                    data-testid="job-switcher"
-                    aria-label="Job"
-                    className={toolbarChip}
-                  >
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent
-                    position="popper"
-                    align="center"
-                    side="top"
-                    sideOffset={8}
-                    className={toolbarMenu}
-                  >
-                    {pickerJobs(jobs, jobId).map((j) => (
-                      <SelectItem
-                        key={j.id}
-                        value={String(j.id)}
-                        data-testid={`job-${j.name}`}
-                        className={toolbarMenuItem}
+                {drawable && (
+                  <>
+                    <ToolbarDivider />
+                    <Select
+                      value={String(jobId)}
+                      open={openMenu === "job"}
+                      onOpenChange={toggleMenu("job")}
+                      onValueChange={(id) => void switchJob(Number(id))}
+                    >
+                      <SelectTrigger
+                        data-testid="job-switcher"
+                        aria-label="Job"
+                        className={toolbarChip}
                       >
-                        <span
-                          className="h-2.5 w-2.5 shrink-0 rounded-full"
-                          style={{ background: j.color }}
-                        />
-                        {j.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Select
-                  value={tool}
-                  open={openMenu === "tool"}
-                  onOpenChange={toggleMenu("tool")}
-                  onValueChange={(id) => setTool(id as Tool)}
-                >
-                  <SelectTrigger
-                    data-testid="tool-switcher"
-                    aria-label="Tool"
-                    className={toolbarChip}
-                  >
-                    <SelectValue>{TOOLS.find(([id]) => id === tool)?.[1]}</SelectValue>
-                  </SelectTrigger>
-                  <SelectContent
-                    position="popper"
-                    align="center"
-                    side="top"
-                    sideOffset={8}
-                    className={toolbarMenu}
-                  >
-                    {TOOLS.filter(([id]) => enabledTools.includes(id)).map(([id, label, key]) => (
-                      <SelectItem
-                        key={id}
-                        value={id}
-                        data-testid={`tool-${id}`}
-                        className={cn(
-                          toolbarMenuItem,
-                          "*:[span]:last:flex-1 *:[span]:last:justify-between",
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent
+                        position="popper"
+                        align="center"
+                        side="top"
+                        sideOffset={8}
+                        className={toolbarMenu}
+                      >
+                        {pickerJobs(jobs, jobId).map((j) => (
+                          <SelectItem
+                            key={j.id}
+                            value={String(j.id)}
+                            data-testid={`job-${j.name}`}
+                            className={toolbarMenuItem}
+                          >
+                            <span
+                              className="h-2.5 w-2.5 shrink-0 rounded-full"
+                              style={{ background: j.color }}
+                            />
+                            {j.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Select
+                      value={tool}
+                      open={openMenu === "tool"}
+                      onOpenChange={toggleMenu("tool")}
+                      onValueChange={(id) => setTool(id as Tool)}
+                    >
+                      <SelectTrigger
+                        data-testid="tool-switcher"
+                        aria-label="Tool"
+                        className={toolbarChip}
+                      >
+                        <SelectValue>{TOOLS.find(([id]) => id === tool)?.[1]}</SelectValue>
+                      </SelectTrigger>
+                      <SelectContent
+                        position="popper"
+                        align="center"
+                        side="top"
+                        sideOffset={8}
+                        className={toolbarMenu}
+                      >
+                        {TOOLS.filter(([id]) => enabledTools.includes(id)).map(
+                          ([id, label, key]) => (
+                            <SelectItem
+                              key={id}
+                              value={id}
+                              data-testid={`tool-${id}`}
+                              className={cn(
+                                toolbarMenuItem,
+                                "*:[span]:last:flex-1 *:[span]:last:justify-between",
+                              )}
+                            >
+                              {label}
+                              <Kbd>{key}</Kbd>
+                            </SelectItem>
+                          ),
                         )}
-                      >
-                        {label}
-                        <Kbd>{key}</Kbd>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {tool === "brush" && (
-                  <BrushSizeControl
-                    value={brushRadius}
-                    onChange={setBrushRadius}
-                    open={openMenu === "size"}
-                    onOpenChange={toggleMenu("size")}
-                  />
+                      </SelectContent>
+                    </Select>
+                    {tool === "brush" && (
+                      <BrushSizeControl
+                        value={brushRadius}
+                        onChange={setBrushRadius}
+                        open={openMenu === "size"}
+                        onOpenChange={toggleMenu("size")}
+                      />
+                    )}
+                    <ToolbarDivider />
+                    <ToolbarButton
+                      data-testid="undo"
+                      label="Undo"
+                      shortcut={`${MOD}+Z`}
+                      onClick={undo}
+                    >
+                      <Undo2 />
+                    </ToolbarButton>
+                    <ToolbarButton
+                      data-testid="redo"
+                      label="Redo"
+                      shortcut={`${MOD}+Y`}
+                      onClick={() => annoRef.current?.redo()}
+                    >
+                      <Redo2 />
+                    </ToolbarButton>
+                  </>
                 )}
-                <ToolbarDivider />
-                <ToolbarButton data-testid="undo" label="Undo" shortcut={`${MOD}+Z`} onClick={undo}>
-                  <Undo2 />
-                </ToolbarButton>
-                <ToolbarButton
-                  data-testid="redo"
-                  label="Redo"
-                  shortcut={`${MOD}+Y`}
-                  onClick={() => annoRef.current?.redo()}
-                >
-                  <Redo2 />
-                </ToolbarButton>
                 <ToolbarDivider />
                 <ToolbarButton
                   data-testid="next"

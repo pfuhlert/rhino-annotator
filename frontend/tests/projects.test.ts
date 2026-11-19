@@ -5,9 +5,30 @@ import { adaptLabels, folderKinds, pickerJobs } from "../src/lib/projects";
 
 test("the label picker offers project classes plus an old class being edited", () => {
   const jobs = [
-    { id: 1, name: "GBM", color: "#e11d48", kind: "histo" as const, in_project: true },
-    { id: 2, name: "Tubule", color: "#2563eb", kind: "histo" as const, in_project: false },
-    { id: 3, name: "Vessel", color: "#059669", kind: "histo" as const, in_project: false },
+    {
+      id: 1,
+      name: "GBM",
+      color: "#e11d48",
+      kind: "histo" as const,
+      mode: "mask" as const,
+      in_project: true,
+    },
+    {
+      id: 2,
+      name: "Tubule",
+      color: "#2563eb",
+      kind: "histo" as const,
+      mode: "mask" as const,
+      in_project: false,
+    },
+    {
+      id: 3,
+      name: "Vessel",
+      color: "#059669",
+      kind: "histo" as const,
+      mode: "mask" as const,
+      in_project: false,
+    },
   ];
   assert.deepEqual(
     pickerJobs(jobs, 1).map((j) => j.id),
@@ -21,10 +42,10 @@ test("the label picker offers project classes plus an old class being edited", (
 
 test("label classes follow the kinds of images in the project's folders", () => {
   const presets: Record<"histo" | "elmi", Job[]> = {
-    histo: [{ id: 1, name: "Tubule", color: "#2563eb", kind: "histo" }],
+    histo: [{ id: 1, name: "Tubule", color: "#2563eb", kind: "histo", mode: "mask" }],
     elmi: [
-      { id: 2, name: "GBM", color: "#e11d48", kind: "elmi" },
-      { id: 3, name: "Podocyte", color: "#2563eb", kind: "elmi" },
+      { id: 2, name: "GBM", color: "#e11d48", kind: "elmi", mode: "mask" },
+      { id: 3, name: "Podocyte", color: "#2563eb", kind: "elmi", mode: "mask" },
     ],
   };
   const histo = [{ id: "h", path: "/collection/Histology", kind: "histo" as const }];
@@ -45,7 +66,7 @@ test("label classes follow the kinds of images in the project's folders", () => 
   // Removing the ELMI folder keeps a recolored preset and a custom class.
   const edited = [
     ...withElmi.map((l) => (l.name === "GBM" ? { ...l, color: "#000000" } : l)),
-    { name: "Deposit", color: "#ffffff", kind: "elmi" as const },
+    { name: "Deposit", color: "#ffffff", kind: "elmi" as const, mode: "mask" as const },
   ];
   assert.deepEqual(
     adaptLabels(edited, folderKinds(both), folderKinds(histo), presets).map((l) => l.name),

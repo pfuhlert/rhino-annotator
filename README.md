@@ -1,6 +1,14 @@
-# <img src="frontend/src/app/icon.svg" width="36" align="top" alt=""> JustAnnotate
+# <img src="frontend/src/app/icon.svg" width="36" align="top" alt=""> Rhino Annotator
 
-Web app for annotating EM and histology images from Girder, with AI-assisted point and box segmentation (SAM / μSAM). Next.js frontend in `frontend/`, FastAPI backend and GPU AI worker in `backend/`, data in SQLite.
+Web app for annotating EM and histology images from Girder: draw masks (with AI-assisted point and box segmentation, SAM / μSAM) and score images from 0 to 100. Next.js frontend in `frontend/`, FastAPI backend and GPU AI worker in `backend/`, data in SQLite.
+
+Based on [JustAnnotate](https://github.com/dschaub95/simple-annotator) and the slider scoring of [TEM Scorer](https://github.com/dschaub95/tem-scorer), both by Darius Schaub.
+
+## Mask and score classes
+
+Each label class in a project is either a **mask** class, drawn on the image as polygons, brush strokes or points, or a **score** class, which gives each image one value from 0 to 100, or marks it not scorable. Add them in the project settings with **+ Mask** or **+ Score**; a project can mix both. An existing class keeps its mode in every project.
+
+Score classes show a slider dock above the toolbar. Keys: `0`–`9` score in tens and two digits typed quickly give any value (`9 5` → 95, `1 0` → 100), `X` marks the image not scorable, `S` / `Shift+S` switch between score classes, `Enter` / `Shift+Enter` go to the next / previous image. Scores save immediately, are shared like annotations in shared projects, and appear in the CSV export as rows of type `score` with a `score` column (empty = not scorable).
 
 ## Development
 

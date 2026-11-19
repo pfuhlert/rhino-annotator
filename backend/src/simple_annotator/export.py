@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 from simple_annotator.auth import current_user
 from simple_annotator.db import among, get_db
 from simple_annotator.girder import image_nm_per_px, item_folder_path
-from simple_annotator.models import Annotation, Job, Project, Slide, User
+from simple_annotator.models import Annotation, Job, Project, Score, Slide, User
 from simple_annotator.projects import indexed_ids
 from simple_annotator.scope import current_project, layer_id
 
@@ -28,6 +28,7 @@ COLUMNS = [
     "job",
     "type",
     "annotation_id",
+    "score",
     "x",
     "y",
     "area_px",
@@ -118,6 +119,28 @@ def rows(db: Session, layer: int, item_ids: list[str] | None, zone: tzinfo):
                 "edited_by": users.get(a.edited_by, ""),
                 "geometry": shapely.to_wkt(geometry, rounding_precision=-1),
             }
+    yield from score_rows(db, layer, item_ids, zone, jobs, users)
+
+
+def score_rows(db: Session, layer: int, item_ids, zone: tzinfo, jobs: dict, users: dict):
+    # One row per scored image and score class; an empty score means not scorable.
+    query = select(Score).where(Score.user_id == layer)
+    if item_ids is not None:
+        query = query.where(among(Score.item_id, item_ids))
+    for s in db.scalars(query.order_by(Score.item_id, Score.job_id)):
+        slide = db.get(Slide, s.item_id)
+        yield {
+            "folder": item_folder_path(s.item_id),
+            "image": slide.name if slide else "",
+            "image_id": s.item_id,
+            "job": jobs.get(s.job_id, ""),
+            "type": "score",
+            "score": "" if s.value is None else s.value,
+            "created": local_time(s.created, zone),
+            "updated": local_time(s.updated, zone),
+            "created_by": users.get(s.created_by, ""),
+            "edited_by": users.get(s.edited_by, ""),
+        }
 
 
 @router.get("/export.csv")
