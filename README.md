@@ -12,6 +12,8 @@ Score classes show a slider dock above the toolbar. Keys: `0`–`9` score in ten
 
 ## Run it
 
+For the long-lived pod in the `rhino` Kubernetes namespace, follow [deploy/README.md](deploy/README.md). The steps below run it on any machine with Node and uv.
+
 Put Girder settings in `.env` at the repo root:
 
 ```bash
