@@ -25,7 +25,6 @@ spec:
       securityContext:
         runAsNonRoot: true
         runAsUser: 2828
-        runAsGroup: 1735
         seccompProfile:
           type: RuntimeDefault
       containers:
@@ -39,13 +38,13 @@ spec:
           imagePullPolicy: Always
           name: ${APPNAME}
           resources:
-            # One GPU slice for the AI worker (SAM / μSAM), like the other pods in rhino.
+            # Same as the rhino pod: one GPU slice for the AI worker (SAM / μSAM).
             limits:
-              memory: 32Gi
+              memory: 48Gi
               nvidia.com/mig-1g.35gb: "1"
             requests:
-              cpu: "8"
-              memory: 32Gi
+              cpu: "1"
+              memory: 48Gi
               nvidia.com/mig-1g.35gb: "1"
           securityContext:
             allowPrivilegeEscalation: false

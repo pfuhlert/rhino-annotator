@@ -39,8 +39,8 @@ Login to the remote registry before building: `podman login cr.ims.bio`
 ./start.sh
 ```
 
-The pod is `rhino-annotator-0`. It asks for one GPU slice (`nvidia.com/mig-1g.35gb`), 8 CPUs and
-32Gi of memory. Wait until it is `Running`:
+The pod is `rhino-annotator-0`. It asks for the same as the `rhino` pod: one GPU slice
+(`nvidia.com/mig-1g.35gb`), 1 CPU and 48Gi of memory. Wait until it is `Running`:
 
 ```bash
 kubectl get pod -n rhino rhino-annotator-0 -w
