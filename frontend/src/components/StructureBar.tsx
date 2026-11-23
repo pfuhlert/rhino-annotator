@@ -1,7 +1,8 @@
 "use client";
 
 import { cn } from "cn";
-import { CheckCheckIcon, RotateCcwIcon } from "lucide-react";
+import { CheckCheckIcon, PlusIcon, RotateCcwIcon } from "lucide-react";
+import { useState } from "react";
 import type { Job } from "@/lib/api";
 import { type EditorMode, structureKeyLabel } from "@/lib/structures";
 
@@ -19,6 +20,7 @@ export default function StructureBar({
   complete,
   onComplete,
   onReset,
+  onAdd,
 }: {
   // null when the project has only one kind of class.
   mode: EditorMode | null;
@@ -30,7 +32,15 @@ export default function StructureBar({
   complete: boolean;
   onComplete: (complete: boolean) => void;
   onReset: () => void;
+  // Adds a mask class by name; absent when this user cannot change the project.
+  onAdd?: (name: string) => void;
 }) {
+  const [naming, setNaming] = useState<string | null>(null);
+  function add() {
+    const name = naming?.trim();
+    setNaming(null);
+    if (name) onAdd?.(name);
+  }
   const showStructures = mode !== "scores" && jobs.length > 0;
   if (!mode && !showStructures) return null;
   return (
@@ -94,6 +104,34 @@ export default function StructureBar({
               </button>
             );
           })}
+          {onAdd &&
+            (naming === null ? (
+              <button
+                type="button"
+                data-testid="add-structure"
+                title="Add a mask class to this project"
+                className="flex items-center gap-2 rounded-xl py-1 pr-3 pl-1.5 text-left text-neutral-600 hover:bg-black/5 dark:text-neutral-300 dark:hover:bg-white/10"
+                onClick={() => setNaming("")}
+              >
+                <PlusIcon className="size-5 p-0.5 text-neutral-400" />
+                New structure
+              </button>
+            ) : (
+              <input
+                data-testid="new-structure"
+                autoFocus
+                maxLength={64}
+                placeholder="Structure name"
+                className="mx-1 my-0.5 w-36 rounded-lg border border-black/15 bg-white px-2 py-1 text-sm outline-none focus:border-black/40 dark:border-white/15 dark:bg-neutral-800"
+                value={naming}
+                onChange={(e) => setNaming(e.target.value)}
+                onBlur={add}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") add();
+                  if (e.key === "Escape") setNaming(null);
+                }}
+              />
+            ))}
           <button
             type="button"
             data-testid="image-complete"

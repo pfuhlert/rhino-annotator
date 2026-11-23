@@ -208,6 +208,8 @@ export const api = {
   setSplitHisto: (split_histo: boolean) =>
     req<Me>("/me", { method: "PATCH", body: JSON.stringify({ split_histo }) }),
   jobs: () => req<ProjectJob[]>("/jobs"),
+  addMaskClass: (projectId: number, body: { name: string; color: string; kind: Kind }) =>
+    req<Job>(`/api/projects/${projectId}/jobs`, { method: "POST", body: JSON.stringify(body) }),
   jobPresets: () => req<Record<Kind, Job[]>>("/jobs/presets"),
   // Scoped: limited to the current project's folders, as in the sidebar.
   folders: (parent_id?: string | null, scoped = false) => {

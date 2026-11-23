@@ -8,6 +8,8 @@ Based on [JustAnnotate](https://github.com/dschaub95/simple-annotator) and the s
 
 Each label class in a project is either a **mask** class, drawn on the image as polygons, brush strokes or points, or a **score** class, which gives each image one value from 0 to 100, or marks it not scorable. Add them in the project settings with **+ Mask** or **+ Score**; a project can mix both. An existing class keeps its mode in every project.
 
+The project owner can also add a mask class while annotating: **New structure** at the bottom of the structure column takes a name and selects the new class. Typing a name the project already has picks that class.
+
 Score classes show a slider dock above the toolbar. Keys: `0`–`9` score in tens and two digits typed quickly give any value (`9 5` → 95, `1 0` → 100), `X` marks the image not scorable, `S` / `Shift+S` switch between score classes, `Enter` / `Shift+Enter` go to the next / previous image. Scores save immediately, are shared like annotations in shared projects, and appear in the CSV export as rows of type `score` with a `score` column (empty = not scorable).
 
 ## Complete images

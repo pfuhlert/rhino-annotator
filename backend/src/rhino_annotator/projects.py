@@ -50,6 +50,12 @@ class JobIn(BaseModel):
     mode: Literal["mask", "score"] = "mask"
 
 
+class NewMask(BaseModel):
+    name: str = Field(min_length=1, max_length=64)
+    color: str = Field(pattern=r"^#[0-9a-fA-F]{6}$")
+    kind: Literal["histo", "elmi"]
+
+
 class ProjectIn(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=128)
     folders: list[str] | None = None
@@ -278,6 +284,30 @@ def update_project(
         _set_jobs(db, project, body.jobs)
     db.commit()
     return project_json(db, project, user)
+
+
+@router.post("/api/projects/{project_id}/jobs")
+def add_mask_class(
+    project_id: int,
+    body: NewMask,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    # From the editor: a new mask class joins the end of the project's list.
+    project = _get(db, project_id, user, owner=True)
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(400, "A class needs a name.")
+    for job in _jobs(db, project.id):
+        if job["name"].lower() == name.lower() and job["kind"] == body.kind:
+            # Typing a name the project already has picks that class.
+            return job
+    job = Job(name=name, color=body.color, kind=body.kind, mode="mask")
+    db.add(job)
+    db.flush()
+    db.add(ProjectJob(project_id=project.id, job_id=job.id))
+    db.commit()
+    return _job_json(job)
 
 
 @router.put("/api/projects/{project_id}/sharing")

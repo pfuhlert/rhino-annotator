@@ -259,3 +259,18 @@ def test_a_member_who_lost_access_cannot_cancel_ai_results_out_of_the_shared_lay
     assert bob.delete(f"/patches/ai/{task}?project={own['id']}").status_code == 404
     auth.put(f"{url}/sharing", json={"visibility": "everyone"})
     assert f"ai-{task}" in _elements(auth)
+
+
+def test_the_owner_adds_a_mask_class_from_the_editor(auth):
+    project = _create(auth)
+    url = f"/api/projects/{project['id']}/jobs"
+    new = {"name": " Crescent ", "color": "#0891b2", "kind": "elmi"}
+    added = auth.post(url, json=new).json()
+    assert (added["name"], added["mode"], added["kind"]) == ("Crescent", "mask", "elmi")
+    names = [j["name"] for j in auth.get("/jobs").json() if j["in_project"]]
+    assert names == ["Glomerulus", "Crescent"]
+    # The same name again picks the existing class instead of adding a twin.
+    assert auth.post(url, json={**new, "name": "crescent"}).json()["id"] == added["id"]
+
+    auth.put(f"/api/projects/{project['id']}/sharing", json={"visibility": "everyone"})
+    assert _user(auth, "bob").post(url, json=new).status_code == 403

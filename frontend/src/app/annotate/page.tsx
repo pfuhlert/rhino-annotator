@@ -46,7 +46,7 @@ import {
   setRequestProject,
 } from "@/lib/api";
 import type { Tool } from "@/lib/draw";
-import { pickerJobs } from "@/lib/projects";
+import { nextColor, pickerJobs } from "@/lib/projects";
 import { createAnnotationSync } from "@/lib/annotation-sync";
 import { useAi } from "@/lib/use-ai";
 import { isTypingTarget } from "@/lib/keys";
@@ -440,6 +440,19 @@ function Editor({
           (cur) => cur.id === open.id && setComplete(cur.complete),
           () => {},
         );
+    }
+  }
+
+  async function addStructure(name: string) {
+    const open = patchRef.current;
+    if (!open || !project) return;
+    try {
+      const color = nextColor(jobs.map((j) => j.color));
+      const job = await api.addMaskClass(project.id, { name, color, kind: open.kind });
+      setJobs(await api.jobs());
+      await switchJob(job.id);
+    } catch (error) {
+      setSaveError({ stale: false, message: `Could not add “${name}”. ${errorMessage(error)}` });
     }
   }
 
@@ -885,6 +898,7 @@ function Editor({
             complete={complete}
             onComplete={(value) => void saveComplete(value)}
             onReset={resetImage}
+            onAdd={project.is_owner ? (name) => void addStructure(name) : undefined}
           />
           <footer className="pointer-events-none absolute inset-x-0 bottom-0 z-10 px-4 py-4">
             {patch.slide && <SlideMap slide={patch.slide} image={patch.image} />}
