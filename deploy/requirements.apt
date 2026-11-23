@@ -1,0 +1,11 @@
+build-essential
+git
+nano
+wget
+curl
+tmux
+rsync
+zsh
+htop
+sqlite3
+xz-utils

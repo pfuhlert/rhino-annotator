@@ -1,0 +1,112 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  labels:
+    app: ${APPNAME}
+  name: ${APPNAME}
+  namespace: ${NAMESPACE}
+spec:
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Retain
+    whenScaled: Retain
+  podManagementPolicy: OrderedReady
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: ${APPNAME}
+  serviceName: ""
+  template:
+    metadata:
+      labels:
+        app: ${APPNAME}
+    spec:
+      nodeSelector:
+        env: imsb
+      hostname: ${APPNAME}-pod
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 2828
+        seccompProfile:
+          type: RuntimeDefault
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: gpu_memory
+                    operator: In
+                    values:
+                      - "40"
+          # requiredDuringSchedulingIgnoredDuringExecution:
+          #   nodeSelectorTerms:
+          #     - matchExpressions:
+          #         - key: kubernetes.io/hostname
+          #           operator: NotIn
+          #           values:
+          #             - "dummy"
+          #             - "puma"
+      # nodeSelector:
+      #   kubernetes.io/hostname: deltabonn-5 # A100 also possible
+      # - "deltabonn-6"
+      # - "deltabonn-5"
+      containers:
+        - command:
+            - sleep
+            - infinity
+          envFrom:
+            - configMapRef:
+                name: proxy-config
+          image: ${REMOTE_REGISTRY}/${APPNAME}:${APPVERSION}
+          imagePullPolicy: Always
+          name: ${APPNAME}
+          resources:
+            limits:
+              memory: 20Gi
+              nvidia.com/gpu: "1"
+            requests:
+              cpu: "20"
+              memory: 20Gi
+              nvidia.com/gpu: "1"
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+            - mountPath: /dev/shm
+              name: dshm
+            - mountPath: /data/deltabonn-6/
+              name: volume-deltabonn-6
+            - mountPath: /data/poweredge/
+              name: nfs-bonn-pe940
+            - name: epyc
+              mountPath: /data/epyc/
+      dnsPolicy: ClusterFirst
+      enableServiceLinks: true
+      preemptionPolicy: PreemptLowerPriority
+      priority: 0
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      terminationGracePeriodSeconds: 10
+      volumes:
+        - name: dshm
+          emptyDir:
+            medium: Memory
+        - name: volume-deltabonn-6
+          persistentVolumeClaim:
+            claimName: pvc-deltabonn-6
+        - name: nfs-bonn-pe940
+          nfs:
+            path: /data/projectbig/
+            server: bonn-pe940
+        - name: epyc
+          persistentVolumeClaim:
+            claimName: pvc-imsb-bonn-epyc
+  updateStrategy:
+    rollingUpdate:
+      partition: 0
+    type: RollingUpdate
