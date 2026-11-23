@@ -1,6 +1,7 @@
 "use client";
 
 import { cn } from "cn";
+import { CheckCheckIcon } from "lucide-react";
 import type { Job } from "@/lib/api";
 import { type EditorMode, structureKeyLabel } from "@/lib/structures";
 
@@ -15,6 +16,8 @@ export default function StructureBar({
   jobs,
   jobId,
   onPick,
+  complete,
+  onComplete,
 }: {
   // null when the project has only one kind of class.
   mode: EditorMode | null;
@@ -22,6 +25,9 @@ export default function StructureBar({
   jobs: Job[];
   jobId: number | null;
   onPick: (id: number) => void;
+  // Whether the open image's masks are finished.
+  complete: boolean;
+  onComplete: (complete: boolean) => void;
 }) {
   const showStructures = mode !== "scores" && jobs.length > 0;
   if (!mode && !showStructures) return null;
@@ -86,6 +92,22 @@ export default function StructureBar({
               </button>
             );
           })}
+          <button
+            type="button"
+            data-testid="image-complete"
+            aria-pressed={complete}
+            title="Every structure on this image is masked; the rest is background (C)"
+            className={cn(
+              "mt-1 flex items-center gap-2 rounded-xl border-t border-black/10 py-1 pr-3 pl-1.5 text-left hover:bg-black/5 dark:border-white/10 dark:hover:bg-white/10",
+              complete && "bg-emerald-600/15 font-medium text-emerald-800 dark:text-emerald-300",
+            )}
+            onClick={() => onComplete(!complete)}
+          >
+            <CheckCheckIcon
+              className={cn("size-5 p-0.5", complete ? "text-emerald-600" : "text-neutral-400")}
+            />
+            {complete ? "Complete" : "Mark complete"}
+          </button>
         </div>
       )}
     </>

@@ -128,6 +128,8 @@ export type Patch = {
   nm_per_px: number | null;
   elements: Element[];
   scores: Scores;
+  // The masks of this image are finished: unmasked area holds none of the structures.
+  complete: boolean;
   times: Times;
   // The elements are the project's shared layer; saves name it so a stale tab cannot write them
   // into another layer after sharing changed.
@@ -145,6 +147,7 @@ export type ImageRow = {
   regions: number | null;
   visited: number;
   annotations: number;
+  complete: boolean;
   // Whether this user sees a histology slide split by tissue; null for other images and unopened
   // ones.
   split: boolean | null;
@@ -276,6 +279,11 @@ export const api = {
     req<{ scores: Scores }>(`/patches/${patchId}/scores/${jobId}?shared=${shared}`, {
       method: "DELETE",
     }),
+  setComplete: (patchId: number, shared: boolean, complete: boolean) =>
+    req<{ complete: boolean }>(
+      `/patches/${patchId}/complete?complete=${complete}&shared=${shared}`,
+      { method: "PUT" },
+    ),
   edit: (patchId: number, shared: boolean, changes: { upsert: Element[]; delete: string[] }) =>
     req<{ times: Times }>(`/patches/${patchId}/annotations?shared=${shared}`, {
       method: "PATCH",

@@ -89,6 +89,7 @@ test("the magnification filter keeps only the chosen magnifications", () => {
     regions: null,
     visited: 0,
     annotations: 0,
+    complete: false,
     split: null,
   });
   const rows = [row("a", 6000), row("b", 12000), row("c", null)];

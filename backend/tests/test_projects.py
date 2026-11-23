@@ -201,7 +201,7 @@ def test_registering_starts_on_a_private_project_with_the_preset_label_classes(a
         "private",
         True,
     )
-    assert len(project["jobs"]) == 14
+    assert len(project["jobs"]) == 15
     # Other people's classes never reach the label list.
     _create(_user(auth, "bob"), jobs=[{"name": "Secret", "color": "#123456"}])
     assert "Secret" not in {j["name"] for j in auth.get("/jobs").json()}

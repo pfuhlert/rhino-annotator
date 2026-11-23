@@ -51,7 +51,8 @@ ELMI_JOBS = (
     ("Electron dense deposit", "#ea580c"),
     ("Nucleus", "#db2777"),
     ("Mitochondria", "#4f46e5"),
-    ("Other / artifact", "#78716c"),
+    ("Other tissue", "#78716c"),
+    ("Artifact", "#a3a3a3"),
 )
 
 _engine: Engine | None = None
@@ -188,7 +189,8 @@ def _migrate(engine: Engine) -> None:
                 text("UPDATE jobs SET kind = 'elmi' WHERE name IN :names").bindparams(
                     bindparam("names", expanding=True)
                 ),
-                {"names": [name for name, _ in ELMI_JOBS]},
+                # "Other / artifact" was split into "Other tissue" and "Artifact".
+                {"names": [name for name, _ in ELMI_JOBS] + ["Other / artifact"]},
             )
         user_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(users)"))}
         if "current_visit_id" not in user_cols:

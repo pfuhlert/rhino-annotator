@@ -16,6 +16,7 @@ from rhino_annotator.annotations import (
     visible,
 )
 from rhino_annotator.auth import current_user, project_mags, project_stains, set_folder
+from rhino_annotator.completions import is_complete
 from rhino_annotator.config import FULL_IMAGE_MAX, job_ai_model
 from rhino_annotator.db import get_db
 from rhino_annotator.embeddings import queue_image
@@ -72,6 +73,7 @@ def _dump(
         "nm_per_px": nm_per_px,
         "elements": [element_json(a, patch) for a in rows],
         "scores": scores_for(db, layer, patch.girder_item_id),
+        "complete": is_complete(db, layer, patch.girder_item_id),
         "times": times(rows),
         "shared_layer": layer != user.id,
         "slide": slide_view(db, visited_filter(project, user), patch),

@@ -13,7 +13,7 @@ from fastapi.responses import Response
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from rhino_annotator import scores
+from rhino_annotator import completions, scores
 from rhino_annotator.auth import current_user
 from rhino_annotator.db import among, get_db, retry_sqlite_busy, session_factory
 from rhino_annotator.girder import (
@@ -264,6 +264,7 @@ def list_images(
         ).all()
     )
     scored = scores.counts(db, layer_id(project, user), ids)
+    complete = completions.completed(db, layer_id(project, user), ids)
     stains = Counter(staining(item) for item in items)
     mags = Counter(magnification(item) for item in items)
     return {
@@ -280,6 +281,7 @@ def list_images(
                 "staining": staining(item),
                 "magnification": magnification(item),
                 "annotations": annotations.get(item["_id"], 0) + scored.get(item["_id"], 0),
+                "complete": item["_id"] in complete,
                 **progress(item["_id"]),
             }
             for item in items

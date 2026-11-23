@@ -2,7 +2,7 @@
 
 import { type RefObject, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { CheckIcon, ChevronDownIcon, ChevronRightIcon } from "lucide-react";
+import { CheckCheckIcon, CheckIcon, ChevronDownIcon, ChevronRightIcon } from "lucide-react";
 import { cn } from "cn";
 import { api, type ImageCatalog, type ImageRow, imageThumbnailUrl } from "@/lib/api";
 import { copyText } from "@/lib/clipboard";
@@ -88,6 +88,8 @@ function ThumbnailPreview({ preview }: { preview: Preview }) {
 }
 
 function Progress({ row }: { row: ImageRow }) {
+  if (row.complete)
+    return <CheckCheckIcon aria-label="Complete" className="size-3.5 text-emerald-600" />;
   if (row.regions === null) return null;
   if (row.regions === 1)
     return row.visited ? <CheckIcon className="size-3.5 text-muted-foreground" /> : null;

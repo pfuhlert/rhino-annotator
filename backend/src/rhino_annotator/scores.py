@@ -61,7 +61,9 @@ def copy_scores(db: Session, layer: int, source_id: int, ids: list[str] | None) 
     return db.execute(statement).rowcount
 
 
-def _layer(db: Session, user: User, project: Project, patch_id: int, shared: bool | None) -> int:
+def edit_layer(
+    db: Session, user: User, project: Project, patch_id: int, shared: bool | None
+) -> int:
     require_patch(db, user.id, project.id, patch_id)
     lock(db)
     layer = layer_id(project, user)
@@ -86,7 +88,7 @@ def set_score(
     value = None if body.value == "na" else body.value
     if value is not None and not 0 <= value <= 100:
         raise HTTPException(400, "A score is between 0 and 100.")
-    layer = _layer(db, user, project, patch_id, shared)
+    layer = edit_layer(db, user, project, patch_id, shared)
     item_id = db.get(Patch, patch_id).girder_item_id
     key = (Score.user_id == layer, Score.item_id == item_id, Score.job_id == job.id)
     now = time.time()
@@ -118,7 +120,7 @@ def clear_score(
     project: Project = Depends(current_project),
     db: Session = Depends(get_db),
 ) -> dict:
-    layer = _layer(db, user, project, patch_id, shared)
+    layer = edit_layer(db, user, project, patch_id, shared)
     item_id = db.get(Patch, patch_id).girder_item_id
     db.execute(
         delete(Score).where(

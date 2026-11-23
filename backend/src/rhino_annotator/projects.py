@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, insert, literal, literal_column, select, update
 from sqlalchemy.orm import Session
 
-from rhino_annotator import scores
+from rhino_annotator import completions, scores
 from rhino_annotator.auth import current_user
 from rhino_annotator.db import ELMI_JOBS, SEED_JOBS, among, get_db, preset_ids
 from rhino_annotator.girder import (
@@ -226,6 +226,7 @@ def copy_into_layer(db: Session, project: Project, source_id: int, ids: list[str
         source = source.where(among(a.item_id, ids))
     statement = insert(Annotation).prefix_with("OR IGNORE").from_select(list(values), source)
     copied = db.execute(statement).rowcount
+    copied += completions.copy_completions(db, project.layer_user_id, source_id, ids)
     return copied + scores.copy_scores(db, project.layer_user_id, source_id, ids)
 
 

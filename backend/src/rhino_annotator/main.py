@@ -5,7 +5,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from rhino_annotator import ai, auth, export, images, patches, projects, scores
+from rhino_annotator import ai, auth, completions, export, images, patches, projects, scores
 from rhino_annotator.db import init_db
 from rhino_annotator.slides import UnreadableImage
 
@@ -30,6 +30,7 @@ def create_app() -> FastAPI:
     app.include_router(export.router)
     app.include_router(projects.router)
     app.include_router(scores.router)
+    app.include_router(completions.router)
 
     @app.exception_handler(httpx.HTTPError)
     def image_server_error(_request: Request, exc: httpx.HTTPError) -> JSONResponse:

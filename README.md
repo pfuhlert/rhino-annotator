@@ -10,6 +10,10 @@ Each label class in a project is either a **mask** class, drawn on the image as 
 
 Score classes show a slider dock above the toolbar. Keys: `0`–`9` score in tens and two digits typed quickly give any value (`9 5` → 95, `1 0` → 100), `X` marks the image not scorable, `S` / `Shift+S` switch between score classes, `Enter` / `Shift+Enter` go to the next / previous image. Scores save immediately, are shared like annotations in shared projects, and appear in the CSV export as rows of type `score` with a `score` column (empty = not scorable).
 
+## Complete images
+
+**Mark complete** at the bottom of the structure column (key `C`) says an image's masks are finished: every structure on it is masked, and what is left unmasked is background. The image list shows a green double tick, and the CSV export has one row of type `complete` per marked image, including images with no masks. Marks are shared like annotations in shared projects.
+
 ## Run it
 
 For the long-lived pod in the `rhino` Kubernetes namespace, follow [deploy/README.md](deploy/README.md). The steps below run it on any machine with Node and uv.

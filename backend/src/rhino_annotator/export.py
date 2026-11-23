@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 from rhino_annotator.auth import current_user
 from rhino_annotator.db import among, get_db
 from rhino_annotator.girder import image_nm_per_px, item_folder_path
-from rhino_annotator.models import Annotation, Job, Project, Score, Slide, User
+from rhino_annotator.models import Annotation, Completion, Job, Project, Score, Slide, User
 from rhino_annotator.projects import indexed_ids
 from rhino_annotator.scope import current_project, layer_id
 
@@ -120,6 +120,24 @@ def rows(db: Session, layer: int, item_ids: list[str] | None, zone: tzinfo):
                 "geometry": shapely.to_wkt(geometry, rounding_precision=-1),
             }
     yield from score_rows(db, layer, item_ids, zone, jobs, users)
+    yield from completion_rows(db, layer, item_ids, zone, users)
+
+
+def completion_rows(db: Session, layer: int, item_ids, zone: tzinfo, users: dict):
+    # One row per finished image, also when it has no masks: unmasked area there is background.
+    query = select(Completion).where(Completion.user_id == layer)
+    if item_ids is not None:
+        query = query.where(among(Completion.item_id, item_ids))
+    for c in db.scalars(query.order_by(Completion.item_id)):
+        slide = db.get(Slide, c.item_id)
+        yield {
+            "folder": item_folder_path(c.item_id),
+            "image": slide.name if slide else "",
+            "image_id": c.item_id,
+            "type": "complete",
+            "created": local_time(c.created, zone),
+            "created_by": users.get(c.created_by, ""),
+        }
 
 
 def score_rows(db: Session, layer: int, item_ids, zone: tzinfo, jobs: dict, users: dict):

@@ -137,6 +137,19 @@ class Score(Base):
     edited_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
 
 
+class Completion(Base):
+    # An image whose masks are finished: what is left unmasked holds none of the structures.
+    __tablename__ = "completions"
+    __table_args__ = (UniqueConstraint("user_id", "item_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    item_id: Mapped[str] = mapped_column(String(64), index=True)
+    # The annotation layer, as for scores.
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    created: Mapped[float]
+    created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+
+
 class Project(Base):
     __tablename__ = "projects"
 

@@ -20,6 +20,7 @@ const SECTIONS: [string, [string[][], string, Tool?][]][] = [
     [
       [[["V"]], "Switch between the Masks and Scores views (projects with both)"],
       [[["1"], ["…"], ["9"], ["0"]], "Masks view: pick structure 1–10 from the top bar"],
+      [[["C"]], "Masks view: mark the image complete, or not"],
     ],
   ],
   [

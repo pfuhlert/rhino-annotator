@@ -144,6 +144,7 @@ function Editor({
   }, [view]);
   const [marks, setMarks] = useState<Element[]>([]);
   const [scores, setScores] = useState<Scores>({});
+  const [complete, setComplete] = useState(false);
   const [chosenScoreId, setScoreId] = useState<number | null>(null);
   const lastDigit = useRef<DigitState>(null);
   const [chosenMode, setMode] = useState<EditorMode>("masks");
@@ -242,6 +243,7 @@ function Editor({
     setPatch(next);
     setMarks(next.elements);
     setScores(next.scores ?? {});
+    setComplete(next.complete ?? false);
     lastDigit.current = null;
     setTimes(next.times);
     setSelectedId(null);
@@ -411,6 +413,31 @@ function Editor({
       if (patchRef.current?.id === open.id)
         void api.currentPatch().then(
           (cur) => cur.id === open.id && setScores(cur.scores),
+          () => {},
+        );
+    }
+  }
+
+  // Optimistic like scores; a failed save restores the server's mark.
+  async function saveComplete(value: boolean) {
+    const open = patchRef.current;
+    if (!open) return;
+    setComplete(value);
+    try {
+      const saved = await api.setComplete(open.id, open.shared_layer, value);
+      if (patchRef.current?.id === open.id) setComplete(saved.complete);
+      setSaves((n) => n + 1);
+    } catch (error) {
+      const stale = (error as { status?: number }).status === 412;
+      setSaveError({
+        stale,
+        message: stale
+          ? "This project's sharing changed, so the image was not marked. Reload the page to continue."
+          : `The image could not be marked complete. ${errorMessage(error)}`,
+      });
+      if (patchRef.current?.id === open.id)
+        void api.currentPatch().then(
+          (cur) => cur.id === open.id && setComplete(cur.complete),
           () => {},
         );
     }
@@ -662,6 +689,12 @@ function Editor({
           void switchJob(structures[index].id);
           return;
         }
+        if (k === "c") {
+          e.preventDefault();
+          e.stopPropagation();
+          void saveComplete(!complete);
+          return;
+        }
       }
       if (k === "escape" && !annoRef.current?.cancelDraft()) cancelLatestPending();
       const keyed = TOOLS.find(([, , key]) => key.toLowerCase() === k)?.[0];
@@ -836,6 +869,8 @@ function Editor({
             jobs={pickerJobs(jobs, jobId)}
             jobId={jobId}
             onPick={(id) => void switchJob(id)}
+            complete={complete}
+            onComplete={(value) => void saveComplete(value)}
           />
           <footer className="pointer-events-none absolute inset-x-0 bottom-0 z-10 px-4 py-4">
             {patch.slide && <SlideMap slide={patch.slide} image={patch.image} />}
