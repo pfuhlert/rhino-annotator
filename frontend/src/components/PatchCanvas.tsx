@@ -42,6 +42,8 @@ export type AnnotatorApi = {
   select: (id: string) => void;
   remove: (id: string) => void;
   relabel: (id: string, jobId: number) => void;
+  // Removes every mark as one undoable step.
+  clear: () => void;
 };
 
 export default function PatchCanvas({
@@ -181,6 +183,12 @@ export default function PatchCanvas({
       select: (id) => brush.select(id),
       remove: (id) => brush.remove(id),
       relabel: (id, jobId) => brush.relabel(id, jobId),
+      clear: () => {
+        brush.flush();
+        marksRef.current = [];
+        brush.reset();
+        commitRef.current();
+      },
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- bind once; brush/history are ref wrappers
   }, [onReady]);

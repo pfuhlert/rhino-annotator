@@ -443,6 +443,19 @@ function Editor({
     }
   }
 
+  // Masks go through the editor's history, so Ctrl+Z brings them back while the image is open.
+  function resetImage() {
+    const open = patchRef.current;
+    if (!open) return;
+    const question =
+      "Reset this image? Its masks, scores and complete mark are deleted. " +
+      "Ctrl+Z restores the masks until you leave the image; scores are gone.";
+    if (!window.confirm(question)) return;
+    annoRef.current?.clear();
+    for (const jobId of Object.keys(scores)) void saveScore(Number(jobId), null);
+    if (complete) void saveComplete(false);
+  }
+
   // Digits, X, S and Enter score the active score class; true when the key was used.
   function handleScoreKey(e: KeyboardEvent) {
     if (!patch || scoreId == null) return false;
@@ -871,6 +884,7 @@ function Editor({
             onPick={(id) => void switchJob(id)}
             complete={complete}
             onComplete={(value) => void saveComplete(value)}
+            onReset={resetImage}
           />
           <footer className="pointer-events-none absolute inset-x-0 bottom-0 z-10 px-4 py-4">
             {patch.slide && <SlideMap slide={patch.slide} image={patch.image} />}

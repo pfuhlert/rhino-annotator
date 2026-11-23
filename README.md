@@ -14,6 +14,8 @@ Score classes show a slider dock above the toolbar. Keys: `0`–`9` score in ten
 
 **Mark complete** at the bottom of the structure column (key `C`) says an image's masks are finished: every structure on it is masked, and what is left unmasked is background. The image list shows a green double tick, and the CSV export has one row of type `complete` per marked image, including images with no masks. Marks are shared like annotations in shared projects.
 
+**Reset image** below it deletes the open image's masks, scores and complete mark after a confirmation. Ctrl+Z brings the masks back while the image stays open; scores are gone.
+
 ## Run it
 
 For the long-lived pod in the `rhino` Kubernetes namespace, follow [deploy/README.md](deploy/README.md). The steps below run it on any machine with Node and uv.

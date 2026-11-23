@@ -1,7 +1,7 @@
 "use client";
 
 import { cn } from "cn";
-import { CheckCheckIcon } from "lucide-react";
+import { CheckCheckIcon, RotateCcwIcon } from "lucide-react";
 import type { Job } from "@/lib/api";
 import { type EditorMode, structureKeyLabel } from "@/lib/structures";
 
@@ -18,6 +18,7 @@ export default function StructureBar({
   onPick,
   complete,
   onComplete,
+  onReset,
 }: {
   // null when the project has only one kind of class.
   mode: EditorMode | null;
@@ -28,6 +29,7 @@ export default function StructureBar({
   // Whether the open image's masks are finished.
   complete: boolean;
   onComplete: (complete: boolean) => void;
+  onReset: () => void;
 }) {
   const showStructures = mode !== "scores" && jobs.length > 0;
   if (!mode && !showStructures) return null;
@@ -107,6 +109,16 @@ export default function StructureBar({
               className={cn("size-5 p-0.5", complete ? "text-emerald-600" : "text-neutral-400")}
             />
             {complete ? "Complete" : "Mark complete"}
+          </button>
+          <button
+            type="button"
+            data-testid="image-reset"
+            title="Delete this image's masks, scores and complete mark"
+            className="flex items-center gap-2 rounded-xl py-1 pr-3 pl-1.5 text-left text-neutral-600 hover:bg-black/5 dark:text-neutral-300 dark:hover:bg-white/10"
+            onClick={onReset}
+          >
+            <RotateCcwIcon className="size-5 p-0.5 text-neutral-400" />
+            Reset image
           </button>
         </div>
       )}
