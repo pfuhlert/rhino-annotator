@@ -21,36 +21,13 @@ spec:
       labels:
         app: ${APPNAME}
     spec:
-      nodeSelector:
-        env: imsb
       hostname: ${APPNAME}-pod
       securityContext:
         runAsNonRoot: true
         runAsUser: 2828
+        runAsGroup: 1735
         seccompProfile:
           type: RuntimeDefault
-      affinity:
-        nodeAffinity:
-          preferredDuringSchedulingIgnoredDuringExecution:
-            - weight: 100
-              preference:
-                matchExpressions:
-                  - key: gpu_memory
-                    operator: In
-                    values:
-                      - "40"
-          # requiredDuringSchedulingIgnoredDuringExecution:
-          #   nodeSelectorTerms:
-          #     - matchExpressions:
-          #         - key: kubernetes.io/hostname
-          #           operator: NotIn
-          #           values:
-          #             - "dummy"
-          #             - "puma"
-      # nodeSelector:
-      #   kubernetes.io/hostname: deltabonn-5 # A100 also possible
-      # - "deltabonn-6"
-      # - "deltabonn-5"
       containers:
         - command:
             - sleep
@@ -62,13 +39,14 @@ spec:
           imagePullPolicy: Always
           name: ${APPNAME}
           resources:
+            # One GPU slice for the AI worker (SAM / μSAM), like the other pods in rhino.
             limits:
-              memory: 20Gi
-              nvidia.com/gpu: "1"
+              memory: 32Gi
+              nvidia.com/mig-1g.35gb: "1"
             requests:
-              cpu: "20"
-              memory: 20Gi
-              nvidia.com/gpu: "1"
+              cpu: "8"
+              memory: 32Gi
+              nvidia.com/mig-1g.35gb: "1"
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
@@ -79,12 +57,10 @@ spec:
           volumeMounts:
             - mountPath: /dev/shm
               name: dshm
-            - mountPath: /data/deltabonn-6/
-              name: volume-deltabonn-6
-            - mountPath: /data/poweredge/
-              name: nfs-bonn-pe940
-            - name: epyc
-              mountPath: /data/epyc/
+            # Only this one folder of the shared rhino volume: code, database and backups.
+            - mountPath: /data/rhino/${APPNAME}
+              name: rhino-volume-shared
+              subPath: ${APPNAME}
       dnsPolicy: ClusterFirst
       enableServiceLinks: true
       preemptionPolicy: PreemptLowerPriority
@@ -96,16 +72,10 @@ spec:
         - name: dshm
           emptyDir:
             medium: Memory
-        - name: volume-deltabonn-6
+            sizeLimit: 2Gi
+        - name: rhino-volume-shared
           persistentVolumeClaim:
-            claimName: pvc-deltabonn-6
-        - name: nfs-bonn-pe940
-          nfs:
-            path: /data/projectbig/
-            server: bonn-pe940
-        - name: epyc
-          persistentVolumeClaim:
-            claimName: pvc-imsb-bonn-epyc
+            claimName: pvc-rhino-shared
   updateStrategy:
     rollingUpdate:
       partition: 0
