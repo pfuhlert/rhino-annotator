@@ -39,7 +39,7 @@ export default function LoginPage() {
           <div>
             <div className="flex items-center gap-2.5">
               <Image src="/icon.svg" alt="" width={32} height={32} loading="eager" />
-              <h1 className="font-heading text-xl font-medium">JustAnnotate</h1>
+              <h1 className="font-heading text-xl font-medium">Rhino Annotator</h1>
             </div>
             <p className="mt-1 text-sm text-muted-foreground">Sign in to label the next image.</p>
           </div>

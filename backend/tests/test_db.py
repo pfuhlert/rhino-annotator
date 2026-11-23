@@ -5,8 +5,8 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.exc import OperationalError
 
-from simple_annotator import db
-from simple_annotator.models import Job
+from rhino_annotator import db
+from rhino_annotator.models import Job
 
 
 def test_busy_retry_does_not_hide_other_database_errors(client):
@@ -24,7 +24,7 @@ def test_busy_retry_does_not_hide_other_database_errors(client):
 
 
 def _init_together(path, barrier):
-    os.environ["SIMPLE_ANNOTATOR_SQLITE"] = path
+    os.environ["RHINO_ANNOTATOR_SQLITE"] = path
     db.reset_engine()
     barrier.wait(timeout=10)
     db.init_db()
@@ -42,7 +42,7 @@ def test_api_and_worker_can_initialize_a_fresh_database_together(tmp_path, monke
         for process in processes:
             process.join(timeout=20)
             assert process.exitcode == 0
-        monkeypatch.setenv("SIMPLE_ANNOTATOR_SQLITE", path)
+        monkeypatch.setenv("RHINO_ANNOTATOR_SQLITE", path)
         db.reset_engine()
         with db.session_factory()() as session:
             assert set(session.scalars(select(Job.name))) == {

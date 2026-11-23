@@ -1,7 +1,7 @@
 import cv2
 import numpy as np
 
-from simple_annotator.tiling import is_colored, split, tissue_mask, tissue_regions
+from rhino_annotator.tiling import is_colored, split, tissue_mask, tissue_regions
 
 
 def tissue_image(width=400, height=300, center=(100, 150), radius=60) -> np.ndarray:

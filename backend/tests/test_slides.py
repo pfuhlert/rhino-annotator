@@ -9,8 +9,8 @@ from fastapi.testclient import TestClient
 from PIL import Image
 from sqlalchemy import select
 
-from simple_annotator.db import session_factory
-from simple_annotator.models import IMAGE_GRID, Patch, Slide
+from rhino_annotator.db import session_factory
+from rhino_annotator.models import IMAGE_GRID, Patch, Slide
 
 # Thumbnails are 800 x 600 with one tissue disk of radius 80 centred at (150, 150).
 IMAGES = {
@@ -37,7 +37,7 @@ def _png(item_id: str) -> bytes:
 
 @pytest.fixture
 def girder(auth: TestClient, monkeypatch):
-    from simple_annotator import images, patches, slides
+    from rhino_annotator import images, patches, slides
 
     items = [{"_id": "histo", "name": "slide.svs"}]
     monkeypatch.setattr(slides, "girder_enabled", lambda: True)
@@ -74,7 +74,7 @@ def test_histology_patch_is_the_padded_tissue_region_with_slide_view(auth, girde
 
 
 def test_tiles_pass_through_for_the_patch_item(auth, girder, monkeypatch):
-    from simple_annotator import patches
+    from rhino_annotator import patches
 
     monkeypatch.setattr(patches, "tile", lambda *args: (repr(args).encode(), "image/jpeg"))
     patch = auth.get("/patches/current").json()
@@ -85,7 +85,7 @@ def test_tiles_pass_through_for_the_patch_item(auth, girder, monkeypatch):
 
 
 def test_large_regions_prepare_ai_tiles_around_the_view(auth, girder):
-    from simple_annotator.models import AiEmbedding
+    from rhino_annotator.models import AiEmbedding
 
     girder[0] = {"_id": "big", "name": "big.svs"}
     patch = auth.get("/patches/current").json()
@@ -163,7 +163,7 @@ def test_open_image_starts_at_its_first_unvisited_region(auth, girder):
 
 
 def test_next_skips_a_current_image_that_became_unreadable(auth, girder, monkeypatch):
-    from simple_annotator import slides
+    from rhino_annotator import slides
 
     _three_images(girder)
     assert _at(auth.get("/patches/current").json()) == ("small", 0)
@@ -176,7 +176,7 @@ def test_next_skips_a_current_image_that_became_unreadable(auth, girder, monkeyp
 
 
 def test_empty_dataset_is_a_clear_400_everywhere(auth, girder, monkeypatch):
-    from simple_annotator import images
+    from rhino_annotator import images
 
     monkeypatch.setattr(images, "folder_listing", lambda _db, _id: [])
     for response in [auth.get("/images"), auth.post("/patches/open", json={"item_id": "x"})]:
@@ -233,7 +233,7 @@ def test_users_walk_shared_tiles_row_by_row_with_own_annotations(auth, client, g
 
 
 def test_concurrent_first_visits_build_one_grid(girder):
-    from simple_annotator.slides import ensure_slide
+    from rhino_annotator.slides import ensure_slide
 
     def build(_):
         with session_factory()() as db:
@@ -247,8 +247,8 @@ def test_concurrent_first_visits_build_one_grid(girder):
 
 
 def test_old_patch_of_an_unreadable_image_reports_why(auth, girder, monkeypatch):
-    from simple_annotator import slides
-    from simple_annotator.models import PatchVisit, User
+    from rhino_annotator import slides
+    from rhino_annotator.models import PatchVisit, User
 
     monkeypatch.setattr(slides, "get_item", lambda _: {"_id": "gone", "folderId": "f"})
     monkeypatch.setattr(slides, "image_info", lambda _: (None, "Item not found."))
@@ -275,7 +275,7 @@ def test_old_patch_of_an_unreadable_image_reports_why(auth, girder, monkeypatch)
 
 
 def test_rebuilt_slides_keep_their_elmi_folder_and_name(girder, monkeypatch):
-    from simple_annotator import slides
+    from rhino_annotator import slides
 
     item = {"_id": "histo", "name": "colour TEM.tif", "folderId": "elmi"}
     monkeypatch.setattr(slides, "get_item", lambda _: item)
@@ -334,8 +334,8 @@ def test_each_user_picks_a_histology_layout_and_visits_count_across_layouts(auth
 
 @pytest.mark.parametrize("center", [3071, 3072, 3073, 7000])
 def test_histology_boxes_up_to_248_um_fit_wherever_they_sit(center):
-    from simple_annotator.config import HISTO_AI_MODEL
-    from simple_annotator.embeddings import prompt_regions
+    from rhino_annotator.config import HISTO_AI_MODEL
+    from rhino_annotator.embeddings import prompt_regions
 
     # 242.5 nm/px: 3072 px cores with a 512 px halo; a 248 µm box is 1024 px wide.
     request = {"model": HISTO_AI_MODEL.name, "width": 10000, "height": 10000, "nm_per_px": 242.5}
@@ -347,8 +347,8 @@ def test_histology_boxes_up_to_248_um_fit_wherever_they_sit(center):
 
 
 def test_histology_prompts_and_preparation_use_default_sam(auth, girder):
-    from simple_annotator.config import HISTO_AI_MODEL
-    from simple_annotator.models import AiEmbedding
+    from rhino_annotator.config import HISTO_AI_MODEL
+    from rhino_annotator.models import AiEmbedding
 
     patch = auth.get("/patches/current").json()
     with session_factory()() as db:

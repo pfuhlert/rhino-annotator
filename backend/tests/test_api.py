@@ -126,8 +126,8 @@ def test_stain_filter_is_kept_per_folder_choice(auth: TestClient):
 
 
 def test_shared_link_switches_dataset_and_reopens_without_a_new_visit(auth: TestClient):
-    from simple_annotator.db import session_factory
-    from simple_annotator.models import PatchVisit
+    from rhino_annotator.db import session_factory
+    from rhino_annotator.models import PatchVisit
 
     first = auth.get("/patches/current").json()
     auth.patch("/me", json={"stain_filter": ["PAS"]})
@@ -146,7 +146,7 @@ def test_shared_link_switches_dataset_and_reopens_without_a_new_visit(auth: Test
 
 
 def test_new_girder_user_can_load_folder_picker(auth, monkeypatch):
-    from simple_annotator import girder
+    from rhino_annotator import girder
 
     monkeypatch.setenv("GIRDER_TOKEN", "test")
     monkeypatch.setattr(girder, "_kids_cache", {})
@@ -175,7 +175,7 @@ def test_new_girder_user_can_load_folder_picker(auth, monkeypatch):
 def test_folder_migration_preserves_history(auth, monkeypatch, existing_columns, legacy_folder):
     from sqlalchemy import text
 
-    from simple_annotator import db
+    from rhino_annotator import db
 
     monkeypatch.setenv("GIRDER_FOLDER_ID", legacy_folder)
     first = auth.get("/patches/current").json()
@@ -213,9 +213,9 @@ def test_annotation_saves_preserve_selected_job(auth: TestClient):
 
 
 def test_patch_calibration_follows_image_through_history(auth, monkeypatch):
-    from simple_annotator import patches, slides
-    from simple_annotator.db import session_factory
-    from simple_annotator.models import IMAGE_GRID, Patch
+    from rhino_annotator import patches, slides
+    from rhino_annotator.db import session_factory
+    from rhino_annotator.models import IMAGE_GRID, Patch
 
     existing = auth.get("/patches/current").json()
     assert existing["nm_per_px"] is None
@@ -242,8 +242,8 @@ def test_patch_calibration_follows_image_through_history(auth, monkeypatch):
 
 def _overlapping_patch(first: dict) -> None:
     # Histology regions may overlap; another patch of the placeholder image stands in for one.
-    from simple_annotator.db import session_factory
-    from simple_annotator.models import IMAGE_GRID, Patch
+    from rhino_annotator.db import session_factory
+    from rhino_annotator.models import IMAGE_GRID, Patch
 
     image = first["image"]
     with session_factory()() as db:
@@ -283,7 +283,7 @@ def test_annotations_follow_the_image_into_overlapping_patches(auth):
 def _legacy_annotations(rows, user_id):
     from sqlalchemy import text
 
-    from simple_annotator import db
+    from rhino_annotator import db
 
     with db.get_engine().begin() as conn:
         conn.execute(text("DROP TABLE annotations"))
@@ -302,9 +302,9 @@ def _legacy_annotations(rows, user_id):
 
 
 def test_patch_annotations_migrate_to_image_coordinates(auth):
-    from simple_annotator import db
-    from simple_annotator.config import sqlite_path
-    from simple_annotator.models import Patch
+    from rhino_annotator import db
+    from rhino_annotator.config import sqlite_path
+    from rhino_annotator.models import Patch
 
     first = auth.get("/patches/current").json()
     _overlapping_patch(first)
@@ -341,8 +341,8 @@ def test_patch_annotations_migrate_to_image_coordinates(auth):
 
 
 def test_failed_annotation_migration_leaves_the_old_table_intact(auth, monkeypatch):
-    from simple_annotator import db
-    from simple_annotator.config import sqlite_path
+    from rhino_annotator import db
+    from rhino_annotator.config import sqlite_path
 
     patch = auth.get("/patches/current").json()
     _legacy_annotations([(patch["id"], [{"type": "point", "points": [[1, 2]]}])], 1)
@@ -380,7 +380,7 @@ def test_annotations_without_valid_points_are_rejected(auth, points):
 
 
 def test_image_server_failure_returns_clear_error(auth: TestClient, monkeypatch):
-    from simple_annotator import patches
+    from rhino_annotator import patches
 
     tile_url = auth.get("/patches/current").json()["image"]["tile_url"].format(z=0, x=0, y=0)
     request = httpx.Request("GET", "https://girder.test/item/x/tiles/zxy/0/0/0")
@@ -405,7 +405,7 @@ def test_image_server_failure_returns_clear_error(auth: TestClient, monkeypatch)
 
 
 def test_folder_rows_count_own_images_next_to_subfolders(auth, monkeypatch):
-    from simple_annotator import girder
+    from rhino_annotator import girder
 
     monkeypatch.setenv("GIRDER_TOKEN", "test")
     monkeypatch.setattr(girder, "_kids_cache", {})
@@ -439,9 +439,9 @@ def test_folder_rows_count_own_images_next_to_subfolders(auth, monkeypatch):
 
 
 def test_unreadable_dataset_explains_why(auth, monkeypatch):
-    from simple_annotator import girder
-    from simple_annotator.db import session_factory
-    from simple_annotator.models import FolderImages
+    from rhino_annotator import girder
+    from rhino_annotator.db import session_factory
+    from rhino_annotator.models import FolderImages
 
     monkeypatch.setenv("GIRDER_TOKEN", "test")
     missing = {"message": "This assetstore does not expose file paths."}
@@ -470,7 +470,7 @@ def test_unreadable_dataset_explains_why(auth, monkeypatch):
 
 
 def test_export_lists_every_annotation_with_its_folder_and_measurements(auth, monkeypatch):
-    from simple_annotator import export
+    from rhino_annotator import export
 
     monkeypatch.setattr(export, "item_folder_path", lambda _: "/collection/Kidney/batch-1")
     patch = auth.get("/patches/next").json()
@@ -511,7 +511,7 @@ def test_export_lists_every_annotation_with_its_folder_and_measurements(auth, mo
 def test_edit_keeps_creation_time_and_bumps_update_time(auth, monkeypatch):
     from types import SimpleNamespace
 
-    from simple_annotator import annotations
+    from rhino_annotator import annotations
 
     patch = auth.get("/patches/next").json()
     url = f"/patches/{patch['id']}/annotations"
@@ -536,7 +536,7 @@ def test_export_is_limited_to_the_signed_in_user(auth):
 
 
 def test_list_thumbnail_is_a_small_cached_jpeg(auth, client, monkeypatch):
-    from simple_annotator import images
+    from rhino_annotator import images
 
     calls = []
     monkeypatch.setattr(images, "thumbnail", lambda *args: calls.append(args) or b"jpeg")

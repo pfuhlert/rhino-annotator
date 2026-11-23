@@ -7,16 +7,16 @@ import httpx
 import pytest
 from sqlalchemy import select
 
-from simple_annotator import slides
-from simple_annotator.ai_worker import claim, fail, resume
-from simple_annotator.config import DEFAULT_AI_MODEL, GBM_AI_MODEL
-from simple_annotator.db import session_factory
-from simple_annotator.embeddings import embedding_id, prompt_regions, regions, tile_request
-from simple_annotator.models import AiEmbedding, Job, PatchVisit
+from rhino_annotator import slides
+from rhino_annotator.ai_worker import claim, fail, resume
+from rhino_annotator.config import DEFAULT_AI_MODEL, GBM_AI_MODEL
+from rhino_annotator.db import session_factory
+from rhino_annotator.embeddings import embedding_id, prompt_regions, regions, tile_request
+from rhino_annotator.models import AiEmbedding, Job, PatchVisit
 
 
 def test_open_queues_embeddings_once_across_visits_users_and_jobs(auth, monkeypatch, three_images):
-    from simple_annotator import patches
+    from rhino_annotator import patches
 
     monkeypatch.setattr(patches, "tile", lambda *_: (_ for _ in ()).throw(AssertionError()))
     first = auth.get("/patches/current").json()

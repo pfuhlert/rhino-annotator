@@ -8,12 +8,12 @@ from fastapi.testclient import TestClient
 
 @pytest.fixture
 def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setenv("SIMPLE_ANNOTATOR_SQLITE", str(tmp_path / "t.sqlite"))
+    monkeypatch.setenv("RHINO_ANNOTATOR_SQLITE", str(tmp_path / "t.sqlite"))
     monkeypatch.setenv("GIRDER_TOKEN", "")
-    from simple_annotator import db
+    from rhino_annotator import db
 
     db.reset_engine()
-    from simple_annotator.main import create_app
+    from rhino_annotator.main import create_app
 
     app = create_app()
     with TestClient(app) as c:
@@ -30,7 +30,7 @@ def auth(client: TestClient):
 @pytest.fixture
 def three_images(monkeypatch):
     # Without Girder every image is a placeholder; three of them give Next somewhere to go.
-    from simple_annotator import images
+    from rhino_annotator import images
 
     items = [{"_id": i, "name": f"{i}.png"} for i in "abc"]
     monkeypatch.setattr(images, "folder_listing", lambda _db, _id: items)
@@ -40,8 +40,8 @@ def three_images(monkeypatch):
 def busy_db(client):
     from sqlalchemy import event
 
-    from simple_annotator.config import sqlite_path
-    from simple_annotator.db import get_engine
+    from rhino_annotator.config import sqlite_path
+    from rhino_annotator.db import get_engine
 
     engine = get_engine()
     blocked = Event()

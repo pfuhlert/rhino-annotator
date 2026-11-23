@@ -7,11 +7,11 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import select
 
-from simple_annotator import ai, slides
-from simple_annotator.ai_worker import claim, complete, process_next
-from simple_annotator.config import DEFAULT_AI_MODEL, GBM_AI_MODEL
-from simple_annotator.db import session_factory
-from simple_annotator.models import AiTask, AiWorker, Job, Patch
+from rhino_annotator import ai, slides
+from rhino_annotator.ai_worker import claim, complete, process_next
+from rhino_annotator.config import DEFAULT_AI_MODEL, GBM_AI_MODEL
+from rhino_annotator.db import session_factory
+from rhino_annotator.models import AiTask, AiWorker, Job, Patch
 
 POLYGON = {"points": [[10, 10], [50, 10], [30, 50]], "holes": []}
 
@@ -154,7 +154,7 @@ def test_idle_poll_skips_annotation_geometry(auth, queued, monkeypatch):
 
 
 def test_idle_worker_can_poll_during_an_annotation_write(auth):
-    from simple_annotator.annotations import lock
+    from rhino_annotator.annotations import lock
 
     with session_factory()() as writer:
         lock(writer)
@@ -195,7 +195,7 @@ def test_worker_recovers_from_busy_database_without_repeating_prediction(queued,
     with session_factory()() as db:
         task = db.get(AiTask, prompt["id"])
         assert task.status == {"fail": "failed", "cancel": "cancelled"}.get(stage, "done")
-        from simple_annotator.annotations import visible
+        from rhino_annotator.annotations import visible
 
         patch = db.get(Patch, task.patch_id)
         assert len(visible(db, task.user_id, patch)) == (stage not in ("fail", "cancel"))

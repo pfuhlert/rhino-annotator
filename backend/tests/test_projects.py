@@ -4,7 +4,7 @@ import time
 
 from fastapi.testclient import TestClient
 
-from simple_annotator import projects
+from rhino_annotator import projects
 
 POINT = {"id": "p1", "jobId": 1, "type": "point", "points": [[5.0, 6.0]]}
 
@@ -37,8 +37,8 @@ def _projects(c: TestClient) -> set[tuple]:
 
 
 def test_a_database_from_before_projects_gives_everyone_their_own_project(auth):
-    from simple_annotator import db
-    from simple_annotator.config import sqlite_path
+    from rhino_annotator import db
+    from rhino_annotator.config import sqlite_path
 
     _annotate(auth, POINT)
     bob = _user(auth, "bob")
@@ -86,8 +86,8 @@ def test_a_database_from_before_projects_gives_everyone_their_own_project(auth):
 
 
 def test_label_classes_get_a_kind_on_a_database_from_before_kinds(auth):
-    from simple_annotator import db
-    from simple_annotator.config import sqlite_path
+    from rhino_annotator import db
+    from rhino_annotator.config import sqlite_path
 
     db.reset_engine()
     with sqlite3.connect(sqlite_path()) as conn:
@@ -133,8 +133,8 @@ def test_only_people_with_access_see_a_project_and_only_the_owner_changes_it(aut
     assert bob.patch(url, json={"name": "Mine"}).status_code == 403
     assert bob.delete(url).status_code == 403
     # The shared layer's user can never be added, and never signs in.
-    from simple_annotator.db import session_factory
-    from simple_annotator.models import Project, User
+    from rhino_annotator.db import session_factory
+    from rhino_annotator.models import Project, User
 
     with session_factory()() as db:
         layer = db.get(User, db.get(Project, project["id"]).layer_user_id).username
@@ -208,7 +208,7 @@ def test_registering_starts_on_a_private_project_with_the_preset_label_classes(a
 
 
 def test_requests_never_wait_for_a_folder_listing_and_share_one(auth, monkeypatch):
-    from simple_annotator import images
+    from rhino_annotator import images
 
     walks, release = [], threading.Event()
 
@@ -236,9 +236,9 @@ def test_requests_never_wait_for_a_folder_listing_and_share_one(auth, monkeypatc
 def test_a_member_who_lost_access_cannot_cancel_ai_results_out_of_the_shared_layer(auth):
     from uuid import uuid4
 
-    from simple_annotator.ai_worker import claim, complete
-    from simple_annotator.db import session_factory
-    from simple_annotator.models import AiWorker
+    from rhino_annotator.ai_worker import claim, complete
+    from rhino_annotator.db import session_factory
+    from rhino_annotator.models import AiWorker
 
     project = _create(auth)
     url = f"/api/projects/{project['id']}"

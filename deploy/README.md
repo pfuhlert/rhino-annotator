@@ -83,7 +83,7 @@ Add the Girder settings. Inside the cluster, Girder is reachable directly at `gi
 `http://` is required:
 
 ```bash
-printf 'GIRDER_API_URL=http://girder:8080/api/v1\nGIRDER_TOKEN=<your Girder API key>\nSIMPLE_ANNOTATOR_AI=0\n' > .env
+printf 'GIRDER_API_URL=http://girder:8080/api/v1\nGIRDER_TOKEN=<your Girder API key>\nRHINO_ANNOTATOR_AI=0\n' > .env
 ```
 
 Check that Girder answers and accepts the key. `--noproxy` skips the institute proxy from
@@ -145,21 +145,37 @@ The app does not start by itself when the pod restarts; run `npm run prod -- sta
 
 ### Settings live in two places
 
-`npm run prod` copies `code/.env` to `/data/rhino/rhino-annotator/simple-annotator-prod/.env` on the
+`npm run prod` copies `code/.env` to `/data/rhino/rhino-annotator/rhino-annotator-prod/.env` on the
 first `deploy` and uses that copy from then on. To change a setting later (Girder address, token),
-edit `../simple-annotator-prod/.env` (and `code/.env`, to keep them the same), then
+edit `../rhino-annotator-prod/.env` (and `code/.env`, to keep them the same), then
 `npm run prod -- restart`.
 
 ### Data
 
 | What | Where |
 | --- | --- |
-| Database | `/data/rhino/rhino-annotator/simple-annotator-prod/data/annotator.sqlite` |
-| Backups (last 5, one per deploy) | `/data/rhino/rhino-annotator/simple-annotator-prod/data/backups/` |
-| Logs | `/data/rhino/rhino-annotator/simple-annotator-prod/logs/` |
+| Database | `/data/rhino/rhino-annotator/rhino-annotator-prod/data/annotator.sqlite` |
+| Backups (last 5, one per deploy) | `/data/rhino/rhino-annotator/rhino-annotator-prod/data/backups/` |
+| Logs | `/data/rhino/rhino-annotator/rhino-annotator-prod/logs/` |
 
 The CSV export (download button at the bottom of the sidebar) has every annotation and score of a
 project.
+
+### Moving an instance from the old name
+
+Instances deployed before the rename to rhino-annotator keep their data in `simple-annotator-prod/`
+and read `SIMPLE_ANNOTATOR_AI`. Move them once, in `/data/rhino/rhino-annotator/code`, **stopping
+before you pull** (the new code no longer finds the old processes):
+
+```bash
+npm run prod -- stop
+git pull
+mkdir -p ../rhino-annotator-prod
+mv ../simple-annotator-prod/data ../simple-annotator-prod/.env ../rhino-annotator-prod/
+rm -rf ../simple-annotator-prod && git worktree prune
+sed -i 's/SIMPLE_ANNOTATOR_/RHINO_ANNOTATOR_/' .env ../rhino-annotator-prod/.env
+npm run prod -- deploy
+```
 
 ## Troubleshooting
 
@@ -171,7 +187,7 @@ project.
 - **`Permission denied` in `/data/rhino/rhino-annotator`:** the folder was created by Kubernetes,
   owned by root. Ask the cluster admin to hand it to uid 2828.
 - **No folders or images in the app:** check `GIRDER_API_URL` (with `http://`) and the token in
-  `../simple-annotator-prod/.env`, and the two `curl` checks in step 4.
+  `../rhino-annotator-prod/.env`, and the two `curl` checks in step 4.
 
 ## Remove it
 

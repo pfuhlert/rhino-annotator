@@ -16,20 +16,20 @@ The pending rectangle uses the existing AI queue, including cancellation and fai
 
 ## Configuration
 
-- `SIMPLE_ANNOTATOR_AI=0`: explicitly disable the worker and skip installing AI dependencies (for development without a GPU). AI is enabled by default.
-- `SIMPLE_ANNOTATOR_AI_DEVICE`: defaults to `cuda`; `cpu` is useful for debugging.
-- `SIMPLE_ANNOTATOR_MODEL_DIR`: checkpoint cache, default `~/.cache/simple-annotator`.
-- `SIMPLE_ANNOTATOR_GBM_CHECKPOINT`: path of the GBM checkpoint when `/data` is mounted elsewhere. The file must still match the pinned checksum.
+- `RHINO_ANNOTATOR_AI=0`: explicitly disable the worker and skip installing AI dependencies (for development without a GPU). AI is enabled by default.
+- `RHINO_ANNOTATOR_AI_DEVICE`: defaults to `cuda`; `cpu` is useful for debugging.
+- `RHINO_ANNOTATOR_MODEL_DIR`: checkpoint cache, default `~/.cache/rhino-annotator`.
+- `RHINO_ANNOTATOR_GBM_CHECKPOINT`: path of the GBM checkpoint when `/data` is mounted elsewhere. The file must still match the pinned checksum.
 
 `AI_MODELS` in `config.py` registers each model (architecture, checkpoint, checksum, whole-image tiling) and `JOB_AI_MODELS` maps job names to non-default models. A model adapter implements `prepare(request)` to persist embeddings and `predict(request)` to return `points` and optional `holes` in image-local pixel coordinates. Prompts capture the model, source region, calibration, and job when enqueued. The frontend has no model-specific geometry handling.
 
 To attach a worker to an already-running app, run from `backend/`, using the repository's Python environment rules. On Ceph/NFS:
 
 ```sh
-UV_CACHE_DIR=/tmp/uv-cache VIRTUAL_ENV="$HOME/.uv-local/venvs/simple-annotator" UV_PROJECT_ENVIRONMENT="$HOME/.uv-local/venvs/simple-annotator" uv run --active --extra ai python -m simple_annotator.ai_worker
+UV_CACHE_DIR=/tmp/uv-cache VIRTUAL_ENV="$HOME/.uv-local/venvs/rhino-annotator" UV_PROJECT_ENVIRONMENT="$HOME/.uv-local/venvs/rhino-annotator" uv run --active --extra ai python -m rhino_annotator.ai_worker
 ```
 
-The worker and API must share `SIMPLE_ANNOTATOR_SQLITE` and image-source settings. One worker owns each database. Its failure leaves manual annotation available. A restarted worker resumes unfinished tasks; cancellation prevents a late result from being committed.
+The worker and API must share `RHINO_ANNOTATOR_SQLITE` and image-source settings. One worker owns each database. Its failure leaves manual annotation available. A restarted worker resumes unfinished tasks; cancellation prevents a late result from being committed.
 
 Restart the AI worker after changing inference code. The API's development reload does not reload a separately started worker; an older worker can report generic segmentation failures for newly added prompt types.
 

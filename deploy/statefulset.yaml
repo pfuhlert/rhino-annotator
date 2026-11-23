@@ -49,7 +49,7 @@ spec:
           imagePullPolicy: Always
           name: ${APPNAME}
           resources:
-            # No GPU: the app runs without the AI worker (SIMPLE_ANNOTATOR_AI=0).
+            # No GPU: the app runs without the AI worker (RHINO_ANNOTATOR_AI=0).
             limits:
               memory: 8Gi
             requests:

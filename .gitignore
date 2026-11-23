@@ -30,7 +30,7 @@ backend/data/
 .vscode/
 
 # Verification evidence is kept; helper runtime state is not
-.cursor/skills/verify-simple-annotator/artifacts/*
-!.cursor/skills/verify-simple-annotator/artifacts/.gitkeep
+.cursor/skills/verify-rhino-annotator/artifacts/*
+!.cursor/skills/verify-rhino-annotator/artifacts/.gitkeep
 /tmp/
 plans/

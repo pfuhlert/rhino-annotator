@@ -8,14 +8,14 @@ import { fileURLToPath } from "node:url";
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 // Beside the main checkout (persistent disk), not in $HOME, which a pod rebuild wipes.
 const mainCheckout = path.dirname(git(repo, "rev-parse", "--path-format=absolute", "--git-common-dir"));
-const home = process.env.SIMPLE_ANNOTATOR_PROD_DIR || path.join(path.dirname(mainCheckout), "simple-annotator-prod");
+const home = process.env.RHINO_ANNOTATOR_PROD_DIR || path.join(path.dirname(mainCheckout), "rhino-annotator-prod");
 const app = path.join(home, "app");
 const data = path.join(home, "data");
 const logs = path.join(home, "logs");
 const pids = path.join(home, "pids");
 const lastDeploy = path.join(home, "last-deploy.json");
 // The venv stays on local disk for speed; start() rebuilds it after a pod rebuild.
-const venv = path.join(homedir(), ".uv-local/venvs/simple-annotator-prod");
+const venv = path.join(homedir(), ".uv-local/venvs/rhino-annotator-prod");
 const sqlite = path.join(data, "annotator.sqlite");
 const webPort = "3300";
 const apiPort = "8300";
@@ -37,7 +37,7 @@ function env() {
   return {
     ...loadDotenv(path.join(home, ".env")),
     ...process.env,
-    SIMPLE_ANNOTATOR_SQLITE: sqlite,
+    RHINO_ANNOTATOR_SQLITE: sqlite,
     NEXT_PUBLIC_API_URL: `http://127.0.0.1:${apiPort}`,
     UV_CACHE_DIR: process.env.UV_CACHE_DIR || "/tmp/uv-cache",
     VIRTUAL_ENV: venv,
@@ -62,8 +62,8 @@ function short(sha) {
 }
 
 const services = {
-  api: () => [path.join(venv, "bin/uvicorn"), ["simple_annotator.main:app", "--host", "127.0.0.1", "--port", apiPort], path.join(app, "backend")],
-  worker: () => [path.join(venv, "bin/python"), ["-m", "simple_annotator.ai_worker"], path.join(app, "backend")],
+  api: () => [path.join(venv, "bin/uvicorn"), ["rhino_annotator.main:app", "--host", "127.0.0.1", "--port", apiPort], path.join(app, "backend")],
+  worker: () => [path.join(venv, "bin/python"), ["-m", "rhino_annotator.ai_worker"], path.join(app, "backend")],
   web: () => [path.join(app, "frontend/node_modules/.bin/next"), ["start", "--port", webPort, "--hostname", "127.0.0.1"], path.join(app, "frontend")],
 };
 
@@ -112,7 +112,7 @@ async function start() {
   if (!existsSync(path.join(venv, "bin/uvicorn"))) syncPython();
   mkdirSync(logs, { recursive: true });
   mkdirSync(pids, { recursive: true });
-  const names = Object.keys(services).filter((n) => n !== "worker" || env().SIMPLE_ANNOTATOR_AI !== "0");
+  const names = Object.keys(services).filter((n) => n !== "worker" || env().RHINO_ANNOTATOR_AI !== "0");
   for (const name of names) {
     const [cmd, args, cwd] = services[name]();
     const log = openSync(path.join(logs, `${name}.log`), "a");
@@ -145,7 +145,7 @@ function backup() {
 }
 
 function syncPython() {
-  const ai = env().SIMPLE_ANNOTATOR_AI !== "0" ? ["--extra", "ai"] : [];
+  const ai = env().RHINO_ANNOTATOR_AI !== "0" ? ["--extra", "ai"] : [];
   run("uv", ["sync", "--locked", "--no-dev", ...ai], path.join(app, "backend"));
 }
 

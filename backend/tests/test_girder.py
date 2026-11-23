@@ -1,7 +1,7 @@
 import httpx
 import pytest
 
-from simple_annotator import girder
+from rhino_annotator import girder
 
 
 def test_girder_client_bypasses_http_proxy(monkeypatch):

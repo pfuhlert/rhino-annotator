@@ -30,7 +30,7 @@ function loadDotenv(file) {
 }
 
 loadDotenv(path.join(root, ".env"));
-const withAi = process.env.SIMPLE_ANNOTATOR_AI !== "0";
+const withAi = process.env.RHINO_ANNOTATOR_AI !== "0";
 
 const apiPort = process.env.API_PORT || "8000";
 const webPort = process.env.WEB_PORT || "3000";
@@ -45,7 +45,7 @@ function uvEnv() {
   const env = { ...process.env, UV_CACHE_DIR: process.env.UV_CACHE_DIR || "/tmp/uv-cache" };
   const fs = fstype();
   if (["nfs", "nfs4", "ceph"].includes(fs)) {
-    const venv = process.env.VIRTUAL_ENV || path.join(homedir(), ".uv-local/venvs/simple-annotator");
+    const venv = process.env.VIRTUAL_ENV || path.join(homedir(), ".uv-local/venvs/rhino-annotator");
     env.VIRTUAL_ENV = venv;
     env.UV_PROJECT_ENVIRONMENT = venv;
   }
@@ -93,12 +93,12 @@ const uvArgs = ["nfs", "nfs4", "ceph"].includes(fstype()) ? ["run", "--active"] 
 
 start(
   "uv",
-  [...uvArgs, "--no-sync", "uvicorn", "simple_annotator.main:app", "--reload", "--host", "127.0.0.1", "--port", apiPort],
+  [...uvArgs, "--no-sync", "uvicorn", "rhino_annotator.main:app", "--reload", "--host", "127.0.0.1", "--port", apiPort],
   { cwd: backend, env: { ...env, PYTHONPATH: path.join(backend, "src") } },
 );
 
 if (withAi) {
-  start("uv", [...uvArgs, "--no-sync", "python", "-m", "simple_annotator.ai_worker"], { cwd: backend, env }, true);
+  start("uv", [...uvArgs, "--no-sync", "python", "-m", "rhino_annotator.ai_worker"], { cwd: backend, env }, true);
 }
 
 if (!apiOnly) {

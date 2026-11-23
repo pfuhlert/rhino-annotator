@@ -56,7 +56,7 @@ def test_scoring_an_image_and_marking_it_not_scorable(auth):
 
 
 def test_scores_are_exported_next_to_the_annotations(auth, monkeypatch, three_images):
-    from simple_annotator import export
+    from rhino_annotator import export
 
     monkeypatch.setattr(export, "item_folder_path", lambda _: "/collection/ELMI/batch")
     _project_, grade = _project(auth)

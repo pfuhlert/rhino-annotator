@@ -14,12 +14,12 @@ pytest.importorskip("torch")
 import numpy as np
 import torch
 
-from simple_annotator import segmenter, slides
-from simple_annotator.ai_worker import process_next
-from simple_annotator.config import DEFAULT_AI_MODEL, GBM_AI_MODEL, AiModel
-from simple_annotator.db import reset_engine, session_factory
-from simple_annotator.embeddings import embedding_id, prompt_regions, regions, tile_request
-from simple_annotator.models import AiEmbedding, AiTask, AiWorker, Patch
+from rhino_annotator import segmenter, slides
+from rhino_annotator.ai_worker import process_next
+from rhino_annotator.config import DEFAULT_AI_MODEL, GBM_AI_MODEL, AiModel
+from rhino_annotator.db import reset_engine, session_factory
+from rhino_annotator.embeddings import embedding_id, prompt_regions, regions, tile_request
+from rhino_annotator.models import AiEmbedding, AiTask, AiWorker, Patch
 
 REQUEST = {
     "model": DEFAULT_AI_MODEL.name,
@@ -139,7 +139,7 @@ def test_prepare_only_caches_embeddings_after_successful_persistence(
 def test_calibrated_prompts_reuse_automatically_prepared_embeddings(
     auth, fake_model, monkeypatch, calibration, count
 ):
-    from simple_annotator.annotations import lock
+    from rhino_annotator.annotations import lock
 
     def lookup(_):
         # Metadata fetching must not hold a write lock needed by the GPU worker.
@@ -362,7 +362,7 @@ def test_encoding_does_not_hold_database_lock(fake_model):
     encode = model.predictor.set_image
 
     def encode_with_writer(pixels):
-        from simple_annotator.annotations import lock
+        from rhino_annotator.annotations import lock
 
         with session_factory()() as db:
             lock(db)
@@ -460,7 +460,7 @@ def test_bad_download_leaves_no_cached_checkpoint(tmp_path, monkeypatch):
     def stream(*_, **__):
         yield SimpleNamespace(raise_for_status=lambda: None, iter_bytes=lambda: [b"corrupt"])
 
-    monkeypatch.setenv("SIMPLE_ANNOTATOR_MODEL_DIR", str(tmp_path))
+    monkeypatch.setenv("RHINO_ANNOTATOR_MODEL_DIR", str(tmp_path))
     monkeypatch.setattr(segmenter.httpx, "stream", stream)
     model = AiModel("remote", "vit_l", "https://example.invalid/w.pt", "0" * 32)
     with pytest.raises(segmenter.ModelUnavailable, match="wrong checksum"):
@@ -478,7 +478,7 @@ def test_corrupt_cached_checkpoint_is_downloaded_again(tmp_path, monkeypatch):
     def stream(*_, **__):
         yield SimpleNamespace(raise_for_status=lambda: None, iter_bytes=lambda: [b"weights"])
 
-    monkeypatch.setenv("SIMPLE_ANNOTATOR_MODEL_DIR", str(tmp_path))
+    monkeypatch.setenv("RHINO_ANNOTATOR_MODEL_DIR", str(tmp_path))
     monkeypatch.setattr(segmenter.httpx, "stream", stream)
     digest = xxhash.xxh128(b"weights").hexdigest()
     model = AiModel("remote", "vit_l", "https://example.invalid/w.pt", digest)

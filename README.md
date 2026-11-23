@@ -25,10 +25,10 @@ Without `GIRDER_TOKEN`, the app serves a placeholder image. Requirements: Node 2
 
 ```bash
 npm install --prefix frontend
-SIMPLE_ANNOTATOR_AI=0 npm run dev    # API on :8000, web on :3000
+RHINO_ANNOTATOR_AI=0 npm run dev    # API on :8000, web on :3000
 ```
 
-Open <http://localhost:3000> and register. `SIMPLE_ANNOTATOR_AI=0` runs without the GPU worker; leave it out on a machine with a GPU to get AI segmentation (the SAM models download on first start). See [docs/ai-annotation.md](docs/ai-annotation.md) for AI details and [AGENTS.md](AGENTS.md) for checks and Python environment rules.
+Open <http://localhost:3000> and register. `RHINO_ANNOTATOR_AI=0` runs without the GPU worker; leave it out on a machine with a GPU to get AI segmentation (the SAM models download on first start). See [docs/ai-annotation.md](docs/ai-annotation.md) for AI details and [AGENTS.md](AGENTS.md) for checks and Python environment rules.
 
 ### In a temporary Kubernetes pod
 
@@ -45,7 +45,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh && export PATH=$HOME/.local/bin:
 git clone https://github.com/pfuhlert/rhino-annotator /app && cd /app
 printf 'GIRDER_API_URL=https://rhinodb.ims.bio/api/v1\nGIRDER_TOKEN=<your Girder API key>\n' > .env
 npm install --prefix frontend
-SIMPLE_ANNOTATOR_AI=0 npm run dev
+RHINO_ANNOTATOR_AI=0 npm run dev
 ```
 
 On your laptop, forward only the web port (it passes API requests on to the backend inside the pod):
@@ -62,8 +62,8 @@ Then open <http://localhost:3000>.
 
 | | Dev | Prod |
 | --- | --- | --- |
-| Code | this checkout | `../simple-annotator-prod/app` (git worktree, pinned commit) |
-| Database | `backend/data/annotator.sqlite` | `../simple-annotator-prod/data/annotator.sqlite` |
+| Code | this checkout | `../rhino-annotator-prod/app` (git worktree, pinned commit) |
+| Database | `backend/data/annotator.sqlite` | `../rhino-annotator-prod/data/annotator.sqlite` |
 | Ports | 3000 / 8000 | 3300 / 8300 |
 
 ```bash
@@ -72,4 +72,4 @@ npm run prod -- deploy <sha>    # deploy or roll back to any local commit
 npm run prod -- status | logs | start | stop | restart
 ```
 
-Prod reads `../simple-annotator-prod/.env`, copied from the repo `.env` on first deploy. Only committed code is deployed; a failed deploy rolls back. Database backups go to `../simple-annotator-prod/data/backups/` (last 5). Set `SIMPLE_ANNOTATOR_PROD_DIR` to move it. After a pod restart, run `npm run prod -- start`. Open it from a laptop with `kubectl port-forward -n <namespace> pod/<your-pod> 3300:3300`.
+Prod reads `../rhino-annotator-prod/.env`, copied from the repo `.env` on first deploy. Only committed code is deployed; a failed deploy rolls back. Database backups go to `../rhino-annotator-prod/data/backups/` (last 5). Set `RHINO_ANNOTATOR_PROD_DIR` to move it. After a pod restart, run `npm run prod -- start`. Open it from a laptop with `kubectl port-forward -n <namespace> pod/<your-pod> 3300:3300`.

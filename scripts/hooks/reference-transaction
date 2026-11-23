@@ -6,7 +6,7 @@ sha=$(awk '$3 == "refs/remotes/origin/main" && $2 !~ /^0+$/ { s = $2 } END { pri
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
 root=$(git rev-parse --show-toplevel)
 main=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")
-log=${SIMPLE_ANNOTATOR_PROD_DIR:-$(dirname "$main")/simple-annotator-prod}/logs/deploy.log
+log=${RHINO_ANNOTATOR_PROD_DIR:-$(dirname "$main")/rhino-annotator-prod}/logs/deploy.log
 mkdir -p "$(dirname "$log")"
 echo "prod: deploying $(git rev-parse --short "$sha") (log: $log)" >&2
 # setsid keeps Ctrl-C on the push from interrupting a half-done deploy.

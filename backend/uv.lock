@@ -1095,6 +1095,61 @@ wheels = [
 ]
 
 [[package]]
+name = "rhino-annotator"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "fastapi" },
+    { name = "httpx" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
+    { name = "numpy", version = "2.5.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
+    { name = "opencv-python-headless" },
+    { name = "pillow" },
+    { name = "python-dotenv" },
+    { name = "shapely" },
+    { name = "sqlalchemy" },
+    { name = "uvicorn", extra = ["standard"] },
+]
+
+[package.optional-dependencies]
+ai = [
+    { name = "segment-anything" },
+    { name = "torch" },
+    { name = "torchvision" },
+    { name = "xxhash" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "fastapi", specifier = ">=0.115" },
+    { name = "httpx", specifier = ">=0.28" },
+    { name = "numpy", specifier = ">=2" },
+    { name = "opencv-python-headless", specifier = ">=4.10" },
+    { name = "pillow", specifier = ">=11" },
+    { name = "python-dotenv", specifier = ">=1.2.3" },
+    { name = "segment-anything", marker = "extra == 'ai'", specifier = "==1.0" },
+    { name = "shapely", specifier = ">=2.1" },
+    { name = "sqlalchemy", specifier = ">=2.0" },
+    { name = "torch", marker = "extra == 'ai'", specifier = ">=2.6,<3" },
+    { name = "torchvision", marker = "extra == 'ai'", specifier = ">=0.21" },
+    { name = "uvicorn", extras = ["standard"], specifier = ">=0.34" },
+    { name = "xxhash", marker = "extra == 'ai'", specifier = ">=3" },
+]
+provides-extras = ["ai"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pytest", specifier = ">=8" },
+    { name = "ruff", specifier = ">=0.11" },
+]
+
+[[package]]
 name = "ruff"
 version = "0.16.8"
 source = { registry = "https://pypi.org/simple" }
@@ -1195,61 +1250,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/7c/75/c24ed871c576d7e2b64b04b1fe3d075157f6eb54e59670d3f5ffb36e25c7/shapely-2.1.2-cp314-cp314t-musllinux_1_2_x86_64.whl", hash = "sha256:361b6d45030b4ac64ddd0a26046906c8202eb60d0f9f53085f5179f1d23021a0", size = 4169511, upload-time = "2025-09-24T13:51:36.297Z" },
     { url = "https://files.pythonhosted.org/packages/b1/f7/b3d1d6d18ebf55236eec1c681ce5e665742aab3c0b7b232720a7d43df7b6/shapely-2.1.2-cp314-cp314t-win32.whl", hash = "sha256:b54df60f1fbdecc8ebc2c5b11870461a6417b3d617f555e5033f1505d36e5735", size = 1602607, upload-time = "2025-09-24T13:51:37.757Z" },
     { url = "https://files.pythonhosted.org/packages/9a/f6/f09272a71976dfc138129b8faf435d064a811ae2f708cb147dccdf7aacdb/shapely-2.1.2-cp314-cp314t-win_amd64.whl", hash = "sha256:0036ac886e0923417932c2e6369b6c52e38e0ff5d9120b90eef5cd9a5fc5cae9", size = 1796682, upload-time = "2025-09-24T13:51:39.233Z" },
-]
-
-[[package]]
-name = "simple-annotator"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "fastapi" },
-    { name = "httpx" },
-    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
-    { name = "numpy", version = "2.5.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
-    { name = "opencv-python-headless" },
-    { name = "pillow" },
-    { name = "python-dotenv" },
-    { name = "shapely" },
-    { name = "sqlalchemy" },
-    { name = "uvicorn", extra = ["standard"] },
-]
-
-[package.optional-dependencies]
-ai = [
-    { name = "segment-anything" },
-    { name = "torch" },
-    { name = "torchvision" },
-    { name = "xxhash" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "pytest" },
-    { name = "ruff" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "fastapi", specifier = ">=0.115" },
-    { name = "httpx", specifier = ">=0.28" },
-    { name = "numpy", specifier = ">=2" },
-    { name = "opencv-python-headless", specifier = ">=4.10" },
-    { name = "pillow", specifier = ">=11" },
-    { name = "python-dotenv", specifier = ">=1.2.3" },
-    { name = "segment-anything", marker = "extra == 'ai'", specifier = "==1.0" },
-    { name = "shapely", specifier = ">=2.1" },
-    { name = "sqlalchemy", specifier = ">=2.0" },
-    { name = "torch", marker = "extra == 'ai'", specifier = ">=2.6,<3" },
-    { name = "torchvision", marker = "extra == 'ai'", specifier = ">=0.21" },
-    { name = "uvicorn", extras = ["standard"], specifier = ">=0.34" },
-    { name = "xxhash", marker = "extra == 'ai'", specifier = ">=3" },
-]
-provides-extras = ["ai"]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "pytest", specifier = ">=8" },
-    { name = "ruff", specifier = ">=0.11" },
 ]
 
 [[package]]
