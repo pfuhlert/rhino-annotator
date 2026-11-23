@@ -16,7 +16,14 @@ const SECTIONS: [string, [string[][], string, Tool?][]][] = [
     ],
   ],
   [
-    "Scoring (projects with score classes)",
+    "Views",
+    [
+      [[["V"]], "Switch between the Masks and Scores views (projects with both)"],
+      [[["1"], ["…"], ["9"], ["0"]], "Masks view: pick structure 1–10 from the top bar"],
+    ],
+  ],
+  [
+    "Scores view",
     [
       [
         [["0"], ["…"], ["9"]],

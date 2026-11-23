@@ -35,3 +35,16 @@ test("score keys", () => {
   for (const k of ["n", "b", "p", "l", "r", "a", "h", "Delete", "Escape"])
     assert.equal(scoreKey(key(k)), null);
 });
+
+test("number keys pick structures 1–10 and each view is only offered when it has classes", async () => {
+  const { structureIndex, structureKeyLabel, editorMode } = await import("../src/lib/structures");
+  assert.equal(structureIndex("1", 3), 0);
+  assert.equal(structureIndex("3", 3), 2);
+  assert.equal(structureIndex("4", 3), null);
+  assert.equal(structureIndex("0", 10), 9);
+  assert.equal(structureIndex("x", 10), null);
+  assert.deepEqual([0, 8, 9, 10].map(structureKeyLabel), ["1", "9", "0", null]);
+  assert.equal(editorMode("scores", true, false), "masks");
+  assert.equal(editorMode("masks", false, true), "scores");
+  assert.equal(editorMode("scores", true, true), "scores");
+});

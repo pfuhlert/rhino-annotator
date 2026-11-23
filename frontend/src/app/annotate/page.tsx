@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { type RefObject, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AiCursorStatus } from "@/components/AiCursorStatus";
 import { BrushSizeControl } from "@/components/BrushSizeControl";
+import { BRUSH_DEFAULT } from "@/lib/brush";
 import PatchCanvas, { type AnnotatorApi } from "@/components/PatchCanvas";
 import ProjectsPanel, { expanded } from "@/components/ProjectsPanel";
 import Sidebar from "@/components/Sidebar";
@@ -23,6 +24,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Overlay } from "@/components/Overlay";
 import ScoreDock from "@/components/ScoreDock";
+import StructureBar from "@/components/StructureBar";
 import {
   Select,
   SelectContent,
@@ -49,6 +51,7 @@ import { createAnnotationSync } from "@/lib/annotation-sync";
 import { useAi } from "@/lib/use-ai";
 import { isTypingTarget } from "@/lib/keys";
 import { type DigitState, digitScore, isScoreClass, scoreKey } from "@/lib/scores";
+import { type EditorMode, editorMode, structureIndex } from "@/lib/structures";
 import { type ShareLink, parseShareLink, shareLinkQuery } from "@/lib/share-link";
 import { TOOLS, useEnabledTools } from "@/lib/tools";
 import { errorMessage } from "@/lib/utils";
@@ -143,13 +146,14 @@ function Editor({
   const [scores, setScores] = useState<Scores>({});
   const [chosenScoreId, setScoreId] = useState<number | null>(null);
   const lastDigit = useRef<DigitState>(null);
+  const [chosenMode, setMode] = useState<EditorMode>("masks");
   const [times, setTimes] = useState<Times>({});
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selectAfterSwitch = useRef<string | null>(null);
   const [chosenTool, setTool] = useState<Tool>("polygon");
   const enabledTools = useEnabledTools();
   const tool = enabledTools.includes(chosenTool) ? chosenTool : enabledTools[0];
-  const [brushRadius, setBrushRadius] = useState(16);
+  const [brushRadius, setBrushRadius] = useState(BRUSH_DEFAULT);
   const [openMenu, setOpenMenu] = useState<Menu | null>(null);
   const [busy, setBusy] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
@@ -193,6 +197,10 @@ function Editor({
   const scoreId = scoreJobs.some((j) => j.id === chosenScoreId)
     ? chosenScoreId
     : (scoreJobs[0]?.id ?? null);
+  // Masks view: draw, number keys pick a structure. Scores view: number keys score.
+  const hasMasks = jobs.some((j) => j.in_project);
+  const mode = editorMode(chosenMode, hasMasks, scoreJobs.length > 0);
+  const bothModes = hasMasks && scoreJobs.length > 0;
   // Each image starts on a class of its kind, unless the project has none for it.
   useEffect(() => {
     const own = jobs.filter((j) => j.in_project);
@@ -626,7 +634,24 @@ function Editor({
         setTool(enabledTools[(enabledTools.indexOf(tool) + dir + n) % n]);
         return;
       }
-      if (handleScoreKey(e)) return;
+      const plain = !e.ctrlKey && !e.metaKey && !e.altKey;
+      if (k === "v" && plain && bothModes) {
+        e.preventDefault();
+        setMode(mode === "masks" ? "scores" : "masks");
+        return;
+      }
+      if (mode === "scores") {
+        if (handleScoreKey(e)) return;
+      } else if (plain && !e.shiftKey) {
+        const structures = pickerJobs(jobs, jobId);
+        const index = structureIndex(e.key, structures.length);
+        if (index !== null) {
+          e.preventDefault();
+          e.stopPropagation();
+          void switchJob(structures[index].id);
+          return;
+        }
+      }
       if (k === "escape" && !annoRef.current?.cancelDraft()) cancelLatestPending();
       const keyed = TOOLS.find(([, , key]) => key.toLowerCase() === k)?.[0];
       if (!e.ctrlKey && !e.metaKey && !e.altKey && keyed && enabledTools.includes(keyed)) {
@@ -743,7 +768,7 @@ function Editor({
             jobId={jobId ?? -1}
             jobs={canvasJobs}
             marks={patch.elements}
-            tool={drawable ? tool : "hand"}
+            tool={drawable && mode === "masks" ? tool : "hand"}
             radius={brushRadius}
             onRadiusChange={setBrushRadius}
             onReady={(a) => {
@@ -793,9 +818,16 @@ function Editor({
               )}
             </div>
           )}
+          <StructureBar
+            mode={bothModes ? mode : null}
+            onMode={setMode}
+            jobs={pickerJobs(jobs, jobId)}
+            jobId={jobId}
+            onPick={(id) => void switchJob(id)}
+          />
           <footer className="pointer-events-none absolute inset-x-0 bottom-0 z-10 px-4 py-4">
             {patch.slide && <SlideMap slide={patch.slide} image={patch.image} />}
-            {scoreJobs.length > 0 && scoreId != null && (
+            {mode === "scores" && scoreId != null && (
               <ScoreDock
                 jobs={scoreJobs}
                 scores={scores}
@@ -819,7 +851,7 @@ function Editor({
                 >
                   <ArrowLeft />
                 </ToolbarButton>
-                {drawable && (
+                {drawable && mode === "masks" && (
                   <>
                     <ToolbarDivider />
                     <Select
