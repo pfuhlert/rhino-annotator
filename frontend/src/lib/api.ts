@@ -45,6 +45,8 @@ export type Me = {
   last_project_id: number | null;
   // null selects images without a stain.
   stain_filter: (string | null)[];
+  // null selects images without a magnification.
+  mag_filter: (number | null)[];
   // Whether histology slides open as tissue regions unless set per slide.
   split_histo: boolean;
 };
@@ -158,6 +160,7 @@ export type ImageCatalog = {
   listing_error: string | null;
   items: ImageRow[];
   stains: { name: string | null; count: number }[];
+  magnifications: { value: number | null; count: number }[];
 };
 
 // The editor's project, named in every request so a second tab opening another project cannot
@@ -246,6 +249,8 @@ export const api = {
     req<{ path: string }>(`/images/${encodeURIComponent(item_id)}/path`),
   setStains: (stain_filter: (string | null)[]) =>
     req<Me>("/me", { method: "PATCH", body: JSON.stringify({ stain_filter }) }),
+  setMags: (mag_filter: (number | null)[]) =>
+    req<Me>("/me", { method: "PATCH", body: JSON.stringify({ mag_filter }) }),
   prepare: (patchId: number, view: ViewRect) =>
     req<{ ok: boolean }>(`/patches/${patchId}/prepare`, {
       method: "POST",

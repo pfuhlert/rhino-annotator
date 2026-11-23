@@ -15,7 +15,7 @@ from rhino_annotator.annotations import (
     times,
     visible,
 )
-from rhino_annotator.auth import current_user, project_stains, set_folder
+from rhino_annotator.auth import current_user, project_mags, project_stains, set_folder
 from rhino_annotator.config import FULL_IMAGE_MAX, job_ai_model
 from rhino_annotator.db import get_db
 from rhino_annotator.embeddings import queue_image
@@ -133,7 +133,8 @@ def _step(
     current = db.get(Patch, visit.patch_id) if visit else None
     stains = project_stains(db, user, project.id)
     try:
-        patch = step(db, user, _items(db, folders), current, direction, stains)
+        mags = project_mags(db, user, project.id)
+        patch = step(db, user, _items(db, folders), current, direction, stains, mags)
     except RuntimeError as e:
         raise HTTPException(400, str(e)) from e
     return _record(db, user, project, patch, key, background)

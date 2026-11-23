@@ -13,7 +13,7 @@ PLACEHOLDER_FOLDER = "placeholder"
 _IMAGE_EXT = {".png", ".tif", ".tiff", ".svs", ".jpg", ".jpeg", ".bmp"}
 _OME_UNIT_NM = {"nm": 1.0, "µm": 1e3, "μm": 1e3, "um": 1e3, "mm": 1e6}
 # The metadata the image list reads; the rest of an item is not stored.
-_LISTED_META = ("case_id", "staining", "image_magnification")
+_LISTED_META = ("case_id", "staining", "image_magnification", "magnification")
 
 _gc: httpx.Client | None = None
 _placeholders: dict[tuple[int, int, str], bytes] = {}

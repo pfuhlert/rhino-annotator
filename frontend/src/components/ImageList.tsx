@@ -12,6 +12,9 @@ import { type ImageGroup, isDone, rowMark } from "@/lib/images";
 
 type Stain = string | null;
 const stainLabel = (stain: Stain) => stain ?? "No stain";
+type Mag = number | null;
+export const magLabel = (mag: Mag) =>
+  mag === null ? "Magnification unknown" : `${mag.toLocaleString("en-US")}×`;
 
 const PREVIEW_DELAY_MS = 250;
 const PREVIEW_MARGIN = 8;
@@ -117,14 +120,24 @@ function useDismiss(root: RefObject<HTMLElement | null>, onClose: () => void, en
 }
 
 // Renders inside the sidebar instead of a portal: the overlay closes on any outside pointerdown.
-export function StainFilter({
-  catalog,
-  stains,
-  onStains,
+// A multi-select filter over the folder's images; nothing selected shows all of them.
+function ListFilter<T extends string | number | null>({
+  name,
+  options,
+  selected,
+  label,
+  allLabel,
+  clearLabel,
+  onChange,
 }: {
-  catalog: ImageCatalog | null;
-  stains: Stain[];
-  onStains: (next: Stain[]) => void;
+  // Names the test ids: `${name}-filter`, `${name}-option-…`, `${name}-clear`.
+  name: string;
+  options: { value: T; count: number }[];
+  selected: T[];
+  label: (value: T) => string;
+  allLabel: string;
+  clearLabel: string;
+  onChange: (next: T[]) => void;
 }) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
@@ -133,16 +146,14 @@ export function StainFilter({
     useCallback(() => setOpen(false), []),
     open,
   );
-
-  if (!catalog?.stains.some((s) => s.name !== null)) return null;
-  const toggle = (stain: Stain) =>
-    onStains(stains.includes(stain) ? stains.filter((s) => s !== stain) : [...stains, stain]);
+  const toggle = (value: T) =>
+    onChange(selected.includes(value) ? selected.filter((v) => v !== value) : [...selected, value]);
 
   return (
     <div ref={root} className="relative py-1">
       <button
         type="button"
-        data-testid="stain-filter"
+        data-testid={`${name}-filter`}
         aria-haspopup="listbox"
         aria-expanded={open}
         className="flex h-7 w-full items-center gap-1.5 rounded-lg border border-input px-2 text-xs transition-colors hover:bg-sidebar-accent dark:bg-input/30"
@@ -151,10 +162,10 @@ export function StainFilter({
         <span
           className={cn(
             "min-w-0 flex-1 truncate text-left",
-            !stains.length && "text-muted-foreground",
+            !selected.length && "text-muted-foreground",
           )}
         >
-          {stains.length ? stains.map(stainLabel).join(", ") : "All stains"}
+          {selected.length ? selected.map(label).join(", ") : allLabel}
         </span>
         <ChevronDownIcon className="size-3.5 shrink-0 text-muted-foreground" />
       </button>
@@ -164,39 +175,86 @@ export function StainFilter({
           aria-multiselectable
           className="absolute inset-x-0 top-full z-30 max-h-64 overflow-auto [scrollbar-color:var(--border)_transparent] [scrollbar-width:thin] rounded-lg bg-popover p-1 text-popover-foreground shadow-md ring-1 ring-foreground/10"
         >
-          {catalog.stains.map((s) => {
-            const on = stains.includes(s.name);
+          {options.map((o) => {
+            const on = selected.includes(o.value);
             return (
               <button
-                key={stainLabel(s.name)}
+                key={label(o.value)}
                 type="button"
                 role="option"
                 aria-selected={on}
-                data-testid={`stain-option-${stainLabel(s.name)}`}
+                data-testid={`${name}-option-${label(o.value)}`}
                 className="flex w-full items-center gap-1.5 rounded-md py-1 pr-1 pl-2 text-sm hover:bg-accent hover:text-accent-foreground"
-                onClick={() => toggle(s.name)}
+                onClick={() => toggle(o.value)}
               >
-                <span className="min-w-0 flex-1 truncate text-left">{stainLabel(s.name)}</span>
-                <span className="text-xs text-muted-foreground tabular-nums">{s.count}</span>
+                <span className="min-w-0 flex-1 truncate text-left">{label(o.value)}</span>
+                <span className="text-xs text-muted-foreground tabular-nums">{o.count}</span>
                 <span className="flex size-4 shrink-0 items-center justify-center">
                   {on && <CheckIcon className="size-3.5" />}
                 </span>
               </button>
             );
           })}
-          {stains.length > 0 && (
+          {selected.length > 0 && (
             <button
               type="button"
-              data-testid="stain-clear"
+              data-testid={`${name}-clear`}
               className="mt-1 w-full rounded-md border-t border-border px-1.5 pt-1.5 pb-1 text-left text-xs text-muted-foreground hover:text-foreground"
-              onClick={() => onStains([])}
+              onClick={() => onChange([])}
             >
-              Show all stains
+              {clearLabel}
             </button>
           )}
         </div>
       )}
     </div>
+  );
+}
+
+export function StainFilter({
+  catalog,
+  stains,
+  onStains,
+}: {
+  catalog: ImageCatalog | null;
+  stains: Stain[];
+  onStains: (next: Stain[]) => void;
+}) {
+  if (!catalog?.stains.some((s) => s.name !== null)) return null;
+  return (
+    <ListFilter
+      name="stain"
+      options={catalog.stains.map((s) => ({ value: s.name, count: s.count }))}
+      selected={stains}
+      label={stainLabel}
+      allLabel="All stains"
+      clearLabel="Show all stains"
+      onChange={onStains}
+    />
+  );
+}
+
+// Offered once the folder's images have a magnification.
+export function MagFilter({
+  catalog,
+  mags,
+  onMags,
+}: {
+  catalog: ImageCatalog | null;
+  mags: Mag[];
+  onMags: (next: Mag[]) => void;
+}) {
+  if (!catalog?.magnifications?.some((m) => m.value !== null)) return null;
+  return (
+    <ListFilter
+      name="mag"
+      options={catalog.magnifications}
+      selected={mags}
+      label={magLabel}
+      allLabel="All magnifications"
+      clearLabel="Show all magnifications"
+      onChange={onMags}
+    />
   );
 }
 
@@ -433,7 +491,7 @@ export default function ImageList({
                     <span className="min-w-0 flex-1 truncate">{row.name}</span>
                     <span className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
                       {row.staining && <span className="max-w-16 truncate">{row.staining}</span>}
-                      {row.magnification && <span>{row.magnification}×</span>}
+                      {row.magnification && <span>{magLabel(row.magnification)}</span>}
                       <Progress row={row} />
                     </span>
                   </button>

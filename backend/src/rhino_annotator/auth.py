@@ -31,6 +31,7 @@ class MePatch(BaseModel):
     last_job_id: int | None = None
     last_folder_id: str | None = None
     stain_filter: list[str | None] | None = None
+    mag_filter: list[float | None] | None = None
     split_histo: bool | None = None
 
 
@@ -73,6 +74,7 @@ def _user_json(db: Session, user: User, project_id: int | None = None) -> dict:
         "last_folder_id": user.last_folder_id,
         "last_project_id": user.last_project_id,
         "stain_filter": project_stains(db, user, project_id),
+        "mag_filter": project_mags(db, user, project_id),
         "split_histo": user.split_histo,
     }
 
@@ -86,6 +88,11 @@ def _opened(db: Session, user: User, project_id: int | None) -> ProjectOpen | No
 def project_stains(db: Session, user: User, project_id: int | None = None) -> list[str | None]:
     row = _opened(db, user, project_id)
     return json.loads(row.stain_filter) if row and row.stain_filter else []
+
+
+def project_mags(db: Session, user: User, project_id: int | None = None) -> list[float | None]:
+    row = _opened(db, user, project_id)
+    return json.loads(row.mag_filter) if row and row.mag_filter else []
 
 
 def require_job(db: Session, job_id: int) -> None:
@@ -141,6 +148,7 @@ def set_folder(db: Session, user: User, project_id: int | None, folder_id: str) 
         user.last_folder_id = folder_id
         if row := _opened(db, user, project_id):
             row.stain_filter = None
+            row.mag_filter = None
 
 
 @me_router.get("/me")
@@ -166,7 +174,7 @@ def patch_me(
         set_folder(db, user, project, body.last_folder_id)
     if body.split_histo is not None:
         user.split_histo = body.split_histo
-    if "stain_filter" in body.model_fields_set:
+    if {"stain_filter", "mag_filter"} & body.model_fields_set:
         row = _opened(db, user, project)
         if not row:
             project_id = project or user.last_project_id
@@ -175,6 +183,9 @@ def patch_me(
             # Filtering images means working in the project, so it counts as opened.
             row = ProjectOpen(project_id=project_id, user_id=user.id, opened=time.time())
             db.add(row)
-        row.stain_filter = json.dumps(body.stain_filter) if body.stain_filter else None
+        if "stain_filter" in body.model_fields_set:
+            row.stain_filter = json.dumps(body.stain_filter) if body.stain_filter else None
+        if "mag_filter" in body.model_fields_set:
+            row.mag_filter = json.dumps(body.mag_filter) if body.mag_filter else None
     db.commit()
     return _user_json(db, user, project)

@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { cn } from "cn";
 import AnnotationList from "@/components/AnnotationList";
 import FolderPicker from "@/components/FolderPicker";
-import ImageList, { StainFilter } from "@/components/ImageList";
+import ImageList, { MagFilter, StainFilter } from "@/components/ImageList";
 import MarkedScroll from "@/components/MarkedScroll";
 import { OverlayPin, OverlayTrigger } from "@/components/Overlay";
 import UserMenu from "@/components/UserMenu";
@@ -135,6 +135,7 @@ export default function Sidebar({
   onSplitHisto,
   onRefreshed,
   onStains,
+  onMags,
   onHoverMark,
   onSelectMark,
   onDeleteMark,
@@ -162,6 +163,7 @@ export default function Sidebar({
   onSplitHisto: (split: boolean) => void;
   onRefreshed: () => void;
   onStains: (stains: (string | null)[]) => void;
+  onMags: (mags: (number | null)[]) => void;
   onHoverMark: (id: string | null) => void;
   onSelectMark: (mark: Element) => void;
   onDeleteMark: (id: string) => void;
@@ -216,8 +218,11 @@ export default function Sidebar({
   const indexing = !catalogError && !!catalog?.indexing;
   const groups = useMemo(
     // Empty only while a folder is indexed for the first time.
-    () => (catalog?.items.length ? groupImages(catalog.items, me.stain_filter, patch) : null),
-    [catalog, me.stain_filter, patch],
+    () =>
+      catalog?.items.length
+        ? groupImages(catalog.items, me.stain_filter, patch, me.mag_filter ?? [])
+        : null,
+    [catalog, me.stain_filter, me.mag_filter, patch],
   );
   const progress = groups && {
     done: groups.reduce((n, g) => n + g.done, 0),
@@ -287,7 +292,10 @@ export default function Sidebar({
               progress={progress}
               mark={groups && strongest(groups.map((g) => g.mark))}
               pinned={
-                <StainFilter catalog={catalog} stains={me.stain_filter} onStains={onStains} />
+                <>
+                  <StainFilter catalog={catalog} stains={me.stain_filter} onStains={onStains} />
+                  <MagFilter catalog={catalog} mags={me.mag_filter ?? []} onMags={onMags} />
+                </>
               }
               selected={
                 <ImageList

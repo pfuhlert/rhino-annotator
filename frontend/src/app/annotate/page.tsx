@@ -539,6 +539,17 @@ function Editor({
 
   // Optimistic so quick toggles build on each other; saves are chained so the server keeps the
   // last choice, and navigation waits for them so Next uses the filter on screen.
+  // Like the stain filter: optimistic, saves chained, Next waits for them.
+  function setMags(mags: (number | null)[]) {
+    setMe((cur) => cur && { ...cur, mag_filter: mags });
+    stainSave.current = stainSave.current
+      .then(() => api.setMags(mags))
+      .catch((error) => {
+        setLoadError(`Could not change the magnification filter. ${errorMessage(error)}`);
+        return api.me().then(setMe, () => {});
+      });
+  }
+
   function setStains(stains: (string | null)[]) {
     setMe((cur) => cur && { ...cur, stain_filter: stains });
     stainSave.current = stainSave.current
@@ -715,6 +726,7 @@ function Editor({
         setIndexing(true);
       }}
       onStains={setStains}
+      onMags={setMags}
       onHoverMark={(id) => annoRef.current?.highlight(id)}
       onSelectMark={selectMark}
       onDeleteMark={(id) => annoRef.current?.remove(id)}

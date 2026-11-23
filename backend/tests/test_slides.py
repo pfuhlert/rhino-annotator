@@ -132,6 +132,31 @@ def test_next_walks_regions_then_images_in_case_order_and_wraps(auth, girder):
     assert back == [("small", 0), ("histo", 0), ("grid", 3), ("grid", 2)]
 
 
+def test_magnification_filter_skips_other_images_and_lists_the_magnifications(auth, girder):
+    _three_images(girder)
+    girder[1]["meta"]["magnification"] = 6000
+    girder[2]["meta"]["magnification"] = 12000
+    catalog = auth.get("/images").json()
+    assert catalog["magnifications"] == [
+        {"value": 6000, "count": 1},
+        {"value": 12000, "count": 1},
+        {"value": None, "count": 1},
+    ]
+    assert {r["id"]: r["magnification"] for r in catalog["items"]} == {
+        "small": 12000,
+        "grid": 6000,
+        "histo": None,
+    }
+    me = auth.patch("/me", json={"mag_filter": [12000, None]}).json()
+    assert me["mag_filter"] == [12000, None]
+    walk = [_at(p) for p in [auth.get("/patches/current").json(), *_walk(auth, 2)]]
+    assert walk == [("small", 0), ("histo", 0), ("small", 0)]
+    # Both filters apply together.
+    auth.patch("/me", json={"stain_filter": ["HE"]})
+    assert auth.get("/patches/next").status_code == 400
+    assert auth.patch("/me", json={"mag_filter": []}).json()["mag_filter"] == []
+
+
 def test_stain_filter_skips_other_images(auth, girder):
     _three_images(girder)
     auth.patch("/me", json={"stain_filter": ["PAS"]})
@@ -140,7 +165,10 @@ def test_stain_filter_skips_other_images(auth, girder):
     auth.patch("/me", json={"stain_filter": ["IgG", None]})
     response = auth.get("/patches/next")
     assert response.status_code == 400
-    assert response.json()["detail"] == "No images in this dataset match the stain filter."
+    assert (
+        response.json()["detail"]
+        == "No images in this dataset match the stain and magnification filters."
+    )
 
 
 def test_open_image_starts_at_its_first_unvisited_region(auth, girder):

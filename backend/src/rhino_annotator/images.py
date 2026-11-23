@@ -71,16 +71,24 @@ def staining(item: dict) -> str | None:
     return _meta(item).get("staining") or None
 
 
+def _positive(value) -> float | None:
+    return (
+        value
+        if isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0
+        else None
+    )
+
+
 def magnification(item: dict) -> float | None:
-    value = _meta(item).get("image_magnification")
-    if not isinstance(value, (int, float)) or value <= 0:
-        return None
-    actual = value / MAGNIFICATION_ERROR
-    return min(POWERS, key=lambda power: abs(math.log(power / actual)))
+    # Histology slides carry image_magnification; electron microscopy images their magnification.
+    if value := _positive(_meta(item).get("image_magnification")):
+        actual = value / MAGNIFICATION_ERROR
+        return min(POWERS, key=lambda power: abs(math.log(power / actual)))
+    return _positive(_meta(item).get("magnification"))
 
 
-def matches(item: dict, stains: list[str | None]) -> bool:
-    return not stains or staining(item) in stains
+def matches(item: dict, stains: list[str | None], mags: list[float | None] = ()) -> bool:
+    return (not stains or staining(item) in stains) and (not mags or magnification(item) in mags)
 
 
 def _in_girder(folder_id: str) -> bool:
@@ -195,6 +203,7 @@ def list_images(
             "listing_error": None,
             "items": [],
             "stains": [],
+            "magnifications": [],
         }
     ids = [item["_id"] for item in items]
     current_grid = (Slide.item_id == Patch.girder_item_id) & (Slide.grid == Patch.grid)
@@ -256,6 +265,7 @@ def list_images(
     )
     scored = scores.counts(db, layer_id(project, user), ids)
     stains = Counter(staining(item) for item in items)
+    mags = Counter(magnification(item) for item in items)
     return {
         "folder_id": key,
         # A refresh being listed in the background.
@@ -275,6 +285,11 @@ def list_images(
             for item in items
         ],
         "stains": [{"name": name, "count": n} for name, n in stains.most_common()],
+        # Lowest first; images without a magnification last.
+        "magnifications": [
+            {"value": value, "count": mags[value]}
+            for value in sorted(mags, key=lambda v: (v is None, v or 0))
+        ],
     }
 
 

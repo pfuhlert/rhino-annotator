@@ -201,10 +201,11 @@ def step(
     current: Patch | None,
     direction: Literal[1, -1],
     stains: list[str | None],
+    mags: list[float | None] = (),
 ) -> Patch:
     ids = [item["_id"] for item in items]
     pos = ids.index(current.girder_item_id) if current and current.girder_item_id in ids else None
-    if pos is not None and matches(items[pos], stains):
+    if pos is not None and matches(items[pos], stains, mags):
         try:
             tiles = _layout(db, user, ensure_slide(db, items[pos]))
         except UnreadableImage:
@@ -214,14 +215,14 @@ def step(
             return tiles[0 if direction > 0 else -1]
         if i is not None and 0 <= i + direction < len(tiles):
             return tiles[i + direction]
-    candidates = [item for item in items if matches(item, stains)]
+    candidates = [item for item in items if matches(item, stains, mags)]
     if not candidates:
-        raise RuntimeError("No images in this dataset match the stain filter.")
+        raise RuntimeError("No images in this dataset match the stain and magnification filters.")
     start = pos if pos is not None else (-1 if direction > 0 else 0)
     reason = ""
     for k in range(1, len(items) + 1):
         item = items[(start + direction * k) % len(items)]
-        if not matches(item, stains):
+        if not matches(item, stains, mags):
             continue
         try:
             tiles = _layout(db, user, ensure_slide(db, item))

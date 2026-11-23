@@ -180,6 +180,8 @@ class ProjectOpen(Base):
     opened: Mapped[float]
     # JSON list of stain names; null in the list means "no stain".
     stain_filter: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # JSON list of magnifications; null in the list means "magnification unknown".
+    mag_filter: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class PatchVisit(Base):

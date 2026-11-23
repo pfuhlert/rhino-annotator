@@ -78,3 +78,23 @@ test("annotated outranks visited, which outranks untouched", () => {
   assert.equal(strongest([null, "visited"]), "visited");
   assert.equal(strongest([]), null);
 });
+
+test("the magnification filter keeps only the chosen magnifications", () => {
+  const row = (id: string, magnification: number | null) => ({
+    id,
+    name: `${id}.tif`,
+    group: "R1",
+    staining: null,
+    magnification,
+    regions: null,
+    visited: 0,
+    annotations: 0,
+    split: null,
+  });
+  const rows = [row("a", 6000), row("b", 12000), row("c", null)];
+  const ids = (mags: (number | null)[]) =>
+    groupImages(rows, [], null, mags).flatMap((g) => g.rows.map((r) => r.id));
+  assert.deepEqual(ids([]), ["a", "b", "c"]);
+  assert.deepEqual(ids([6000]), ["a"]);
+  assert.deepEqual(ids([12000, null]), ["b", "c"]);
+});

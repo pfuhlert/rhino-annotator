@@ -29,10 +29,12 @@ export function groupImages(
   rows: ImageRow[],
   stains: (string | null)[],
   patch: Patch | null,
+  mags: (number | null)[] = [],
 ): ImageGroup[] {
   const groups: ImageGroup[] = [];
   for (const item of rows) {
     if (stains.length && !stains.includes(item.staining)) continue;
+    if (mags.length && !mags.includes(item.magnification)) continue;
     const row = withProgress(item, patch);
     let group = groups.at(-1);
     if (group?.name !== row.group)
