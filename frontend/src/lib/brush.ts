@@ -36,7 +36,7 @@ export function applyPolys(marks: Mark[], jobId: number, polys: BrushPoly[]): Ma
 }
 
 // Brush radius limits and step, in screen pixels.
-export const BRUSH_MIN = 20;
+export const BRUSH_MIN = 2;
 export const BRUSH_MAX = 60;
 export const BRUSH_STEP = 2;
 export const BRUSH_DEFAULT = 30;
