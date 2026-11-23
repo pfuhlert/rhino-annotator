@@ -22,6 +22,14 @@ spec:
         app: ${APPNAME}
     spec:
       hostname: ${APPNAME}-pod
+      # pvc-rhino-shared attaches to one node at a time, so run on the node of the rhino pod.
+      affinity:
+        podAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app: rhino
+              topologyKey: kubernetes.io/hostname
       securityContext:
         runAsNonRoot: true
         runAsUser: 2828
