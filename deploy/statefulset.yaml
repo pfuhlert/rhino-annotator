@@ -22,14 +22,17 @@ spec:
         app: ${APPNAME}
     spec:
       hostname: ${APPNAME}-pod
-      # pvc-rhino-shared attaches to one node at a time, so run on the node of the rhino pod.
+      # pvc-rhino-shared (CephFS, ReadWriteMany) works on any node. Its attachment on puma is stuck
+      # being deleted, so keep off puma until that is fixed; then this block can go.
       affinity:
-        podAffinity:
+        nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
-            - labelSelector:
-                matchLabels:
-                  app: rhino
-              topologyKey: kubernetes.io/hostname
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: kubernetes.io/hostname
+                    operator: NotIn
+                    values:
+                      - puma
       securityContext:
         runAsNonRoot: true
         runAsUser: 2828
