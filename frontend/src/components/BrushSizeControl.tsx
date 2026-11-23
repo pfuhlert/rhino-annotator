@@ -23,21 +23,21 @@ export function BrushSizeControl({
         <Button
           data-testid="brush-size"
           variant="ghost"
-          size="icon"
-          aria-label="Brush size"
-          className={cn(toolbarChip, "w-8 px-0 [&>svg]:size-4 [&>svg]:text-current")}
+          aria-label={`Brush size: ${value * 2} px`}
+          className={cn(toolbarChip, "gap-1.5 px-2.5 [&>svg]:size-4 [&>svg]:text-current")}
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
             <circle cx="12" cy="12" r="10" />
             <circle cx="12" cy="12" r="4" />
           </svg>
+          <span className="text-xs tabular-nums">{value * 2}</span>
         </Button>
       </Popover.Trigger>
       <Popover.Portal>
         <Popover.Content
           side="top"
           sideOffset={8}
-          className={cn(toolbarMenu, "z-50 flex items-center px-1.5 py-2.5 outline-hidden")}
+          className={cn(toolbarMenu, "z-50 flex items-center gap-3 px-2.5 py-2.5 outline-hidden")}
         >
           <Slider.Root
             data-testid="brush-size-slider"
@@ -57,6 +57,22 @@ export function BrushSizeControl({
               className="block size-3 rounded-full border border-black/20 bg-white shadow-sm dark:border-white/40"
             />
           </Slider.Root>
+          {/* The brush at its real size on screen: the diameter is twice the radius. */}
+          <div className="flex flex-col items-center gap-1.5">
+            <div
+              className="flex items-center justify-center"
+              style={{ width: BRUSH_MAX * 2, height: BRUSH_MAX * 2 }}
+            >
+              <div
+                data-testid="brush-size-preview"
+                className="rounded-full border border-neutral-900/60 bg-neutral-900/15 dark:border-white/70 dark:bg-white/20"
+                style={{ width: value * 2, height: value * 2 }}
+              />
+            </div>
+            <span data-testid="brush-size-value" className="text-xs font-medium tabular-nums">
+              {value * 2} px
+            </span>
+          </div>
         </Popover.Content>
       </Popover.Portal>
     </Popover.Root>
