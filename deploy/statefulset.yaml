@@ -38,14 +38,12 @@ spec:
           imagePullPolicy: Always
           name: ${APPNAME}
           resources:
-            # Same as the rhino pod: one GPU slice for the AI worker (SAM / μSAM).
+            # No GPU: the app runs without the AI worker (SIMPLE_ANNOTATOR_AI=0).
             limits:
-              memory: 48Gi
-              nvidia.com/mig-1g.35gb: "1"
+              memory: 8Gi
             requests:
               cpu: "1"
-              memory: 48Gi
-              nvidia.com/mig-1g.35gb: "1"
+              memory: 8Gi
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:

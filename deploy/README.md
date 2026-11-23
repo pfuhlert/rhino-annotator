@@ -1,6 +1,6 @@
 # Deploy
 
-A long-lived pod for Rhino Annotator, built like our other project pods: a GPU image with Node, uv and
+A long-lived pod for Rhino Annotator, built like our other project pods: an image with Node, uv and
 zsh, a StatefulSet that keeps the pod (and its volumes) across restarts, and the app started inside it.
 
 ## 1. Settings
@@ -39,8 +39,8 @@ Login to the remote registry before building: `podman login cr.ims.bio`
 ./start.sh
 ```
 
-The pod is `rhino-annotator-0`. It asks for the same as the `rhino` pod: one GPU slice
-(`nvidia.com/mig-1g.35gb`), 1 CPU and 48Gi of memory. Wait until it is `Running`:
+The pod is `rhino-annotator-0`. It asks for 1 CPU and 8Gi of memory and no GPU, so the app runs
+without AI segmentation; drawing masks and scoring work as usual. Wait until it is `Running`:
 
 ```bash
 kubectl get pod -n rhino rhino-annotator-0 -w
@@ -57,10 +57,10 @@ Clone the repo into the mounted folder and add the Girder settings:
 ```bash
 cd /data/rhino/rhino-annotator
 git clone https://github.com/pfuhlert/rhino-annotator code && cd code
-printf 'GIRDER_API_URL=https://rhinodb.ims.bio/api/v1\nGIRDER_TOKEN=<your Girder API key>\n' > .env
+printf 'GIRDER_API_URL=https://rhinodb.ims.bio/api/v1\nGIRDER_TOKEN=<your Girder API key>\nSIMPLE_ANNOTATOR_AI=0\n' > .env
 ```
 
-Start the long-running instance (frontend build, API, web app and the GPU AI worker):
+Start the long-running instance (frontend build, API and web app):
 
 ```bash
 npm run prod -- deploy
@@ -69,8 +69,7 @@ npm run prod -- deploy
 It runs on ports 3300 (web) and 8300 (API) and keeps its database in
 `/data/rhino/rhino-annotator/simple-annotator-prod/data/`. Check it with `npm run prod -- status` and
 `npm run prod -- logs`. To update, `git pull` and run `npm run prod -- deploy` again. After the pod
-restarts, run `npm run prod -- start` again. To run without the GPU worker, put
-`SIMPLE_ANNOTATOR_AI=0` in the `.env` file.
+restarts, run `npm run prod -- start` again.
 
 ## 5. Open it from a laptop
 
