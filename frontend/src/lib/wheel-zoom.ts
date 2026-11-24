@@ -4,3 +4,9 @@ export function wheelZoomFactor(deltaY: number, deltaMode: number) {
   const px = deltaMode ? deltaY * 40 : deltaY;
   return Math.exp(-Math.max(-15, Math.min(15, px)) * 0.015);
 }
+
+// A plain mouse notch zooms 1.2x, as in OpenSeadragon; a trackpad's small steps in proportion.
+export function scrollZoomFactor(deltaY: number, deltaMode: number) {
+  const px = deltaMode ? deltaY * 40 : deltaY;
+  return 1.2 ** -Math.max(-1, Math.min(1, px / 100));
+}

@@ -39,7 +39,7 @@ export function applyPolys(marks: Mark[], jobId: number, polys: BrushPoly[]): Ma
 export const BRUSH_MIN = 2;
 export const BRUSH_MAX = 60;
 export const BRUSH_STEP = 2;
-export const BRUSH_DEFAULT = 30;
+export const BRUSH_DEFAULT = 10;
 
 // Maximum approximation error in image pixels, independent of brush size.
 const STROKE_ERROR = 1;

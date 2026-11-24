@@ -122,6 +122,10 @@ export default async function (page, state) {
     results.push({ label, ...current });
     return current;
   }
+  async function pan(...keys) {
+    for (const key of keys) await page.keyboard.press(key);
+    await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+  }
   async function wheel(dx, dy, modifier = null) {
     const before = (await read()).redraws;
     if (modifier) await page.keyboard.down(modifier);
@@ -258,7 +262,7 @@ export default async function (page, state) {
   assert.equal((await read()).transform, beforeZoomedResize, "resizing must not pan or zoom");
   await wheel(0, 100, "Shift");
   const beforePan = (await read()).transform;
-  await wheel(40, 60);
+  await pan("ArrowRight", "ArrowDown");
   assert.notEqual((await read()).transform, beforePan);
   await check("native pan");
   await moveWithoutRedraw();
@@ -269,7 +273,7 @@ export default async function (page, state) {
   await root.dispatchEvent("wheel", { clientX: x, clientY: y, deltaY: -100, shiftKey: true });
   await check("Shift wheel clamps at maximum", true, 80);
   await moveWithoutRedraw(true, 80);
-  await wheel(30, 50);
+  await pan("ArrowRight", "ArrowDown");
   await check("large brush pan", true, 80);
   await paintAndErase("large brush paint and erase while zoomed and panned");
   const button = await page.getByTestId("next").boundingBox();
@@ -305,14 +309,14 @@ export default async function (page, state) {
   await page.mouse.move(x, y);
   await wheel(0, -500, "Control");
   await check("large brush zoom", true, 80);
-  await wheel(0, 100000);
+  await pan(...Array(200).fill("ArrowDown"));
   await check("clamped pan", true, 80);
   await moveWithoutRedraw(true, 80);
 
   // A wheel event can have fresher coordinates than the last pointermove.
   x += 18;
   await root.dispatchEvent("wheel", { clientX: x, clientY: y, deltaY: -50 });
-  // Wheel panning applies on the next animation frame.
+  // Wheel zooming applies on the next animation frame.
   await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
   await check("wheel coordinates", true, 80);
   await page.mouse.move(x, y);

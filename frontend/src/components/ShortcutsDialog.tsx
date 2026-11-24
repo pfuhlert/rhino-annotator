@@ -12,7 +12,7 @@ const SECTIONS: [string, [string[][], string, Tool?][]][] = [
     "Navigation",
     [
       [[["N"], ["F"]], "Next region or image"],
-      [[["B"], ["←"]], "Previous region or image"],
+      [[["B"]], "Previous region or image"],
     ],
   ],
   [
@@ -63,8 +63,18 @@ const SECTIONS: [string, [string[][], string, Tool?][]][] = [
   [
     "View",
     [
-      [[[MOD, "Scroll"]], "Zoom"],
-      [[["Scroll"], ["Space", "Drag"], ["Middle-drag"]], "Pan when zoomed in"],
+      [[["Scroll"], ["+"], ["−"]], "Zoom"],
+      [
+        [
+          ["Shift", "↑"],
+          ["Shift", "↓"],
+        ],
+        "Zoom in / out",
+      ],
+      [[["Space", "Drag"], ["Middle-drag"]], "Pan when zoomed in"],
+      [[["↑"], ["↓"], ["←"], ["→"]], "Pan by a step"],
+      [[["Home"]], "Show the whole image"],
+      [[["Click"], ["Shift", "Click"]], "Hand tool: zoom in / out"],
       [[["?"]], "Show this list"],
     ],
   ],

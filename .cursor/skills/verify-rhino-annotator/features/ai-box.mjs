@@ -171,7 +171,7 @@ export default async function (page, state) {
 
   const s = await bounds();
   await root.dispatchEvent("wheel", { clientX: s.left + 600 * s.scale, clientY: s.top + 500 * s.scale, deltaY: -300, ctrlKey: true });
-  await root.dispatchEvent("wheel", { deltaX: 50, deltaY: 20 });
+  await page.keyboard.press("ArrowRight");
   const canvasPixels = () => root.evaluate((el) => [...el.querySelectorAll("canvas")].map((c) => c.toDataURL()).join());
   await move(600, 450);
   const before = await canvasPixels();

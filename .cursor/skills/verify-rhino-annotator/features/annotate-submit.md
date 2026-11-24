@@ -46,7 +46,7 @@ Brush cursor regression: run `./scripts/verify-rhino-annotator browser script --
 
 Image boundary regression: run `./scripts/verify-rhino-annotator browser script --file .cursor/skills/verify-rhino-annotator/features/image-bounds.mjs` after `login-proof`. It closes the sidebar to expose the margins, checks outside starts and stationary tool changes, constrained drawing and editing, overshooting an edge and reversing without losing the grab offset, undo/redo and persistence, partial brush paint/erase and live preview clipping, and hover feedback after zoom and resize without pointer movement. Evidence is written to `artifacts/image-bounds-*`.
 
-Shortcut regression: after selecting a job and closing the menu, press N/F to advance and B/ArrowLeft to return. The selected job must stay unchanged; the selector must not consume navigation keys as typeahead. Repeat P/L/R and Tab/Shift+Tab after job and image changes.
+Shortcut regression: after selecting a job and closing the menu, press N/F to advance and B to return. The selected job must stay unchanged; the selector must not consume navigation keys as typeahead. Repeat P/L/R and Tab/Shift+Tab after job and image changes.
 
 - **Proof.** Screenshot after marks. `sqlite3 $(./scripts/verify-rhino-annotator sqlite) 'select elements from annotations;'` includes `polygon`. Copy that output into `artifacts/` before `down`. Verify Point AI using the real-image fixture in [AI annotation](ai-annotation.md); `image-bounds.mjs` seeds a legacy point through the API solely to verify editing older annotations.
 

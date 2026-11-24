@@ -10,7 +10,7 @@ Histology prompts use Meta's SAM ViT-H (`sam-vit_h`) for every job; ELMI jobs ke
 
 Start `tests/girder_fixture.py` and set `VERIFY_GIRDER_API_URL` as described in [AI annotation](ai-annotation.md). The fixture serves three copies of a procedural 30000 × 12000 px slide at 2.5 µm/px under Verification images → Histology, with pyramid tiles. Their metadata differs: `slide` (H&E) and `slide-pas` are in case-2, and `slide-b` (PAS) is in case-10. Open `tab-images`, `folder-fixtures`, `folder-histo`, and wait for `slide-map`; the first image is `slide`.
 
-Expect three regions: the tissue strip split into two chunks of 11423 × 6661 px starting at x = 178 and 10401, and a fragment near x = 24670. Ctrl+wheel zooms up to 2 screen pixels per image pixel. Fixture glomeruli are 760 px (1.9 mm) disks; one sits at slide (5782, 5406).
+Expect three regions: the tissue strip split into two chunks of 11423 × 6661 px starting at x = 178 and 10401, and a fragment near x = 24670. The wheel zooms up to 2 screen pixels per image pixel. Fixture glomeruli are 760 px (1.9 mm) disks; one sits at slide (5782, 5406).
 
 ```bash
 sqlite3 "$(./scripts/verify-rhino-annotator sqlite)" \

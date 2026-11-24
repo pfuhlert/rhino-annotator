@@ -10,7 +10,8 @@ import {
   type Brush,
 } from "./brush";
 import { createBrushCursor } from "./brush-cursor";
-import { wheelZoomFactor } from "./wheel-zoom";
+import type { ViewAction } from "./viewer-keys";
+import { scrollZoomFactor, wheelZoomFactor } from "./wheel-zoom";
 import { TOOL_CURSORS } from "./tool-cursors";
 import {
   imagePoint,
@@ -48,6 +49,7 @@ type Ctl = {
   select: (id: string) => void;
   remove: (id: string) => void;
   relabel: (id: string, jobId: number) => void;
+  navigate: (action: ViewAction) => void;
 };
 
 export function useFreehand(opts: {
@@ -88,6 +90,7 @@ export function useFreehand(opts: {
     select() {},
     remove() {},
     relabel() {},
+    navigate() {},
   });
 
   useEffect(() => {
@@ -128,6 +131,8 @@ export function useFreehand(opts: {
     let insertAt: [number, number] | null = null;
     // Middle-drag, Hand-tool drag, and Space+drag pan the view; `buttons` is the held-button mask.
     let pan: { pointerId: number; buttons: number; x: number; y: number } | null = null;
+    // A Hand-tool press that may still turn out to be a click, which zooms.
+    let press: { x: number; y: number; at: number } | null = null;
     let spaceHeld = false;
     let dirty = false;
     const stroke: [number, number][] = [];
@@ -291,6 +296,7 @@ export function useFreehand(opts: {
       select,
       remove,
       relabel,
+      navigate,
     };
 
     function edgeInsert(e: PointerPosition, id: string | null) {
@@ -421,8 +427,8 @@ export function useFreehand(opts: {
     }
 
     // Zooms about a point given in root coordinates.
-    function zoom(e: WheelEvent, cx: number, cy: number) {
-      const z2 = Math.min(maxZoom(), Math.max(1, view.z * wheelZoomFactor(e.deltaY, e.deltaMode)));
+    function zoom(factor: number, cx: number, cy: number) {
+      const z2 = Math.min(maxZoom(), Math.max(1, view.z * factor));
       const k = z2 / view.z;
       view.x = cx - (cx - view.x) * k;
       view.y = cy - (cy - view.y) * k;
@@ -442,20 +448,31 @@ export function useFreehand(opts: {
     function onWheel(e: WheelEvent) {
       e.preventDefault();
       pointer = e;
-      if (e.ctrlKey || e.metaKey) {
-        const r = root.getBoundingClientRect();
-        zoom(e, e.clientX - r.left, e.clientY - r.top);
-      } else if (e.shiftKey && brushing()) {
+      const pinch = e.ctrlKey || e.metaKey;
+      if (e.shiftKey && !pinch && brushing()) {
         const delta = e.deltaY || e.deltaX;
         resizeBrush(-Math.sign(delta));
         cursor();
         return;
-      } else if (view.z > 1) {
-        view.x -= e.deltaX;
-        view.y -= e.deltaY;
+      }
+      zoomAt(e, (pinch ? wheelZoomFactor : scrollZoomFactor)(e.deltaY, e.deltaMode));
+    }
+
+    function zoomAt(e: PointerPosition, factor: number) {
+      const r = root.getBoundingClientRect();
+      zoom(factor, e.clientX - r.left, e.clientY - r.top);
+      clampView();
+      scheduleView();
+    }
+
+    function navigate(action: ViewAction) {
+      if (action === "home") {
+        Object.assign(view, { z: 1, x: 0, y: 0 });
+      } else if ("zoom" in action) {
+        zoom(action.zoom, root.clientWidth / 2, root.clientHeight / 2);
       } else {
-        cursor();
-        return;
+        view.x -= action.pan[0];
+        view.y -= action.pan[1];
       }
       clampView();
       scheduleView();
@@ -465,9 +482,7 @@ export function useFreehand(opts: {
     function onPageWheel(e: WheelEvent) {
       if (!(e.ctrlKey || e.metaKey) || root.contains(e.target as Node)) return;
       e.preventDefault();
-      zoom(e, root.clientWidth / 2, root.clientHeight / 2);
-      clampView();
-      scheduleView();
+      navigate({ zoom: wheelZoomFactor(e.deltaY, e.deltaMode) });
     }
 
     function hit(e: PointerPosition) {
@@ -533,6 +548,10 @@ export function useFreehand(opts: {
           x: e.clientX,
           y: e.clientY,
         };
+        press =
+          e.button === 0 && hand() && !spaceHeld
+            ? { x: e.clientX, y: e.clientY, at: e.timeStamp }
+            : null;
         root.setPointerCapture(e.pointerId);
         cursor();
         return;
@@ -740,6 +759,15 @@ export function useFreehand(opts: {
         pan = null;
         release(e);
         cursor();
+        // OpenSeadragon's click: within 5 px and 300 ms, Shift zooms out.
+        if (
+          press &&
+          e.type === "pointerup" &&
+          e.timeStamp - press.at <= 300 &&
+          Math.hypot(e.clientX - press.x, e.clientY - press.y) <= 5
+        )
+          zoomAt(e, e.shiftKey ? 0.5 : 2);
+        press = null;
         return;
       }
       if (boxDrag) {
@@ -894,5 +922,6 @@ export function useFreehand(opts: {
     select: (id) => ctl.current.select(id),
     remove: (id) => ctl.current.remove(id),
     relabel: (id, jobId) => ctl.current.relabel(id, jobId),
+    navigate: (action) => ctl.current.navigate(action),
   };
 }

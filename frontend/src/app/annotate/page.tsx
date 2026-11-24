@@ -49,6 +49,7 @@ import type { Tool } from "@/lib/draw";
 import { nextColor, pickerJobs } from "@/lib/projects";
 import { createAnnotationSync } from "@/lib/annotation-sync";
 import { useAi } from "@/lib/use-ai";
+import { viewAction } from "@/lib/viewer-keys";
 import { isTypingTarget } from "@/lib/keys";
 import { type DigitState, digitScore, isScoreClass, scoreKey } from "@/lib/scores";
 import { type EditorMode, editorMode, structureIndex } from "@/lib/structures";
@@ -735,6 +736,13 @@ function Editor({
           return;
         }
       }
+      const view = viewAction(e);
+      if (view) {
+        e.preventDefault();
+        e.stopPropagation();
+        annoRef.current?.navigate(view);
+        return;
+      }
       if (k === "escape" && !annoRef.current?.cancelDraft()) cancelLatestPending();
       const keyed = TOOLS.find(([, , key]) => key.toLowerCase() === k)?.[0];
       if (!e.ctrlKey && !e.metaKey && !e.altKey && keyed && enabledTools.includes(keyed)) {
@@ -749,8 +757,7 @@ function Editor({
         else undo();
       }
       if (e.metaKey || e.ctrlKey) return;
-      const direction =
-        k === "n" || k === "f" ? "next" : k === "b" || k === "arrowleft" ? "prev" : null;
+      const direction = k === "n" || k === "f" ? "next" : k === "b" ? "prev" : null;
       if (direction) {
         e.preventDefault();
         e.stopPropagation();

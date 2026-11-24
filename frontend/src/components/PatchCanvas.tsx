@@ -9,6 +9,7 @@ import { createHistory } from "@/lib/history";
 import { setLiveView } from "@/lib/live-view";
 import { isLightBackground, measureScaleBar, sampleBehind } from "@/lib/scale-bar";
 import { createTileLayer, visibleRect } from "@/lib/tiles";
+import type { ViewAction } from "@/lib/viewer-keys";
 
 type Props = {
   image: PatchImage;
@@ -44,6 +45,7 @@ export type AnnotatorApi = {
   relabel: (id: string, jobId: number) => void;
   // Removes every mark as one undoable step.
   clear: () => void;
+  navigate: (action: ViewAction) => void;
 };
 
 export default function PatchCanvas({
@@ -183,6 +185,7 @@ export default function PatchCanvas({
       select: (id) => brush.select(id),
       remove: (id) => brush.remove(id),
       relabel: (id, jobId) => brush.relabel(id, jobId),
+      navigate: (action) => brush.navigate(action),
       clear: () => {
         brush.flush();
         marksRef.current = [];

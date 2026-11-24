@@ -114,8 +114,11 @@ async function measure(page, cdp, name) {
   await page.keyboard.down("Control");
   for (let i = 0; i < 25; i++) await page.mouse.wheel(0, -120);
   await page.keyboard.up("Control");
+  await page.mouse.down({ button: "middle" });
+  let [px, py] = [cx, cy];
   for (let i = 0; i < STEPS; i++)
-    await page.mouse.wheel(i < STEPS / 2 ? 40 : -40, i % 30 < 15 ? 25 : -25);
+    await page.mouse.move((px += i < STEPS / 2 ? -40 : 40), (py += i % 30 < 15 ? -25 : 25));
+  await page.mouse.up({ button: "middle" });
   // Snapshot the counters now so tiles that land after the interaction don't inflate per-frame cost.
   const { end, ...atEnd } = await page.evaluate(() => {
     const { draws, drawArea, long, longCount, moves } = window.__perf;
