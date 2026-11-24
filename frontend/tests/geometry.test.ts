@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { hasPolygonArea, measurePolygon } from "../src/lib/geometry";
+import { hasPolygonArea, hitAnyMark, measurePolygon } from "../src/lib/geometry";
 
 test("edge-only strokes are discarded without rejecting self-crossing outlines", () => {
   assert.equal(
@@ -62,4 +62,27 @@ test("polygon area counts both lobes of a self-crossing outline", () => {
   const m = measurePolygon({ id: "b", type: "polygon", points: bowTie, jobId: 1 });
   assert.equal(m.area, 20000);
   assert.deepEqual([m.feretMin, Math.round(m.feretMax * 100) / 100], [200, 282.84]);
+});
+
+test("the brush picks the active class first, then the topmost mark of a shown class", () => {
+  const at = (id: string, x: number, jobId: number) => ({
+    id,
+    type: "polygon" as const,
+    jobId,
+    points: [
+      [x, 0],
+      [x + 100, 0],
+      [x + 100, 100],
+      [x, 100],
+    ] as [number, number][],
+  });
+  const marks = [at("a", 0, 1), at("b", 0, 2), at("c", 0, 3), at("d", 500, 2)];
+  const pick = (x: number, jobId: number, shown: number[]) =>
+    hitAnyMark(marks, [x, 50], 1, jobId, shown);
+  assert.equal(pick(50, 1, [1, 2, 3]), "a");
+  assert.equal(pick(50, 9, [1, 2, 3]), "c");
+  assert.equal(pick(50, 9, [1, 2]), "b");
+  assert.equal(pick(550, 1, [1, 2, 3]), "d");
+  assert.equal(pick(550, 1, [1]), null);
+  assert.equal(pick(300, 1, [1, 2, 3]), null);
 });

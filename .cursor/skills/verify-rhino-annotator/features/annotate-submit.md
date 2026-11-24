@@ -8,7 +8,7 @@ Annotate and next records polygons on the current image, then loads the next ima
 - `tool-point` prompts AI for every job with Point (P); its fixed-size dot-and-ring cursor marks the exact click location.
 - `tool-polygon` traces a polygon with tool Polygon (L); a lasso cursor identifies the tool and a small crosshair marks the drawing position.
 - `image-boundaries` keeps new points, polygon drawing, vertex edits, and whole-shape movement inside the image. Outside starts are ignored; a partially overlapping brush remains usable. Whole-shape drags retain their grab offset when constrained by an edge.
-- `tool-brush` paints a filled region with tool Brush (R); erase (Shift or right-drag) can cut a hole.
+- `tool-brush` paints a filled region with tool Brush (R); erase (Shift or right-drag) can cut a hole. Ctrl/⌘+click selects the mask under it (any class shown) and Delete removes it.
 - `next-empty` advances with zero marks.
 - `next-save` inserts an `annotations` row.
 

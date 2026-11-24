@@ -53,6 +53,7 @@ const SECTIONS: [string, [string[][], string, Tool?][]][] = [
         ],
         "Redo",
       ],
+      [[[MOD, "Click"]], "Select the mask under the brush"],
       [[["Delete"], ["Backspace"]], "Delete selected annotation"],
       [[["Esc"]], "Cancel drawing, deselect, or cancel the latest AI request"],
       [[["["], ["]"]], "Smaller / larger brush"],

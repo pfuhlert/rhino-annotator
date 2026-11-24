@@ -27,7 +27,14 @@ import {
   type Space,
   type Tool,
 } from "./draw";
-import { hasPolygonArea, hitMark, hitVertex, insertTarget, simplifyPolygon } from "./geometry";
+import {
+  hasPolygonArea,
+  hitAnyMark,
+  hitMark,
+  hitVertex,
+  insertTarget,
+  simplifyPolygon,
+} from "./geometry";
 import {
   brushTouchesImage,
   clampToImage,
@@ -179,7 +186,9 @@ export function useFreehand(opts: {
 
     function reset(clearSelect = false) {
       cancelGesture();
-      if (clearSelect) selected = null;
+      // The brush can select other classes' marks; the other tools only edit the active class.
+      const other = marksRef.current.find((m) => m.id === selected)?.jobId !== latest.current.jobId;
+      if (clearSelect || other) selected = null;
       hover = null;
       insertAt = null;
       brush = null;
@@ -236,11 +245,10 @@ export function useFreehand(opts: {
       redraw();
     }
 
-    // Brush mode has no selection, but still brings the mark into view.
     function select(id: string) {
       const mark = marksRef.current.find((m) => m.id === id);
       if (busy() || !mark) return;
-      if (!brushing()) selected = id;
+      selected = id;
       if (space && revealMark(mark, space)) return applyView();
       cursor();
       redraw();
@@ -561,6 +569,14 @@ export function useFreehand(opts: {
       if (brushing()) {
         if (e.button !== 0 && e.button !== 2) return;
         if (!primed(e) || !space) return;
+        // A plain press paints, so selecting takes Ctrl/⌘.
+        if (e.button === 0 && (e.ctrlKey || e.metaKey)) {
+          const { jobId, jobs } = latest.current;
+          const ids = jobs.map((j) => j.id);
+          selected = hitAnyMark(marksRef.current, imagePoint(e, space), space.scale, jobId, ids);
+          redraw();
+          return;
+        }
         strokeRadius = brushRadius(space);
         if (!brushTouchesImage(imagePoint(e, space), strokeRadius, space)) {
           cursor();

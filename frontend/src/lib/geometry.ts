@@ -210,6 +210,20 @@ export function insertTarget(rings: [number, number][][], pt: [number, number], 
   return best;
 }
 
+// The topmost mark of any of these classes, preferring the active one.
+export function hitAnyMark(
+  marks: Mark[],
+  pt: [number, number],
+  scale: number,
+  jobId: number,
+  jobIds: number[],
+) {
+  const own = hitMark(marks, pt, scale, jobId);
+  if (own) return own;
+  const shown = marks.filter((m) => jobIds.includes(m.jobId)).reverse();
+  return shown.find((m) => hitMark([m], pt, scale, m.jobId))?.id ?? null;
+}
+
 export function hitMark(marks: Mark[], pt: [number, number], scale: number, jobId: number) {
   const r = 10 / scale;
   for (let i = marks.length - 1; i >= 0; i--) {

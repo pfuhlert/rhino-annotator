@@ -16,6 +16,10 @@ Score classes show a slider dock above the toolbar. Keys: `0`–`9` score in ten
 
 Moving around an image follows [OpenSeadragon](https://openseadragon.github.io/): scroll zooms at the pointer, `Space`+drag or middle-drag pans, the arrow keys pan by a step, `+` / `-` (or `Shift` with `↑` / `↓`) zoom, and `Home` shows the whole image. With the Hand tool a drag pans, a click zooms in and `Shift`+click out. `?` lists every shortcut.
 
+## Deleting a mask
+
+With the brush, `Ctrl`/`⌘`+click selects the mask under the pointer, of any class shown; with the other tools a click selects a mask of the active class. `Delete` or `Backspace` removes it and `Ctrl`/`⌘`+`Z` brings it back. Touching brush strokes of one class are one mask.
+
 ## Complete images
 
 **Mark complete** at the bottom of the structure column (key `C`) says an image's masks are finished: every structure on it is masked, and what is left unmasked is background. The image list shows a green double tick, and the CSV export has one row of type `complete` per marked image, including images with no masks. Marks are shared like annotations in shared projects.
