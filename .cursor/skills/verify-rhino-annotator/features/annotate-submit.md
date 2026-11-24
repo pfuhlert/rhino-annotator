@@ -28,9 +28,9 @@ Preconditions:
   goto --path /annotate \
   wait --testid annotate-app \
   press --key Tab \
-  wait --testid tool-switcher --text "Brush" \
+  wait --testid tool-switcher --text "AI Box" \
   press --key Shift+Tab \
-  wait --testid tool-switcher --text "Polygon" \
+  wait --testid tool-switcher --text "Brush" \
   select --testid tool-switcher --option tool-polygon \
   drag --testid patch-canvas --from 500,220 --via 800,240 --to 640,500 \
   select --testid tool-switcher --option tool-brush \

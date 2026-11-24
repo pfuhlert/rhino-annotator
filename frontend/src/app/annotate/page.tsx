@@ -151,7 +151,7 @@ function Editor({
   const [times, setTimes] = useState<Times>({});
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selectAfterSwitch = useRef<string | null>(null);
-  const [chosenTool, setTool] = useState<Tool>("polygon");
+  const [chosenTool, setTool] = useState<Tool>("brush");
   const enabledTools = useEnabledTools();
   const tool = enabledTools.includes(chosenTool) ? chosenTool : enabledTools[0];
   const [brushRadius, setBrushRadius] = useState(BRUSH_DEFAULT);
