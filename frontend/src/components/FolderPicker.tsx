@@ -255,6 +255,8 @@ export default function FolderPicker({
   const refresh = <RefreshButton indexing={indexing} onRefresh={onRefresh} />;
   const levelId = level.id;
   const levelSelected = !!levelId && levelId === selectedId;
+  // A selected level already lists its subfolders as image groups; collapse it to browse them.
+  const rows = levelSelected && !collapsed ? [] : level.children;
   const levelHeader = (
     // Row spacing is an opaque bottom border, not a flex gap, so pinned rows keep it when stuck.
     <div className="sticky top-0 z-20 flex h-8.5 items-center gap-1 border-b-2 border-sidebar bg-sidebar px-1 text-xs font-medium text-sidebar-foreground/70">
@@ -305,7 +307,7 @@ export default function FolderPicker({
               {level.n_items} image{level.n_items === 1 ? "" : "s"}, no subfolders with images.
             </p>
           )}
-      {level.children.map((child) => {
+      {rows.map((child) => {
         const row = (
           <FolderRow
             child={child}
