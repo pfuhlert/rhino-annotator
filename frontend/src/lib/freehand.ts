@@ -457,7 +457,8 @@ export function useFreehand(opts: {
       e.preventDefault();
       pointer = e;
       const pinch = e.ctrlKey || e.metaKey;
-      if (e.shiftKey && !pinch && brushing()) {
+      // Shift or Alt+scroll resizes the brush; Shift+scroll arrives as deltaX on some systems.
+      if ((e.shiftKey || e.altKey) && !pinch && brushing()) {
         const delta = e.deltaY || e.deltaX;
         resizeBrush(-Math.sign(delta));
         cursor();

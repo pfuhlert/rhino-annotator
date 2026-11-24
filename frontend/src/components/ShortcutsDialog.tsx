@@ -57,7 +57,7 @@ const SECTIONS: [string, [string[][], string, Tool?][]][] = [
       [[["Delete"], ["Backspace"]], "Delete selected annotation"],
       [[["Esc"]], "Cancel drawing, deselect, or cancel the latest AI request"],
       [[["["], ["]"]], "Smaller / larger brush"],
-      [[["Shift", "Scroll"]], "Resize brush"],
+      [[["Shift", "Scroll"], ["Alt", "Scroll"]], "Resize brush"],
       [[["Shift", "Drag"], ["Right-drag"]], "Erase with the brush"],
     ],
   ],
