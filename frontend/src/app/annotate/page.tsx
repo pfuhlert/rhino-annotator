@@ -456,6 +456,19 @@ function Editor({
     }
   }
 
+  async function editStructure(id: number, change: { name: string; color: string }) {
+    if (!project) return;
+    try {
+      await api.editClass(project.id, id, change);
+      setJobs(await api.jobs());
+    } catch (error) {
+      setSaveError({
+        stale: false,
+        message: `Could not change “${change.name}”. ${errorMessage(error)}`,
+      });
+    }
+  }
+
   // Masks go through the editor's history, so Ctrl+Z brings them back while the image is open.
   function resetImage() {
     const open = patchRef.current;
@@ -898,6 +911,7 @@ function Editor({
             complete={complete}
             onComplete={(value) => void saveComplete(value)}
             onReset={resetImage}
+            onEdit={project.is_owner ? (id, change) => void editStructure(id, change) : undefined}
             onAdd={project.is_owner ? (name) => void addStructure(name) : undefined}
           />
           <footer className="pointer-events-none absolute inset-x-0 bottom-0 z-10 px-4 py-4">

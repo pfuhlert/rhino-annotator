@@ -97,7 +97,49 @@ def test_label_classes_get_a_kind_on_a_database_from_before_kinds(auth):
     db.init_db()
     with sqlite3.connect(sqlite_path()) as conn:
         kinds = dict(conn.execute("SELECT name, kind FROM jobs"))
-    assert (kinds["Tubule"], kinds["Podocyte"], kinds["Custom"]) == ("histo", "elmi", "histo")
+    assert (kinds["Tubule"], kinds["Cell nuclei"], kinds["Custom"]) == ("histo", "elmi", "histo")
+
+
+def test_the_old_em_classes_become_the_new_list_and_keep_their_annotations(auth):
+    from rhino_annotator import db
+    from rhino_annotator.config import sqlite_path
+
+    default = auth.get("/api/projects").json()[0]["id"]
+    with sqlite3.connect(sqlite_path()) as conn:
+        conn.execute("DELETE FROM project_jobs")
+        conn.execute("DELETE FROM jobs WHERE kind = 'elmi'")
+        ids = {}
+        for name in db.OLD_ELMI_JOBS:
+            sql = "INSERT INTO jobs (name, color, kind) VALUES (?, '#111111', 'elmi')"
+            ids[name] = conn.execute(sql, [name]).lastrowid
+        own = conn.execute("INSERT INTO jobs (name, color) VALUES ('Own', '#000000')").lastrowid
+        for job_id in (1, *ids.values(), own):
+            sql = "INSERT INTO project_jobs (project_id, job_id, color) VALUES (?, ?, '#222222')"
+            conn.execute(sql, (default, job_id))
+        conn.execute("PRAGMA user_version = 0")
+    chosen = _create(
+        auth,
+        jobs=[{"id": ids[n], "name": n, "color": "#111111"} for n in ("Podocyte", "Nucleus")],
+    )
+    auth.post(f"/api/projects/{default}/open")
+    marks = {"p1": "Nucleus", "p2": "Podocyte", "p3": "Artifact"}
+    _annotate(auth, *({**POINT, "id": i, "jobId": ids[name]} for i, name in marks.items()))
+
+    db.reset_engine()
+    db.init_db()
+    db.init_db()
+
+    def classes(project_id):
+        jobs = auth.get(f"/api/projects/{project_id}").json()["jobs"]
+        return [(j["name"], j["color"]) for j in jobs]
+
+    assert classes(default) == [("Glomerulus", "#222222"), *db.ELMI_JOBS, ("Own", "#222222")]
+    assert classes(chosen["id"]) == [("Podocyte", "#111111"), ("Cell nuclei", "#8ba2ff")]
+    jobs = {j["id"]: (j["name"], j["in_project"]) for j in auth.get("/jobs").json()}
+    assert jobs[ids["Nucleus"]] == ("Cell nuclei", True)
+    assert jobs[ids["Artifact"]] == ("Artifact", True)
+    assert jobs[ids["Podocyte"]] == ("Podocyte", False)
+    assert set(_elements(auth)) == {"p1", "p2", "p3"}
 
 
 def test_folders_normalize_to_the_outermost_and_scope_the_browser(auth, monkeypatch):
@@ -201,7 +243,7 @@ def test_registering_starts_on_a_private_project_with_the_preset_label_classes(a
         "private",
         True,
     )
-    assert len(project["jobs"]) == 15
+    assert len(project["jobs"]) == 16
     # Other people's classes never reach the label list.
     _create(_user(auth, "bob"), jobs=[{"name": "Secret", "color": "#123456"}])
     assert "Secret" not in {j["name"] for j in auth.get("/jobs").json()}
@@ -259,6 +301,39 @@ def test_a_member_who_lost_access_cannot_cancel_ai_results_out_of_the_shared_lay
     assert bob.delete(f"/patches/ai/{task}?project={own['id']}").status_code == 404
     auth.put(f"{url}/sharing", json={"visibility": "everyone"})
     assert f"ai-{task}" in _elements(auth)
+
+
+def test_the_owner_renames_and_recolors_a_class_in_one_project(auth):
+    project, other = _create(auth), _create(auth, name="Other")
+    auth.post(f"/api/projects/{project['id']}/open")
+    _annotate(auth, POINT)
+    url = f"/api/projects/{project['id']}/jobs/1"
+    body = {"name": " Glom ", "color": "#8b002e"}
+    edited = auth.patch(url, json=body).json()
+    assert (edited["name"], edited["color"]) == ("Glom", "#8b002e")
+    # A recolor alone keeps the name.
+    assert auth.patch(url, json={"color": "#00468b"}).json()["name"] == "Glom"
+    assert auth.get("/jobs").json()[0]["name"] == "Glom"
+    assert ",Glom,point," in auth.get("/annotations/export.csv").text
+    assert _elements(auth) == {"p1": [[5.0, 6.0]]}
+    # Other projects and the preset keep their own name and color.
+    [kept] = auth.get(f"/api/projects/{other['id']}").json()["jobs"]
+    assert (kept["name"], kept["color"]) == ("Glomerulus", "#e11d48")
+
+    # Saving the project settings keeps the new name.
+    jobs = auth.get(f"/api/projects/{project['id']}").json()["jobs"]
+    saved = auth.patch(f"/api/projects/{project['id']}", json={"jobs": jobs}).json()
+    assert saved["jobs"] == jobs
+
+    new = {"name": "Crescent", "color": "#0891b2", "kind": "histo"}
+    auth.post(f"/api/projects/{project['id']}/jobs", json=new)
+    assert auth.patch(url, json={"name": "crescent"}).status_code == 409
+    assert auth.patch(url, json={"name": "  "}).status_code == 400
+    assert auth.patch(url.replace("jobs/1", "jobs/2"), json=body).status_code == 404
+    assert auth.patch(url, json={"name": "Glomerulus", "color": "#e11d48"}).json() == kept
+
+    auth.put(f"/api/projects/{project['id']}/sharing", json={"visibility": "everyone"})
+    assert _user(auth, "bob").patch(url, json=body).status_code == 403
 
 
 def test_the_owner_adds_a_mask_class_from_the_editor(auth):

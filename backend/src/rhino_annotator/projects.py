@@ -56,6 +56,11 @@ class NewMask(BaseModel):
     kind: Literal["histo", "elmi"]
 
 
+class EditClass(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=64)
+    color: str | None = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}$")
+
+
 class ProjectIn(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=128)
     folders: list[str] | None = None
@@ -94,18 +99,18 @@ def _folder_json(folder_id: str) -> dict:
 
 def _jobs(db: Session, project_id: int) -> list[dict]:
     rows = db.execute(
-        select(Job, ProjectJob.color)
+        select(Job, ProjectJob.color, ProjectJob.name)
         .join(ProjectJob, ProjectJob.job_id == Job.id)
         .where(ProjectJob.project_id == project_id)
         .order_by(literal_column("project_jobs.rowid"))
     )
-    return [_job_json(job, color) for job, color in rows]
+    return [_job_json(job, color, name) for job, color, name in rows]
 
 
-def _job_json(job: Job, color: str | None = None) -> dict:
+def _job_json(job: Job, color: str | None = None, name: str | None = None) -> dict:
     return {
         "id": job.id,
-        "name": job.name,
+        "name": name or job.name,
         "color": color or job.color,
         "kind": job.kind,
         "mode": job.mode,
@@ -196,11 +201,18 @@ def _set_folders(db: Session, project: Project, folders: list[str]) -> None:
     db.add_all(ProjectFolder(project_id=project.id, folder_id=f) for f in folders)
 
 
+def _overrides(job: Job, color: str, name: str) -> tuple[str | None, str | None]:
+    return (
+        None if color.lower() == job.color.lower() else color,
+        None if not name or name == job.name else name,
+    )
+
+
 def _set_jobs(db: Session, project: Project, jobs: list[JobIn]) -> None:
     if not jobs:
         raise HTTPException(400, "Add at least one label class.")
-    # A recolor stays in this project: the class keeps its own color everywhere else.
-    colors: dict[int, str | None] = {}
+    # A recolor or rename stays in this project: the class keeps its own everywhere else.
+    own: dict[int, tuple[str | None, str | None]] = {}
     for j in jobs:
         if j.id is None:
             job = Job(name=j.name.strip(), color=j.color, kind=j.kind, mode=j.mode)
@@ -208,11 +220,11 @@ def _set_jobs(db: Session, project: Project, jobs: list[JobIn]) -> None:
             db.flush()
         elif not (job := db.get(Job, j.id)):
             raise HTTPException(404, "job not found")
-        colors.setdefault(job.id, None if j.color.lower() == job.color.lower() else j.color)
+        own.setdefault(job.id, _overrides(job, j.color, j.name.strip()))
     db.execute(delete(ProjectJob).where(ProjectJob.project_id == project.id))
     db.flush()
-    for job_id, color in colors.items():
-        db.add(ProjectJob(project_id=project.id, job_id=job_id, color=color))
+    for job_id, (color, name) in own.items():
+        db.add(ProjectJob(project_id=project.id, job_id=job_id, color=color, name=name))
         # One at a time so the insertion order (rowid) is the order shown.
         db.flush()
 
@@ -308,6 +320,32 @@ def add_mask_class(
     db.add(ProjectJob(project_id=project.id, job_id=job.id))
     db.commit()
     return _job_json(job)
+
+
+@router.patch("/api/projects/{project_id}/jobs/{job_id}")
+def edit_class(
+    project_id: int,
+    job_id: int,
+    body: EditClass,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    # From the editor: a class's name and color in this project.
+    project = _get(db, project_id, user, owner=True)
+    row = db.get(ProjectJob, (project.id, job_id))
+    if not row:
+        raise HTTPException(404, "job not found")
+    job = db.get(Job, job_id)
+    name = row.name or job.name if body.name is None else body.name.strip()
+    if not name:
+        raise HTTPException(400, "A class needs a name.")
+    for other in _jobs(db, project.id):
+        same = other["name"].lower() == name.lower() and other["kind"] == job.kind
+        if same and other["id"] != job_id and body.name is not None:
+            raise HTTPException(409, f"This project already has a class named {other['name']}.")
+    row.color, row.name = _overrides(job, body.color or row.color or job.color, name)
+    db.commit()
+    return _job_json(job, row.color, row.name)
 
 
 @router.put("/api/projects/{project_id}/sharing")

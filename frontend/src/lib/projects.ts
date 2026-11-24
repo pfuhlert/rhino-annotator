@@ -31,7 +31,7 @@ export function adaptLabels(
   return [...kept, ...added.filter((j) => !ids.has(j.id))];
 }
 
-// New label classes take the first of these their project does not use yet.
+// New label classes take the one of these farthest from every color their project uses.
 export const LABEL_COLORS = [
   "#e11d48",
   "#2563eb",
@@ -39,16 +39,40 @@ export const LABEL_COLORS = [
   "#d97706",
   "#7c3aed",
   "#0891b2",
-  "#db2777",
-  "#4f46e5",
-  "#ca8a04",
   "#78716c",
+  "#00ff00",
+  "#ff00ff",
+  "#4a1d00",
 ];
 
-export function nextColor(used: string[]) {
-  const taken = new Set(used.map((c) => c.toLowerCase()));
-  return LABEL_COLORS.find((c) => !taken.has(c)) ?? LABEL_COLORS[used.length % LABEL_COLORS.length];
+// OKLab, where distance follows how different two colors look.
+function oklab(hex: string): [number, number, number] {
+  const [r, g, b] = [1, 3, 5].map((i) => {
+    const c = parseInt(hex.slice(i, i + 2), 16) / 255;
+    return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  });
+  const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
+  const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
+  const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+  return [
+    0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s,
+    1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s,
+    0.0259040371 * l + 0.4072426305 * m - 0.646826849 * s,
+  ];
 }
+
+export function colorDistance(a: string, b: string) {
+  const [p, q] = [oklab(a), oklab(b)];
+  return Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]);
+}
+
+export function nextColor(used: string[]) {
+  const gap = (c: string) => Math.min(...used.map((u) => colorDistance(c, u)));
+  return LABEL_COLORS.reduce((best, c) => (gap(c) > gap(best) ? c : best));
+}
+
+// Black or white, whichever reads better on a class's color.
+export const textOn = (color: string) => (oklab(color)[0] > 0.7 ? "#000" : "#fff");
 
 // Girder paths read "/collection/ELMI/Glomeruli"; the collection prefix is noise in the UI.
 export function folderLabel(path: string) {
@@ -74,7 +98,7 @@ export function sharingLabel(project: Project) {
 
 // The picker offers the project's classes, plus the selected one when an old annotation from
 // another class is being edited.
-export function pickerJobs(jobs: ProjectJob[], selectedId: number | null): Job[] {
+export function pickerJobs(jobs: ProjectJob[], selectedId: number | null): ProjectJob[] {
   return jobs.filter((j) => j.in_project || j.id === selectedId);
 }
 

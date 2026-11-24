@@ -82,7 +82,7 @@ export default async function (page, state) {
     "GBM uses one whole-image embedding");
   await page.screenshot({ path: `${artifacts}/gbm.png` });
 
-  await select("job-switcher", "job-Mitochondria");
+  await select("job-switcher", "job-Erythrocytes");
   await select("tool-switcher", "tool-point");
   const mito = await click(CLICKS[0]);
   assert.equal(taskModel(mito.id), DEFAULT_MODEL);

@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { Job } from "../src/lib/api";
-import { adaptLabels, folderKinds, pickerJobs } from "../src/lib/projects";
+import {
+  LABEL_COLORS,
+  adaptLabels,
+  colorDistance,
+  folderKinds,
+  nextColor,
+  pickerJobs,
+} from "../src/lib/projects";
 
 test("the label picker offers project classes plus an old class being edited", () => {
   const jobs = [
@@ -72,4 +79,28 @@ test("label classes follow the kinds of images in the project's folders", () => 
     adaptLabels(edited, folderKinds(both), folderKinds(histo), presets).map((l) => l.name),
     ["Tubule", "GBM", "Deposit"],
   );
+});
+
+test("new classes stay apart from the colors already used", () => {
+  // The EM presets, then four classes added from the editor.
+  const used = [
+    "#ff8b00",
+    "#a200ff",
+    "#2e8b5d",
+    "#46e8ff",
+    "#2effa2",
+    "#ff172e",
+    "#8ba2ff",
+    "#00468b",
+    "#742e00",
+    "#8b0046",
+    "#e88bb9",
+    "#ffe800",
+  ];
+  for (let i = 0; i < 4; i++) {
+    const color = nextColor(used);
+    assert.ok(Math.min(...used.map((u) => colorDistance(u, color))) > 0.1, color);
+    used.push(color);
+  }
+  assert.equal(nextColor([]), LABEL_COLORS[0]);
 });

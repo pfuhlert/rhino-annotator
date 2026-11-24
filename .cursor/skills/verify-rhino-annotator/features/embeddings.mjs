@@ -76,7 +76,7 @@ export default async function (page, state) {
   assert.equal(initial.elements.length, 0);
   const jobs = await json("/jobs");
 
-  await select("job-switcher", "job-Podocyte");
+  await select("job-switcher", "job-Erythrocytes");
   await page.keyboard.press("l");
   const saved = page.waitForResponse((r) => /\/annotations(\?|$)/.test(r.url()) && r.request().method() === "PATCH");
   await move(150, 250);
@@ -111,14 +111,14 @@ export default async function (page, state) {
   await until(() => json("/patches/current"), (p) => p.id !== initial.id);
   await ready();
   const second = await json("/patches/current");
-  await select("job-switcher", "job-Nucleus");
+  await select("job-switcher", "job-Cell nuclei");
   await page.keyboard.press("p");
   await move(500, 780);
   const pointResponse = posted();
   await page.mouse.down();
   await page.mouse.up();
   const pointTask = await (await pointResponse).json();
-  assert.equal(pointTask.job_id, jobs.find((j) => j.name === "Nucleus").id);
+  assert.equal(pointTask.job_id, jobs.find((j) => j.name === "Cell nuclei").id);
   assert.ok(!pointTask.box);
   const pointPolygon = await complete(pointTask);
   await until(() => aiIdle(page), Boolean);

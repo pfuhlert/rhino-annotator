@@ -41,19 +41,36 @@ SEED_JOBS = (
     ("Vessel", "#059669"),
     ("Other", "#d97706"),
 )
+# Chosen to stay apart from each other as 35% fills on gray EM images, also when color-blind.
 ELMI_JOBS = (
-    ("GBM", "#e11d48"),
-    ("Podocyte", "#2563eb"),
-    ("Foot process", "#7c3aed"),
-    ("Endothelium", "#059669"),
-    ("Capillary lumen", "#0891b2"),
-    ("Mesangium", "#ca8a04"),
-    ("Electron dense deposit", "#ea580c"),
-    ("Nucleus", "#db2777"),
-    ("Mitochondria", "#4f46e5"),
-    ("Other tissue", "#78716c"),
-    ("Artifact", "#a3a3a3"),
+    ("GBM", "#ff8b00"),
+    ("Foot Processes", "#a200ff"),
+    ("Cell cytoplasm", "#2e8b5d"),
+    ("Capillary lumen, plasma", "#46e8ff"),
+    ("Empty background", "#2effa2"),
+    ("Erythrocytes", "#ff172e"),
+    ("Cell nuclei", "#8ba2ff"),
+    ("Urinary Space", "#00468b"),
+    ("Bowman's capsule", "#742e00"),
+    ("Electron Dense Deposits", "#8b0046"),
+    ("Mesangial matrix", "#e88bb9"),
+    ("Artifact", "#ffe800"),
 )
+# The EM classes of the previous list and their new names; None left the list.
+OLD_ELMI_JOBS = {
+    "GBM": "GBM",
+    "Podocyte": None,
+    "Foot process": "Foot Processes",
+    "Endothelium": None,
+    "Capillary lumen": "Capillary lumen, plasma",
+    "Mesangium": None,
+    "Electron dense deposit": "Electron Dense Deposits",
+    "Nucleus": "Cell nuclei",
+    "Mitochondria": None,
+    "Other / artifact": None,
+    "Other tissue": None,
+    "Artifact": "Artifact",
+}
 
 _engine: Engine | None = None
 _SessionLocal: sessionmaker | None = None
@@ -177,7 +194,7 @@ def _migrate(engine: Engine) -> None:
         before_projects = "last_project_id" not in _columns(conn, "users")
         _add_columns(conn, "users", {"last_project_id": "INTEGER"})
         _add_columns(conn, "patch_visits", {"project_id": "INTEGER"})
-        _add_columns(conn, "project_jobs", {"color": "VARCHAR(16)"})
+        _add_columns(conn, "project_jobs", {"color": "VARCHAR(16)", "name": "VARCHAR(64)"})
         _add_columns(conn, "project_opens", {"stain_filter": "TEXT", "mag_filter": "TEXT"})
         _add_columns(conn, "users", {"split_histo": "BOOLEAN NOT NULL DEFAULT 1"})
         _add_columns(conn, "jobs", {"mode": "VARCHAR(8) NOT NULL DEFAULT 'mask'"})
@@ -189,9 +206,9 @@ def _migrate(engine: Engine) -> None:
                 text("UPDATE jobs SET kind = 'elmi' WHERE name IN :names").bindparams(
                     bindparam("names", expanding=True)
                 ),
-                # "Other / artifact" was split into "Other tissue" and "Artifact".
-                {"names": [name for name, _ in ELMI_JOBS] + ["Other / artifact"]},
+                {"names": [*dict(ELMI_JOBS), *OLD_ELMI_JOBS]},
             )
+        _revise_elmi_jobs(conn)
         user_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(users)"))}
         if "current_visit_id" not in user_cols:
             conn.execute(text("ALTER TABLE users ADD COLUMN current_visit_id INTEGER"))
@@ -249,6 +266,50 @@ def _migrate(engine: Engine) -> None:
         _drop_crops(conn)
         # Replaced by folder_images before release.
         conn.execute(text("DROP TABLE IF EXISTS project_images"))
+
+
+def _revise_elmi_jobs(conn: Connection) -> None:
+    if conn.scalar(text("PRAGMA user_version")) >= 1:
+        return
+    conn.execute(text("PRAGMA user_version = 1"))
+    query = select(Job.name, func.min(Job.id)).where(Job.kind == "elmi", Job.mode == "mask")
+    old = dict(conn.execute(query.where(Job.name.in_(OLD_ELMI_JOBS)).group_by(Job.name)).all())
+    colors = dict(ELMI_JOBS)
+    names = set(conn.scalars(select(Job.name)))
+    # A renamed class keeps its id, and so its annotations.
+    for name, job_id in old.items():
+        new = OLD_ELMI_JOBS[name]
+        if new and (new == name or new not in names):
+            conn.execute(update(Job).where(Job.id == job_id).values(name=new, color=colors[new]))
+    _seed_presets(conn)
+    presets = preset_ids(conn)
+    preset_colors = {presets[name]: color for name, color in ELMI_JOBS}
+    job_colors = dict(conn.execute(select(Job.id, Job.color)).all())
+    # Only projects still holding the whole old list move to the new one; others chose theirs.
+    core = OLD_ELMI_JOBS.keys() - {"Other / artifact", "Other tissue", "Artifact"}
+    if not core <= old.keys():
+        return
+    core_ids = {old[name] for name in core}
+    for project_id in conn.scalars(select(Project.id)).all():
+        table = ProjectJob.__table__
+        rows = conn.execute(
+            select(ProjectJob.job_id, ProjectJob.color)
+            .where(ProjectJob.project_id == project_id)
+            .order_by(text("rowid"))
+        ).all()
+        ids = [job_id for job_id, _ in rows]
+        if not core_ids <= set(ids):
+            continue
+        replaced = {*old.values(), *preset_colors}
+        at = next(i for i, job_id in enumerate(ids) if job_id in replaced)
+        kept = [(j, c) for j, c in rows if j not in replaced]
+        new = [(j, c if c != job_colors[j] else None) for j, c in preset_colors.items()]
+        conn.execute(table.delete().where(table.c.project_id == project_id))
+        for job_id, color in kept[:at] + new + kept[at:]:
+            # One at a time so the insertion order (rowid) is the order shown.
+            conn.execute(
+                insert(ProjectJob).values(project_id=project_id, job_id=job_id, color=color)
+            )
 
 
 def _drop_crops(conn: Connection) -> None:

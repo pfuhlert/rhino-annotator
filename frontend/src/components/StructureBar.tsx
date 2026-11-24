@@ -1,9 +1,10 @@
 "use client";
 
 import { cn } from "cn";
-import { CheckCheckIcon, PlusIcon, RotateCcwIcon } from "lucide-react";
-import { useState } from "react";
-import type { Job } from "@/lib/api";
+import { CheckCheckIcon, PencilIcon, PlusIcon, RotateCcwIcon } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import type { ProjectJob } from "@/lib/api";
+import { textOn } from "@/lib/projects";
 import { type EditorMode, structureKeyLabel } from "@/lib/structures";
 
 const pill =
@@ -21,11 +22,12 @@ export default function StructureBar({
   onComplete,
   onReset,
   onAdd,
+  onEdit,
 }: {
   // null when the project has only one kind of class.
   mode: EditorMode | null;
   onMode: (mode: EditorMode) => void;
-  jobs: Job[];
+  jobs: ProjectJob[];
   jobId: number | null;
   onPick: (id: number) => void;
   // Whether the open image's masks are finished.
@@ -34,7 +36,10 @@ export default function StructureBar({
   onReset: () => void;
   // Adds a mask class by name; absent when this user cannot change the project.
   onAdd?: (name: string) => void;
+  // Renames or recolors a class in this project; absent likewise.
+  onEdit?: (id: number, change: { name: string; color: string }) => void;
 }) {
+  const [editing, setEditing] = useState<number | null>(null);
   const [naming, setNaming] = useState<string | null>(null);
   function add() {
     const name = naming?.trim();
@@ -80,28 +85,55 @@ export default function StructureBar({
           {jobs.map((job, i) => {
             const key = structureKeyLabel(i);
             const active = job.id === jobId;
+            if (onEdit && editing === job.id)
+              return (
+                <StructureEditor
+                  key={job.id}
+                  job={job}
+                  onDone={(change) => {
+                    setEditing(null);
+                    if (change) onEdit(job.id, change);
+                  }}
+                />
+              );
             return (
-              <button
+              <div
                 key={job.id}
-                type="button"
-                data-testid={`structure-${job.name}`}
-                aria-pressed={active}
-                title={key ? `${job.name} (${key})` : job.name}
                 className={cn(
-                  "flex items-center gap-2 rounded-xl py-1 pr-3 pl-1.5 text-left hover:bg-black/5 dark:hover:bg-white/10",
+                  "group flex items-center rounded-xl hover:bg-black/5 dark:hover:bg-white/10",
                   active && "bg-black/10 font-medium dark:bg-white/15",
                 )}
                 style={active ? { boxShadow: `inset 0 0 0 2px ${job.color}` } : undefined}
-                onClick={() => onPick(job.id)}
               >
-                <span
-                  className="flex size-5 items-center justify-center rounded-full text-[11px] font-semibold text-white tabular-nums"
-                  style={{ background: job.color }}
+                <button
+                  type="button"
+                  data-testid={`structure-${job.name}`}
+                  aria-pressed={active}
+                  title={key ? `${job.name} (${key})` : job.name}
+                  className="flex grow items-center gap-2 py-1 pr-2 pl-1.5 text-left"
+                  onClick={() => onPick(job.id)}
                 >
-                  {key ?? ""}
-                </span>
-                {job.name}
-              </button>
+                  <span
+                    className="flex size-5 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold tabular-nums"
+                    style={{ background: job.color, color: textOn(job.color) }}
+                  >
+                    {key ?? ""}
+                  </span>
+                  {job.name}
+                </button>
+                {onEdit && job.in_project && (
+                  <button
+                    type="button"
+                    data-testid={`edit-structure-${job.name}`}
+                    aria-label={`Edit ${job.name}`}
+                    title="Change name or color"
+                    className="mr-1.5 rounded-full p-1 text-neutral-400 opacity-0 group-hover:opacity-100 hover:text-neutral-800 focus-visible:opacity-100 dark:hover:text-neutral-100"
+                    onClick={() => setEditing(job.id)}
+                  >
+                    <PencilIcon className="size-3" />
+                  </button>
+                )}
+              </div>
             );
           })}
           {onAdd &&
@@ -161,5 +193,74 @@ export default function StructureBar({
         </div>
       )}
     </>
+  );
+}
+
+function StructureEditor({
+  job,
+  onDone,
+}: {
+  job: ProjectJob;
+  // null leaves the class as it was.
+  onDone: (change: { name: string; color: string } | null) => void;
+}) {
+  const [name, setName] = useState(job.name);
+  const [color, setColor] = useState(job.color);
+  const root = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    // The canvas keeps the focus where it was, so a press there would not end the edit.
+    const leave = (e: PointerEvent) => {
+      const active = document.activeElement;
+      const target = e.target as Element;
+      if (root.current?.contains(target) || !root.current?.contains(active)) return;
+      // Nor should that press draw.
+      if (target.closest("[data-testid=patch-canvas]")) e.stopPropagation();
+      (active as HTMLElement).blur();
+    };
+    window.addEventListener("pointerdown", leave, true);
+    return () => window.removeEventListener("pointerdown", leave, true);
+  }, []);
+  function save() {
+    const next = name.trim();
+    const changed = next && (next !== job.name || color !== job.color);
+    onDone(changed ? { name: next, color } : null);
+  }
+  return (
+    <div
+      ref={root}
+      data-testid="structure-editor"
+      className="flex items-center gap-2 py-0.5 pr-1 pl-1.5"
+      onBlur={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget)) save();
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") save();
+        if (e.key === "Escape") onDone(null);
+      }}
+    >
+      <label
+        className="relative size-5 shrink-0 cursor-pointer rounded-full"
+        style={{ background: color }}
+        title="Change color"
+      >
+        <input
+          type="color"
+          data-testid="structure-color"
+          aria-label={`${job.name} color`}
+          className="absolute inset-0 cursor-pointer opacity-0"
+          value={color}
+          onChange={(e) => setColor(e.target.value)}
+        />
+      </label>
+      <input
+        data-testid="structure-name"
+        aria-label={`${job.name} name`}
+        autoFocus
+        maxLength={64}
+        className="w-40 rounded-lg border border-black/15 bg-white px-2 py-1 text-sm outline-none focus:border-black/40 dark:border-white/15 dark:bg-neutral-800"
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+      />
+    </div>
   );
 }

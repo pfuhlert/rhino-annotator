@@ -15,7 +15,16 @@ from sqlalchemy.orm import Session
 from rhino_annotator.auth import current_user
 from rhino_annotator.db import among, get_db
 from rhino_annotator.girder import image_nm_per_px, item_folder_path
-from rhino_annotator.models import Annotation, Completion, Job, Project, Score, Slide, User
+from rhino_annotator.models import (
+    Annotation,
+    Completion,
+    Job,
+    Project,
+    ProjectJob,
+    Score,
+    Slide,
+    User,
+)
 from rhino_annotator.projects import indexed_ids
 from rhino_annotator.scope import current_project, layer_id
 
@@ -87,8 +96,12 @@ def measures(geometry: shapely.Geometry, um_per_px: float | None) -> dict:
     }
 
 
-def rows(db: Session, layer: int, item_ids: list[str] | None, zone: tzinfo):
+def rows(db: Session, project: Project, layer: int, item_ids: list[str] | None, zone: tzinfo):
     jobs = dict(db.execute(select(Job.id, Job.name)).all())
+    renamed = select(ProjectJob.job_id, ProjectJob.name).where(
+        ProjectJob.project_id == project.id, ProjectJob.name.is_not(None)
+    )
+    jobs.update(db.execute(renamed).all())
     users = dict(db.execute(select(User.id, User.username)).all())
     query = select(Annotation).where(Annotation.user_id == layer)
     if item_ids is not None:
@@ -175,7 +188,7 @@ def export_csv(
     out = io.StringIO()
     writer = csv.DictWriter(out, COLUMNS, restval="")
     writer.writeheader()
-    writer.writerows(rows(db, layer_id(project, user), indexed_ids(db, project), zone))
+    writer.writerows(rows(db, project, layer_id(project, user), indexed_ids(db, project), zone))
     stamp = datetime.now(zone).strftime("%Y-%m-%d_%H-%M-%S")
     filename = f"annotations-{project.name}-{user.username}-{stamp}.csv"
     return Response(

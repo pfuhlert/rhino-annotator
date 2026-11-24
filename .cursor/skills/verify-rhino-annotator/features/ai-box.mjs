@@ -70,9 +70,9 @@ export default async function (page, state) {
   await until(() => json("/patches/current"), (p) => p.folder_id === "elmi");
   await ready();
   await page.getByTestId("sidebar-trigger").click();
-  await select("job-switcher", "job-Nucleus");
+  await select("job-switcher", "job-Cell nuclei");
   const jobs = await json("/jobs");
-  const job = jobs.find((j) => j.name === "Nucleus");
+  const job = jobs.find((j) => j.name === "Cell nuclei");
   await select("tool-switcher", "tool-ai-box");
   assert.equal(await page.getByTestId("tool-switcher").innerText(), "AI Box");
   await move(250, 500);
@@ -103,7 +103,7 @@ export default async function (page, state) {
   assert.deepEqual(task.box, [290, 550, 480, 880]);
   await shot("pending");
   await writeFile(`${artifacts}-pending.aria.txt`, await page.locator("body").ariaSnapshot());
-  await select("job-switcher", "job-Podocyte");
+  await select("job-switcher", "job-Erythrocytes");
   await page.keyboard.press("r");
   resume();
   const completed = await until(() => json("/patches/current"), (p) => p.elements.some((el) => el.id === `ai-${task.id}`));

@@ -210,6 +210,11 @@ export const api = {
   jobs: () => req<ProjectJob[]>("/jobs"),
   addMaskClass: (projectId: number, body: { name: string; color: string; kind: Kind }) =>
     req<Job>(`/api/projects/${projectId}/jobs`, { method: "POST", body: JSON.stringify(body) }),
+  editClass: (projectId: number, jobId: number, body: { name: string; color: string }) =>
+    req<Job>(`/api/projects/${projectId}/jobs/${jobId}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
   jobPresets: () => req<Record<Kind, Job[]>>("/jobs/presets"),
   // Scoped: limited to the current project's folders, as in the sidebar.
   folders: (parent_id?: string | null, scoped = false) => {

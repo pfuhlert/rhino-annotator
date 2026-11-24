@@ -176,6 +176,8 @@ class ProjectJob(Base):
     job_id: Mapped[int] = mapped_column(ForeignKey("jobs.id"), primary_key=True)
     # The class's color in this project, when it differs from the class's own.
     color: Mapped[str | None] = mapped_column(String(16))
+    # Likewise for its name.
+    name: Mapped[str | None] = mapped_column(String(64))
 
 
 class ProjectMember(Base):
